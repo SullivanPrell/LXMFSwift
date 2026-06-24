@@ -1,0 +1,14 @@
+LXMFSwift
+Copyright (c) 2026 LXMFSwift contributors
+
+This product is a Swift port of LXMF (Lightweight Extensible Message Format)
+and is a derivative work of the original Python implementation:
+
+  LXMF — Copyright (c) Mark Qvist
+  https://github.com/markqvist/LXMF
+
+It builds on ReticulumSwift, a port of the Reticulum Network Stack
+(https://github.com/markqvist/Reticulum), also by Mark Qvist.
+
+LXMFSwift is distributed under the Reticulum License (see LICENSE), the same
+license used by the upstream projects.
