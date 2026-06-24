@@ -5,8 +5,8 @@ round-trip with the reference implementation (<https://github.com/markqvist/LXMF
 
 ## Ground rules
 
-- **Test-driven**: failing test first, implement to green, commit. Zero
-  regressions — `swift test` must stay at 398/0.
+- **Test-driven**: failing test first, implement to green, commit. The full
+  `swift test` suite must stay green (no regressions).
 - **Wire format is checked against Python** captured bytes where possible.
 
 ## Setup

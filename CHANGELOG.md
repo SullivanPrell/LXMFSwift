@@ -21,4 +21,4 @@ Format), wire-compatible with the Python reference (LXMF 0.9.9).
 - **Propagation node** — full propagation-node server (peering, sync, offer/get
   protocol) and client-side propagation-node sync.
 
-398 unit tests, 0 failures. Built on ReticulumSwift 1.0.0.
+Covered by 398 unit tests (~77% line coverage). Built on ReticulumSwift 1.0.0.

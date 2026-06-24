@@ -7,7 +7,7 @@ LXMF node interoperates with Python LXMF nodes.
 ## Build & Test
 
 ```bash
-swift test                          # 343 tests, 0 failures
+swift test                          # runs the full test suite
 swift test --filter <SuiteName>
 
 # If you see SwiftShims module cache errors:
@@ -40,9 +40,10 @@ LXMF/LXStamper.py   ← Stamp PoW
 LXMF/LXMF.py        ← Protocol constants
 ```
 
-## Current Parity State
+## Current State
 
-**All Tasks 12–23, 39–40 complete. 343 tests, 0 failures (2026-05-26).**
+**Full LXMF client + propagation-node server, wire-compatible with Python LXMF
+0.9.9. ~77% line coverage across 398 tests.**
 
 ### LXMessage
 

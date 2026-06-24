@@ -6,7 +6,8 @@ implementation.
 
 [![Platforms](https://img.shields.io/badge/platforms-iOS%2016%2B%20%7C%20macOS%2013%2B-blue)](#requirements)
 [![Swift](https://img.shields.io/badge/Swift-5.9-orange)](https://swift.org)
-[![Tests](https://img.shields.io/badge/tests-398%20passing-brightgreen)](#testing)
+[![CI](https://github.com/SullivanPrell/LXMFSwift/actions/workflows/ci.yml/badge.svg)](https://github.com/SullivanPrell/LXMFSwift/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-77%25-green)](#testing)
 [![License](https://img.shields.io/badge/license-Reticulum-lightgrey)](LICENSE)
 
 LXMF is the messaging layer of the Reticulum ecosystem — the format behind apps
@@ -23,8 +24,9 @@ This is part of the [ReticulumSwift stack](https://github.com/SullivanPrell/Reti
 
 ## Status
 
-**At parity with Python LXMF 0.9.9** — full client *and* propagation-node server.
-**398 unit tests, 0 failures.**
+LXMFSwift implements the full LXMF 0.9.9 message format and router — both a
+client and a propagation-node server — and is wire-compatible with the Python
+reference. Covered by 398 unit tests (~77% line coverage).
 
 - LXMessage: wire-compatible pack/unpack, packed-container files, URI, QR, compression.
 - Stamps & tickets: proof-of-work stamps, ticket stamps, cost enforcement.
