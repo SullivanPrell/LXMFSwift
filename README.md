@@ -1,5 +1,12 @@
 # LXMFSwift
 
+> **Reticulum and LXMF are the work of [Mark Qvist](https://github.com/markqvist).** This is an
+> independent, community Swift implementation of LXMF — **not an official Reticulum project**.
+> The canonical project and reference (Python) implementation live at
+> **[github.com/markqvist/LXMF](https://github.com/markqvist/LXMF)**, part of the broader
+> **[Reticulum](https://github.com/markqvist/Reticulum)** network created by Mark; please look
+> there first to understand the protocol itself.
+
 A Swift port of [LXMF](https://github.com/markqvist/LXMF) — the **Lightweight
 Extensible Message Format** — wire-compatible with the Python reference
 implementation.
