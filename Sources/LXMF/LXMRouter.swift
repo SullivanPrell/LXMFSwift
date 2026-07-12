@@ -206,7 +206,14 @@ public final class LXMRouter {
     public var enforceRatchets: Bool = false
 
     /// Root storage path for LXMF data (storagepath/lxmf).
-    public var storagePath: String? = nil
+    ///
+    /// Setting this loads any persisted client state (locally-delivered transient
+    /// ids, outbound stamp costs, available tickets) from disk, mirroring Python
+    /// `LXMRouter.__init__`, which reads these files at startup. Subsequent
+    /// mutations write them back atomically.
+    public var storagePath: String? = nil {
+        didSet { if storagePath != nil { loadPersistedClientState() } }
+    }
 
     /// Path to the message store directory (storagePath/messagestore).
     public var messagePath: String? = nil
@@ -551,8 +558,10 @@ public final class LXMRouter {
     public func rememberTicket(destinationHash: Data,
                                expiry: TimeInterval,
                                ticket: Data) {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
         outboundTickets[destinationHash] = (expiry: expiry, ticket: ticket)
+        lock.unlock()
+        saveAvailableTickets()   // persist across restarts
     }
 
     /// Return a valid outbound ticket for `destinationHash`, or `nil` if none exists
@@ -587,19 +596,24 @@ public final class LXMRouter {
     public func generateTicket(destinationHash: Data,
                                expiry: TimeInterval = LXMessage.ticketExpiry)
         -> (expiry: TimeInterval, ticket: Data)? {
-        lock.lock(); defer { lock.unlock() }
+        // Note: manual unlock (not `defer`) so a new ticket can be persisted
+        // outside the lock — `NSLock` is not reentrant and `saveAvailableTickets`
+        // reacquires it.
+        lock.lock()
         let now = Date().timeIntervalSince1970
 
         // Respect the minimum interval between ticket deliveries.
         if let lastDelivery = lastDeliveries[destinationHash],
-           (now - lastDelivery) < LXMessage.ticketInterval { return nil }
+           (now - lastDelivery) < LXMessage.ticketInterval {
+            lock.unlock(); return nil
+        }
 
         // Reuse an existing inbound ticket if it has enough validity remaining.
         if let existing = inboundTickets_[destinationHash] {
             for (ticket, ticketExpiry) in existing {
                 let validityLeft = ticketExpiry - now
                 if validityLeft > LXMessage.ticketRenew {
-                    return (expiry: ticketExpiry, ticket: ticket)
+                    lock.unlock(); return (expiry: ticketExpiry, ticket: ticket)
                 }
             }
         }
@@ -615,6 +629,8 @@ public final class LXMRouter {
             inboundTickets_[destinationHash] = [:]
         }
         inboundTickets_[destinationHash]![newTicket] = newExpiry
+        lock.unlock()
+        saveAvailableTickets()   // persist the newly issued ticket across restarts
         return (expiry: newExpiry, ticket: newTicket)
     }
 
@@ -700,8 +716,10 @@ public final class LXMRouter {
 
     /// Store outbound stamp cost learned from an announce or path response.
     public func setOutboundStampCost(destinationHash: Data, stampCost: Int) {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
         outboundStampCosts[destinationHash] = stampCost
+        lock.unlock()
+        saveOutboundStampCosts()   // persist across restarts
     }
 
     // MARK: - Priority list API
@@ -1343,6 +1361,8 @@ public final class LXMRouter {
             lock.lock(); locallyDeliveredTransientIDs.insert(transientID); lock.unlock()
             deliverInboundResource(destHash + plaintext)
         }
+        // Persist the updated delivered-id set once per sync batch (not per id).
+        saveLocallyDeliveredTransientIDs()
 
         // Confirm receipt — propagation node deletes confirmed messages
         if !haves.isEmpty {
@@ -1564,6 +1584,7 @@ public final class LXMRouter {
         if let tid = msg.hash {
             if hasMessage(transientID: tid) { return false }
             lock.lock(); locallyDeliveredTransientIDs.insert(tid); lock.unlock()
+            saveLocallyDeliveredTransientIDs()   // persist across restarts
         }
 
         // 5. Deliver to the application.
@@ -2149,6 +2170,141 @@ public final class LXMRouter {
         let data = MsgPack.encode(.map(pairs))
         // Atomic write so a crash can't corrupt node_stats. Python (LXMF 1.0.2).
         try? data.write(to: URL(fileURLWithPath: sp + "/node_stats"), options: .atomic)
+    }
+
+    // MARK: - Client state persistence
+    //
+    // Mirrors Python LXMRouter, which persists these across restarts under
+    // storagepath. The Swift structures differ (e.g. a Set rather than a
+    // timestamped dict), so the on-disk encoding is Swift-native msgpack rather
+    // than byte-compatible with Python's files — the goal is restart durability,
+    // and these files are always local to a single node. All writes are atomic.
+
+    /// Load all persisted client state. Called automatically when `storagePath`
+    /// is set. Safe to call repeatedly; missing/corrupt files are ignored.
+    public func loadPersistedClientState() {
+        loadLocallyDeliveredTransientIDs()
+        loadOutboundStampCosts()
+        loadAvailableTickets()
+    }
+
+    /// Persist the set of transient ids we've already delivered locally, so a
+    /// restart doesn't re-deliver duplicates. Python: `local_deliveries`.
+    public func saveLocallyDeliveredTransientIDs() {
+        guard let sp = storagePath else { return }
+        lock.lock(); let snapshot = locallyDeliveredTransientIDs; lock.unlock()
+        let value = MsgPack.Value.array(snapshot.map { .bytes($0) })
+        try? MsgPack.encode(value).write(
+            to: URL(fileURLWithPath: sp + "/local_deliveries"), options: .atomic)
+    }
+
+    private func loadLocallyDeliveredTransientIDs() {
+        guard let sp = storagePath,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: sp + "/local_deliveries")),
+              case .array(let items) = (try? MsgPack.decode(data)) ?? .nil else { return }
+        var loaded: Set<Data> = []
+        for item in items { if case .bytes(let b) = item { loaded.insert(b) } }
+        lock.lock(); locallyDeliveredTransientIDs = loaded; lock.unlock()
+    }
+
+    /// Persist learned outbound stamp costs, so they survive a restart.
+    /// Python: `outbound_stamp_costs`.
+    public func saveOutboundStampCosts() {
+        guard let sp = storagePath else { return }
+        lock.lock(); let snapshot = outboundStampCosts; lock.unlock()
+        let pairs = snapshot.map { (MsgPack.Value.bytes($0.key), MsgPack.Value.int(Int64($0.value))) }
+        try? MsgPack.encode(.map(pairs)).write(
+            to: URL(fileURLWithPath: sp + "/outbound_stamp_costs"), options: .atomic)
+    }
+
+    private func loadOutboundStampCosts() {
+        guard let sp = storagePath,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: sp + "/outbound_stamp_costs")),
+              case .map(let pairs) = (try? MsgPack.decode(data)) ?? .nil else { return }
+        var loaded: [Data: Int] = [:]
+        for (k, v) in pairs {
+            guard case .bytes(let key) = k else { continue }
+            switch v {
+            case .int(let n):  loaded[key] = Int(n)
+            case .uint(let n): loaded[key] = Int(n)
+            default: break
+            }
+        }
+        lock.lock(); outboundStampCosts = loaded; lock.unlock()
+    }
+
+    /// Persist available inbound/outbound tickets and last-delivery timestamps.
+    /// Python: `available_tickets` (`{outbound, inbound, last_deliveries}`).
+    public func saveAvailableTickets() {
+        guard let sp = storagePath else { return }
+        lock.lock()
+        let ob = outboundTickets; let ib = inboundTickets_; let ld = lastDeliveries
+        lock.unlock()
+        // outbound: { dest: [expiry, ticket] }
+        let obValue = MsgPack.Value.map(ob.map { (dest, entry) in
+            (MsgPack.Value.bytes(dest), MsgPack.Value.array([.double(entry.expiry), .bytes(entry.ticket)]))
+        })
+        // inbound: { dest: { ticket: expiry } }
+        let ibValue = MsgPack.Value.map(ib.map { (dest, tickets) in
+            (MsgPack.Value.bytes(dest),
+             MsgPack.Value.map(tickets.map { (t, e) in (MsgPack.Value.bytes(t), MsgPack.Value.double(e)) }))
+        })
+        // last_deliveries: { dest: timestamp }
+        let ldValue = MsgPack.Value.map(ld.map { (dest, ts) in
+            (MsgPack.Value.bytes(dest), MsgPack.Value.double(ts))
+        })
+        let root = MsgPack.Value.map([
+            (.string("outbound"),        obValue),
+            (.string("inbound"),         ibValue),
+            (.string("last_deliveries"), ldValue),
+        ])
+        try? MsgPack.encode(root).write(
+            to: URL(fileURLWithPath: sp + "/available_tickets"), options: .atomic)
+    }
+
+    private func loadAvailableTickets() {
+        guard let sp = storagePath,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: sp + "/available_tickets")),
+              case .map(let sections) = (try? MsgPack.decode(data)) ?? .nil else { return }
+        var ob: [Data: (expiry: TimeInterval, ticket: Data)] = [:]
+        var ib: [Data: [Data: TimeInterval]] = [:]
+        var ld: [Data: TimeInterval] = [:]
+        func asDouble(_ v: MsgPack.Value) -> Double? {
+            switch v {
+            case .double(let d): return d
+            case .int(let n):    return Double(n)
+            case .uint(let n):   return Double(n)
+            default:             return nil
+            }
+        }
+        for (section, value) in sections {
+            guard case .string(let name) = section, case .map(let entries) = value else { continue }
+            switch name {
+            case "outbound":
+                for (k, v) in entries {
+                    guard case .bytes(let dest) = k, case .array(let arr) = v, arr.count == 2,
+                          let expiry = asDouble(arr[0]), case .bytes(let ticket) = arr[1] else { continue }
+                    ob[dest] = (expiry: expiry, ticket: ticket)
+                }
+            case "inbound":
+                for (k, v) in entries {
+                    guard case .bytes(let dest) = k, case .map(let tickets) = v else { continue }
+                    var m: [Data: TimeInterval] = [:]
+                    for (tk, te) in tickets {
+                        if case .bytes(let ticket) = tk, let e = asDouble(te) { m[ticket] = e }
+                    }
+                    ib[dest] = m
+                }
+            case "last_deliveries":
+                for (k, v) in entries {
+                    if case .bytes(let dest) = k, let ts = asDouble(v) { ld[dest] = ts }
+                }
+            default: break
+            }
+        }
+        lock.lock()
+        outboundTickets = ob; inboundTickets_ = ib; lastDeliveries = ld
+        lock.unlock()
     }
 
     // MARK: - Stamp value query helpers for peers
