@@ -2132,7 +2132,9 @@ public final class LXMRouter {
         guard let sp = storagePath else { return }
         let peerList = MsgPack.Value.array(peers.values.map { .bytes($0.toBytes()) })
         let data     = MsgPack.encode(peerList)
-        try? data.write(to: URL(fileURLWithPath: sp + "/peers"))
+        // Atomic write (temp file + rename) so a crash mid-write can't leave a
+        // truncated/corrupt peers file. Python (LXMF 1.0.2): write temp + os.replace.
+        try? data.write(to: URL(fileURLWithPath: sp + "/peers"), options: .atomic)
     }
 
     /// Persist node statistics to disk.
@@ -2145,7 +2147,8 @@ public final class LXMRouter {
             (.string("unpeered_propagation_rx_bytes"),        .int(Int64(unpeeredPropagationRxBytes))),
         ]
         let data = MsgPack.encode(.map(pairs))
-        try? data.write(to: URL(fileURLWithPath: sp + "/node_stats"))
+        // Atomic write so a crash can't corrupt node_stats. Python (LXMF 1.0.2).
+        try? data.write(to: URL(fileURLWithPath: sp + "/node_stats"), options: .atomic)
     }
 
     // MARK: - Stamp value query helpers for peers
