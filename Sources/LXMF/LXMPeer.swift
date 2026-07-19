@@ -293,7 +293,7 @@ public final class LXMPeer {
             for item in handledArr {
                 if case .bytes(let tid) = item {
                     let transientID = Data(tid)
-                    if router.propagationEntries[transientID] != nil {
+                    if router.peerEntryExists(transientID) {
                         peer.addHandledMessage(transientID)
                     }
                 }
@@ -303,7 +303,7 @@ public final class LXMPeer {
             for item in unhandledArr {
                 if case .bytes(let tid) = item {
                     let transientID = Data(tid)
-                    if router.propagationEntries[transientID] != nil {
+                    if router.peerEntryExists(transientID) {
                         peer.addUnhandledMessage(transientID)
                     }
                 }
@@ -363,9 +363,7 @@ public final class LXMPeer {
     /// Python: `LXMPeer.handled_messages` property.
     public var handledMessages: [Data] {
         guard let router else { return [] }
-        let result = router.propagationEntries.compactMap { (tid, entry) -> Data? in
-            entry.handledPeers.contains(destinationHash) ? tid : nil
-        }
+        let result = router.peerHandledTransientIDs(for: destinationHash)
         _hmCount = result.count
         _hmCountsSynced = true
         return result
@@ -375,9 +373,7 @@ public final class LXMPeer {
     /// Python: `LXMPeer.unhandled_messages` property.
     public var unhandledMessages: [Data] {
         guard let router else { return [] }
-        let result = router.propagationEntries.compactMap { (tid, entry) -> Data? in
-            entry.unhandledPeers.contains(destinationHash) ? tid : nil
-        }
+        let result = router.peerUnhandledTransientIDs(for: destinationHash)
         _umCount = result.count
         _umCountsSynced = true
         return result
@@ -406,9 +402,7 @@ public final class LXMPeer {
     /// Python: `LXMPeer.add_handled_message(transient_id)`.
     public func addHandledMessage(_ transientID: Data) {
         guard let router else { return }
-        guard router.propagationEntries[transientID] != nil else { return }
-        if !router.propagationEntries[transientID]!.handledPeers.contains(destinationHash) {
-            router.propagationEntries[transientID]!.handledPeers.append(destinationHash)
+        if router.peerAddHandled(transientID, destinationHash: destinationHash) {
             _hmCountsSynced = false
         }
     }
@@ -417,9 +411,7 @@ public final class LXMPeer {
     /// Python: `LXMPeer.add_unhandled_message(transient_id)`.
     public func addUnhandledMessage(_ transientID: Data) {
         guard let router else { return }
-        guard router.propagationEntries[transientID] != nil else { return }
-        if !router.propagationEntries[transientID]!.unhandledPeers.contains(destinationHash) {
-            router.propagationEntries[transientID]!.unhandledPeers.append(destinationHash)
+        if router.peerAddUnhandled(transientID, destinationHash: destinationHash) {
             _umCount += 1
         }
     }
@@ -428,18 +420,18 @@ public final class LXMPeer {
     /// Python: `LXMPeer.remove_handled_message(transient_id)`.
     public func removeHandledMessage(_ transientID: Data) {
         guard let router else { return }
-        guard router.propagationEntries[transientID] != nil else { return }
-        router.propagationEntries[transientID]!.handledPeers.removeAll { $0 == destinationHash }
-        _hmCountsSynced = false
+        if router.peerRemoveHandled(transientID, destinationHash: destinationHash) {
+            _hmCountsSynced = false
+        }
     }
 
     /// Remove message from the unhandled set.
     /// Python: `LXMPeer.remove_unhandled_message(transient_id)`.
     public func removeUnhandledMessage(_ transientID: Data) {
         guard let router else { return }
-        guard router.propagationEntries[transientID] != nil else { return }
-        router.propagationEntries[transientID]!.unhandledPeers.removeAll { $0 == destinationHash }
-        _umCountsSynced = false
+        if router.peerRemoveUnhandled(transientID, destinationHash: destinationHash) {
+            _umCountsSynced = false
+        }
     }
 
     // MARK: - Batched queue
@@ -549,7 +541,7 @@ public final class LXMPeer {
         var lowValueIDs: [Data] = []
 
         for tid in unhandledMessages {
-            if let entry = router.propagationEntries[tid] {
+            if let entry = router.peerEntry(tid) {
                 if entry.stampValue < minAcceptedCost {
                     lowValueIDs.append(tid)
                 } else {
