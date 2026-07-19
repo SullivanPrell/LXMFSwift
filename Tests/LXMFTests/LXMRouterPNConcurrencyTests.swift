@@ -6,7 +6,8 @@ import ReticulumSwift
 /// the 2026-07-19 deferred data-race pass (propagationEntries / peers /
 /// peerDistributionQueue / validatedPeerLinks / clientPropagationMessages* — plus
 /// LXMPeer's cross-object propagationEntries mutations routed through synchronized
-/// router accessors).
+/// router accessors) AND LXMPeer's OWN internal state (message queues + count caches +
+/// sync state machine), hardened in the follow-up per-peer-lock pass.
 ///
 /// The PN request handlers (handleOfferRequest / handleMessageGetRequest /
 /// handleInboundPropagationResource) run on RNS link-callback threads concurrently
@@ -15,11 +16,21 @@ import ReticulumSwift
 /// propagationEntries Dictionary was read-modify-written (including in-place
 /// force-unwrap value mutation from LXMPeer) with no lock — a crash under concurrency.
 ///
+/// The original test kept a SINGLE serialized "driver" (worker 0) for the peer-touching
+/// operations, because LXMPeer's own internal state (unhandledMessagesQueue /
+/// handledMessagesQueue, the _hmCount/_umCount caches, and the sync state machine) was
+/// not per-peer-locked. That constraint is now REMOVED: every worker drives
+/// flush/sync/addPeer/removePeer/savePeers concurrently, so two threads can be inside
+/// `peer.processQueues()` (both past the `!isEmpty` guard → `removeLast` on an empty
+/// queue = crash) or `peer.sync()` / `peer.toBytes()` on the SAME peer object at once.
+/// The per-peer NSLock must make all of that race- and crash-free.
+///
 /// A lock-order inversion or reentrant self-deadlock (holding the router `lock` across
-/// a peer method that re-acquires it) would TIME OUT; a torn/duplicate-key Dictionary
-/// access would CRASH. Passing under ThreadSanitizer (`swift test
-/// -Xswiftc -sanitize=thread --filter LXMRouterPNConcurrencyTests`) proves neither
-/// happens on these paths.
+/// a peer method that re-acquires it, or holding a peer's lock across a router accessor
+/// that a second peer path re-enters) would TIME OUT; a torn/duplicate-key Dictionary
+/// access or empty-queue `removeLast` would CRASH; an unsynchronized field would be a
+/// TSan report. Passing under ThreadSanitizer (`swift test
+/// -Xswiftc -sanitize=thread --filter LXMRouterPNConcurrencyTests`) proves none happen.
 final class LXMRouterPNConcurrencyTests: XCTestCase {
 
     private var tempDir: String!
@@ -65,32 +76,31 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
         let workers = 8
         let iterations = 1500
 
-        // Threading model mirrors production: a SINGLE "driver" thread (worker 0) owns
-        // the peer-touching operations (flush/sync/addPeer/removePeer/savePeers — these
-        // mutate per-peer internal state, which is intentionally not per-peer-locked),
-        // while all other workers hammer the ROUTER PN collections via the request
-        // handlers + message store. This exercises the target of the fix: concurrent
-        // access to propagationEntries / peers / peerDistributionQueue /
-        // validatedPeerLinks / clientPropagationMessages* from the link-callback threads
-        // vs the driver.
+        // NO single-driver constraint: EVERY worker concurrently (a) drives a
+        // peer-touching operation — flush/sync/addPeer/removePeer/savePeers, which mutate
+        // per-peer internal state (queues + count caches + sync state machine) — AND
+        // (b) hammers the ROUTER PN collections via the request handlers + message store.
+        // Multiple workers therefore land inside the same peer object's
+        // processQueues()/sync()/toBytes() at once; only the per-peer lock keeps that
+        // from racing/crashing. The router-collection coverage of the original test is
+        // retained by (b).
         DispatchQueue.global().async {
             DispatchQueue.concurrentPerform(iterations: workers) { w in
                 for i in 0..<iterations {
                     let m = pool[(w &* 7 &+ i) % pool.count]
                     let tid = m.tid
-                    if w == 0 {
-                        // Serial driver: peer-touching operations.
-                        switch i % 5 {
-                        case 0: router.enqueueForPeerDistribution(transientID: tid); router.flushPeerDistributionQueue()
-                        case 1: router.syncPeers()
-                        case 2: router.addPeer(destinationHash: peerHashes[i % peerHashes.count])
-                        case 3: if i % 9 == 0 { router.removePeer(destinationHash: peerHashes[i % peerHashes.count]) }
-                        default: router.savePeers()
-                        }
-                        continue
+
+                    // (a) Peer-touching driver op — run by ALL workers (was worker-0 only).
+                    switch (w &+ i) % 5 {
+                    case 0: router.enqueueForPeerDistribution(transientID: tid); router.flushPeerDistributionQueue()
+                    case 1: router.syncPeers()
+                    case 2: router.addPeer(destinationHash: peerHashes[(w &+ i) % peerHashes.count])
+                    case 3: if (w &+ i) % 9 == 0 { router.removePeer(destinationHash: peerHashes[(w &+ i) % peerHashes.count]) }
+                    default: router.savePeers()
                     }
-                    // Link-callback / client threads: ROUTER-collection operations only.
-                    switch (w &+ i) % 8 {
+
+                    // (b) ROUTER-collection op — concurrent with every other worker's (a).
+                    switch (w &* 3 &+ i) % 8 {
                     case 0: router.addToMessageStore(lxmfData: m.lxmf, transientID: tid, stampValue: 5, stamp: m.stamp)
                     case 1: _ = router.ingestPropagatedLXM(lxmfData: m.lxmf, stampValue: 5, stamp: m.stamp)
                     case 2: _ = router.handleMessageGetRequest(
@@ -109,7 +119,7 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
             }
             done.fulfill()
         }
-        wait(for: [done], timeout: 90)
+        wait(for: [done], timeout: 120)
         _ = router.messageStorageSize()
     }
 }
