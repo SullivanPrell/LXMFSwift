@@ -211,6 +211,28 @@ public final class LXMPeer {
     private var _hmCountsSynced: Bool = false
     private var _umCountsSynced: Bool = false
 
+    // MARK: - Synchronization
+    //
+    // Guards this peer's OWN mutable internal state — the batched message queues
+    // (`handledMessagesQueue` / `unhandledMessagesQueue`), the count caches
+    // (`_hmCount` / `_umCount` / `_hmCountsSynced` / `_umCountsSynced`), and the sync
+    // state machine (`state` / `link` / `nextSyncAttempt` / `lastSyncAttempt` /
+    // `syncBackoff` / `currentlyTransferringMessages` / `lastOffer` / `alive` /
+    // `lastHeard` / `offered` / `outgoing` / `txBytes`). The router drives these from
+    // its PN methods (flush / sync / addPeer / savePeers) which — post the router-side
+    // hardening — run OUTSIDE the router lock, so two threads can enter the same peer's
+    // `processQueues()` / `sync()` / `toBytes()` concurrently.
+    //
+    // Discipline: `peerLock` only ever guards short, callout-free critical sections. It
+    // is NEVER held across a call into the router (the `peer*` accessors take the router
+    // lock) or across a link callout — such calls are made on snapshots taken under the
+    // lock, with results committed under the lock afterwards (snapshot-under-lock /
+    // act-outside / commit-under-lock). Consequently `peerLock` and the router `lock`
+    // are never held simultaneously in either direction, so no lock-order inversion is
+    // possible. `NSLock` is not reentrant, so no peer method holding `peerLock` may call
+    // another peer method that reacquires it.
+    private let peerLock = NSLock()
+
     // MARK: - Back-reference to router
 
     weak var router: LXMRouter?
@@ -322,17 +344,29 @@ public final class LXMPeer {
             pairs.append((.string(key), val))
         }
 
+        // Snapshot the lock-guarded scalars (concurrent sync()/resourceConcluded() may
+        // write them). `incoming`/`rxBytes` have no runtime writer, so they are read
+        // directly; `handledMessages`/`unhandledMessages` self-lock, so they run below.
+        peerLock.lock()
+        let sAlive           = alive
+        let sLastHeard       = lastHeard
+        let sLastSyncAttempt = lastSyncAttempt
+        let sOffered         = offered
+        let sOutgoing        = outgoing
+        let sTxBytes         = txBytes
+        peerLock.unlock()
+
         kv("destination_hash",       .bytes(destinationHash))
         kv("peering_timebase",       .double(peeringTimebase))
-        kv("alive",                  .bool(alive))
-        kv("last_heard",             .double(lastHeard))
+        kv("alive",                  .bool(sAlive))
+        kv("last_heard",             .double(sLastHeard))
         kv("sync_strategy",          .int(Int64(syncStrategy.rawValue)))
-        kv("last_sync_attempt",      .double(lastSyncAttempt))
-        kv("offered",                .int(Int64(offered)))
-        kv("outgoing",               .int(Int64(outgoing)))
+        kv("last_sync_attempt",      .double(sLastSyncAttempt))
+        kv("offered",                .int(Int64(sOffered)))
+        kv("outgoing",               .int(Int64(sOutgoing)))
         kv("incoming",               .int(Int64(incoming)))
         kv("rx_bytes",               .int(Int64(rxBytes)))
-        kv("tx_bytes",               .int(Int64(txBytes)))
+        kv("tx_bytes",               .int(Int64(sTxBytes)))
         kv("link_establishment_rate",.double(linkEstablishmentRate))
         kv("sync_transfer_rate",     .double(syncTransferRate))
 
@@ -363,9 +397,13 @@ public final class LXMPeer {
     /// Python: `LXMPeer.handled_messages` property.
     public var handledMessages: [Data] {
         guard let router else { return [] }
+        // Query the router WITHOUT `peerLock` (the accessor takes the router lock);
+        // then take `peerLock` only to refresh the cache.
         let result = router.peerHandledTransientIDs(for: destinationHash)
+        peerLock.lock()
         _hmCount = result.count
         _hmCountsSynced = true
+        peerLock.unlock()
         return result
     }
 
@@ -374,26 +412,33 @@ public final class LXMPeer {
     public var unhandledMessages: [Data] {
         guard let router else { return [] }
         let result = router.peerUnhandledTransientIDs(for: destinationHash)
+        peerLock.lock()
         _umCount = result.count
         _umCountsSynced = true
+        peerLock.unlock()
         return result
     }
 
     /// Cached handled message count (may be stale; refresh via `handledMessages`).
     public var handledMessageCount: Int {
-        if !_hmCountsSynced { _ = handledMessages }
+        peerLock.lock(); let synced = _hmCountsSynced; peerLock.unlock()
+        if !synced { _ = handledMessages }   // refreshes cache (self-locks)
+        peerLock.lock(); defer { peerLock.unlock() }
         return _hmCount
     }
 
     /// Cached unhandled message count (may be stale; refresh via `unhandledMessages`).
     public var unhandledMessageCount: Int {
-        if !_umCountsSynced { _ = unhandledMessages }
+        peerLock.lock(); let synced = _umCountsSynced; peerLock.unlock()
+        if !synced { _ = unhandledMessages }   // refreshes cache (self-locks)
+        peerLock.lock(); defer { peerLock.unlock() }
         return _umCount
     }
 
     /// Acceptance rate (outgoing / offered). 0.0 when offered == 0.
     public var acceptanceRate: Double {
-        offered == 0 ? 0.0 : Double(outgoing) / Double(offered)
+        peerLock.lock(); let o = offered, g = outgoing; peerLock.unlock()
+        return o == 0 ? 0.0 : Double(g) / Double(o)
     }
 
     // MARK: - Message tracking (direct mutations on propagation_entries)
@@ -402,8 +447,9 @@ public final class LXMPeer {
     /// Python: `LXMPeer.add_handled_message(transient_id)`.
     public func addHandledMessage(_ transientID: Data) {
         guard let router else { return }
+        // Router accessor first (takes the router lock); then `peerLock` for the cache.
         if router.peerAddHandled(transientID, destinationHash: destinationHash) {
-            _hmCountsSynced = false
+            peerLock.lock(); _hmCountsSynced = false; peerLock.unlock()
         }
     }
 
@@ -412,7 +458,7 @@ public final class LXMPeer {
     public func addUnhandledMessage(_ transientID: Data) {
         guard let router else { return }
         if router.peerAddUnhandled(transientID, destinationHash: destinationHash) {
-            _umCount += 1
+            peerLock.lock(); _umCount += 1; peerLock.unlock()
         }
     }
 
@@ -421,7 +467,7 @@ public final class LXMPeer {
     public func removeHandledMessage(_ transientID: Data) {
         guard let router else { return }
         if router.peerRemoveHandled(transientID, destinationHash: destinationHash) {
-            _hmCountsSynced = false
+            peerLock.lock(); _hmCountsSynced = false; peerLock.unlock()
         }
     }
 
@@ -430,7 +476,7 @@ public final class LXMPeer {
     public func removeUnhandledMessage(_ transientID: Data) {
         guard let router else { return }
         if router.peerRemoveUnhandled(transientID, destinationHash: destinationHash) {
-            _umCountsSynced = false
+            peerLock.lock(); _umCountsSynced = false; peerLock.unlock()
         }
     }
 
@@ -438,28 +484,46 @@ public final class LXMPeer {
 
     /// Queue a message as unhandled (processed later by `processQueues()`).
     public func queueUnhandledMessage(_ transientID: Data) {
-        unhandledMessagesQueue.append(transientID)
+        peerLock.lock(); unhandledMessagesQueue.append(transientID); peerLock.unlock()
     }
 
     /// Queue a message as handled (processed later by `processQueues()`).
     public func queueHandledMessage(_ transientID: Data) {
-        handledMessagesQueue.append(transientID)
+        peerLock.lock(); handledMessagesQueue.append(transientID); peerLock.unlock()
     }
 
     /// Flush the batched queues into the propagation_entries.
     /// Python: `LXMPeer.process_queues()`.
+    ///
+    /// Each queue element is popped under `peerLock` (an atomic check-and-`removeLast`,
+    /// so two concurrent flushes cooperatively drain the shared queue instead of both
+    /// passing an `!isEmpty` guard and then both calling `removeLast` on an emptied
+    /// queue — the crash this hardening fixes). The `handled`/`unhandled` membership
+    /// snapshots and the `add`/`remove` calls run OUTSIDE the lock (they self-lock /
+    /// route through the router), preserving the original behaviour: membership is
+    /// tested against the pre-drain snapshot.
     public func processQueues() {
-        guard !handledMessagesQueue.isEmpty || !unhandledMessagesQueue.isEmpty else { return }
-        let handled   = handledMessages    // refresh cache
+        peerLock.lock()
+        let hasWork = !handledMessagesQueue.isEmpty || !unhandledMessagesQueue.isEmpty
+        peerLock.unlock()
+        guard hasWork else { return }
+
+        let handled   = handledMessages    // refresh cache (self-locks)
         let unhandled = unhandledMessages
 
-        while !handledMessagesQueue.isEmpty {
+        while true {
+            peerLock.lock()
+            guard !handledMessagesQueue.isEmpty else { peerLock.unlock(); break }
             let tid = handledMessagesQueue.removeLast()
+            peerLock.unlock()
             if !handled.contains(tid) { addHandledMessage(tid) }
             if unhandled.contains(tid) { removeUnhandledMessage(tid) }
         }
-        while !unhandledMessagesQueue.isEmpty {
+        while true {
+            peerLock.lock()
+            guard !unhandledMessagesQueue.isEmpty else { peerLock.unlock(); break }
             let tid = unhandledMessagesQueue.removeLast()
+            peerLock.unlock()
             if !handled.contains(tid) && !unhandled.contains(tid) {
                 addUnhandledMessage(tid)
             }
@@ -468,7 +532,8 @@ public final class LXMPeer {
 
     /// Whether there are queued items awaiting processing.
     public var hasQueuedItems: Bool {
-        !handledMessagesQueue.isEmpty || !unhandledMessagesQueue.isEmpty
+        peerLock.lock(); defer { peerLock.unlock() }
+        return !handledMessagesQueue.isEmpty || !unhandledMessagesQueue.isEmpty
     }
 
     // MARK: - Sync
@@ -478,9 +543,9 @@ public final class LXMPeer {
     /// In production this would establish an RNS Link; here we expose
     /// the decision logic as testable state changes.
     public func sync() {
-        lastSyncAttempt = Date().timeIntervalSince1970
+        let now = Date().timeIntervalSince1970
 
-        let syncTimeReached = Date().timeIntervalSince1970 > nextSyncAttempt
+        // Announce-negotiated fields have no concurrent writer — read them outside the lock.
         let stampCostsKnown = propagationStampCost != nil
                            && propagationStampCostFlexibility != nil
                            && peeringCost != nil
@@ -489,38 +554,52 @@ public final class LXMPeer {
             return pk.value >= cost
         }()
 
+        peerLock.lock()
+        lastSyncAttempt = now
+        let syncTimeReached = now > nextSyncAttempt
         let syncChecks = syncTimeReached && stampCostsKnown && peeringKeyReady
-
         guard syncChecks else {
             // Postpone; if time has passed but last attempt > last_heard, mark not alive
-            if !syncTimeReached && lastSyncAttempt > lastHeard { alive = false }
+            if !syncTimeReached && now > lastHeard { alive = false }
+            peerLock.unlock()
             return
         }
+        peerLock.unlock()
 
+        // `unhandledMessageCount` self-locks (and routes through the router), so read it
+        // WITHOUT `peerLock` held. Guard order is preserved: unhandled>0, then
+        // currentlyTransferring==nil, then state==idle.
         guard unhandledMessageCount > 0 else { return }  // nothing to send
-        guard currentlyTransferringMessages == nil else { return }  // transfer in progress
-        guard state == .idle else { return }  // link already in progress
+
+        peerLock.lock()
+        guard currentlyTransferringMessages == nil else { peerLock.unlock(); return }  // transfer in progress
+        guard state == .idle else { peerLock.unlock(); return }  // link already in progress
 
         // In a real implementation this would open an RNS Link.
         // The state machine is tested via manual state injection.
         syncBackoff += LXMPeer.syncBackoffStep
-        nextSyncAttempt = Date().timeIntervalSince1970 + syncBackoff
+        nextSyncAttempt = now + syncBackoff
         state = .linkEstablishing
+        peerLock.unlock()
     }
 
     /// Called when the sync link has been established.
     /// Mirrors Python's `LXMPeer.link_established(link)`.
     public func linkEstablished(_ link: Link) {
+        peerLock.lock()
         self.link  = link
         self.state = .linkReady
         nextSyncAttempt = 0
+        peerLock.unlock()
     }
 
     /// Called when the sync link closes.
     /// Mirrors Python's `LXMPeer.link_closed(link)`.
     public func linkClosed(_ link: Link) {
+        peerLock.lock()
         self.link  = nil
         self.state = .idle
+        peerLock.unlock()
     }
 
     // MARK: - Offer/response flow
@@ -597,7 +676,13 @@ public final class LXMPeer {
     }
 
     public func processOfferResponse(_ response: MsgPack.Value) -> OfferResponse {
+        // Commit the state transition and snapshot `lastOffer` under the lock; the
+        // add/remove calls below self-lock (and route through the router), so they run
+        // OUTSIDE the lock against the snapshot.
+        peerLock.lock()
         state = .responseReceived
+        let offerSnapshot = lastOffer
+        peerLock.unlock()
 
         switch response {
         case .int(let code) where code == Int64(LXMPeerError.noIdentity.rawValue):
@@ -608,7 +693,7 @@ public final class LXMPeer {
             return .error(.throttled)
         case .bool(false):
             // Peer has all our offered messages
-            for tid in lastOffer {
+            for tid in offerSnapshot {
                 addHandledMessage(tid)
                 removeUnhandledMessage(tid)
             }
@@ -622,7 +707,7 @@ public final class LXMPeer {
                 if case .bytes(let b) = v { return Data(b) }
                 return nil
             }
-            for tid in lastOffer where !wantedIDs.contains(tid) {
+            for tid in offerSnapshot where !wantedIDs.contains(tid) {
                 addHandledMessage(tid)
                 removeUnhandledMessage(tid)
             }
@@ -635,25 +720,39 @@ public final class LXMPeer {
     /// Called when a resource transfer to this peer completes.
     /// Mirrors Python's `LXMPeer.resource_concluded(resource)`.
     public func resourceConcluded(success: Bool, dataSizeBytes: Int) {
+        // Snapshot the state the callouts need under the lock; run the router
+        // add/remove calls, the link teardown, and the optional re-sync OUTSIDE the lock
+        // (they self-lock / re-enter linkClosed / reacquire peerLock via sync()); then
+        // commit the counter/flag updates and the state resets under the lock.
+        peerLock.lock()
+        let transferring   = currentlyTransferringMessages ?? []
+        let offerCount     = lastOffer.count
+        let linkToTeardown = link
+        peerLock.unlock()
+
         if success {
-            for tid in currentlyTransferringMessages ?? [] {
+            for tid in transferring {
                 addHandledMessage(tid)
                 removeUnhandledMessage(tid)
             }
+        }
 
-            offered  += lastOffer.count
-            outgoing += (currentlyTransferringMessages?.count ?? 0)
+        if let l = linkToTeardown { try? l.teardown() }   // callout (may re-enter linkClosed)
+
+        peerLock.lock()
+        if success {
+            offered  += offerCount
+            outgoing += transferring.count
             txBytes  += dataSizeBytes
 
             alive      = true
             lastHeard  = Date().timeIntervalSince1970
             syncBackoff = 0
         }
-
-        if let l = link { try? l.teardown() }
         link       = nil
         state      = .idle
         currentlyTransferringMessages = nil
+        peerLock.unlock()
 
         if success, syncStrategy == .persistent, unhandledMessageCount > 0 {
             sync()
