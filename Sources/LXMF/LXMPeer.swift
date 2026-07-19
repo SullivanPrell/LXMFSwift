@@ -165,7 +165,6 @@ public final class LXMPeer {
 
     /// Proof-of-work peering key for this peer: [stampData, value] or nil.
     public var peeringKey: (stamp: Data, value: Int)? = nil
-    private let peeringKeyLock = NSLock()
 
     // MARK: - Metadata
 
@@ -199,8 +198,6 @@ public final class LXMPeer {
 
     /// Transient IDs currently being transferred (non-nil during active resource transfer).
     public var currentlyTransferringMessages: [Data]? = nil
-
-    private var currentSyncTransferStarted: TimeInterval? = nil
 
     // MARK: - Batched queue
 
@@ -665,7 +662,6 @@ public final class LXMPeer {
         link       = nil
         state      = .idle
         currentlyTransferringMessages = nil
-        currentSyncTransferStarted    = nil
 
         if success, syncStrategy == .persistent, unhandledMessageCount > 0 {
             sync()
