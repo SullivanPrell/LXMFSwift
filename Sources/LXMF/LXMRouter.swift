@@ -154,6 +154,12 @@ public final class LXMRouter {
     /// The `DeliveryAnnounceHandler` fires when the source's lxmf.delivery
     /// announce is processed — at that point `transport.recall(identity:)` already
     /// has the identity, so validation is immediate rather than poll-based.
+    ///
+    /// NOTE: Inbound delivery no longer *defers* messages from unknown sources —
+    /// they are delivered immediately as unverified, matching Python (bug 006), so
+    /// this queue is normally empty. `notifyAnnounced` still drains it (a harmless
+    /// no-op) and remains as a public hook for callers that queue messages here
+    /// through some other path.
     private var pendingSignatureValidation: [(message: LXMessage, received: Date)] = []
 
     // MARK: - Ticket store
@@ -381,17 +387,14 @@ public final class LXMRouter {
                 msg.incoming = true
                 msg.state = .delivered
 
-                // Validate signature immediately if source identity is known.
-                // Otherwise defer: Python's backbone forwards announces in a separate
-                // thread so the announce may arrive after the link data packet.
-                // `deferDeliveryUntilSourceKnown` queues the message; the
-                // DeliveryAnnounceHandler drains the queue when the announce arrives
-                // (within 60 s fallback for unreachable senders).
+                // Validate the signature if the source identity is known;
+                // otherwise deliver immediately as unverified (SOURCE_UNKNOWN),
+                // matching Python — never hold the message back. See bug 006.
                 if let srcIdentity = self.transport.recall(identity: msg.sourceHash) {
                     msg.validateSignature(knownIdentity: srcIdentity)
                     self.finalizeInboundDelivery(msg)
                 } else {
-                    self.deferDeliveryUntilSourceKnown(msg)
+                    self.deliverWithUnknownSource(msg)
                 }
             }
 
@@ -1418,7 +1421,7 @@ public final class LXMRouter {
             msg.validateSignature(knownIdentity: srcIdentity)
             finalizeInboundDelivery(msg)
         } else {
-            deferDeliveryUntilSourceKnown(msg)
+            deliverWithUnknownSource(msg)
         }
     }
 
@@ -1452,39 +1455,29 @@ public final class LXMRouter {
         lock.lock(); directLinks[destinationHash] = link; lock.unlock()
     }
 
-    // MARK: - Deferred signature validation
+    // MARK: - Unknown-source delivery
 
-    /// Queue a received message for deferred signature validation.
+    /// Deliver an inbound message whose source identity is not yet known.
     ///
-    /// When the sender's lxmf.delivery announce arrives, `handleAnnounceForDestination`
-    /// will drain this queue, validate the signature with the now-known identity, and
-    /// call `onMessageReceived`. A 10-second fallback timer delivers the message
-    /// unverified if no announce arrives within that window.
+    /// Mirrors Python `LXMessage.unpack_from_bytes` → `LXMRouter.lxmf_delivery`:
+    /// when `RNS.Identity.recall(source_hash)` returns `None`, Python still
+    /// builds and **delivers** the message, marking it `signature_validated =
+    /// False`, `unverified_reason = SOURCE_UNKNOWN` — it does **not** hold the
+    /// message back waiting for the source's announce.
     ///
-    /// This handles the race where Python's backbone forwards announces in a separate
-    /// thread, so the announce may arrive after the message on the link.
-    private func deferDeliveryUntilSourceKnown(_ msg: LXMessage) {
-        lock.lock()
-        pendingSignatureValidation.append((message: msg, received: Date()))
-        lock.unlock()
-
-        // Fallback: deliver unverified after 60 s in case the source announce
-        // never arrives. In practice the announce propagates within a few seconds
-        // on a healthy network, but RNS announce rate-limiting on intermediate
-        // backbone nodes can delay forwarding by 10–20 s or more when there is
-        // competing announce traffic. 60 s gives ample room while still
-        // eventually delivering to the application.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 60.0) { [weak self] in
-            guard let self else { return }
-            self.lock.lock()
-            let wasPresent = self.pendingSignatureValidation.contains(where: { $0.message === msg })
-            if wasPresent { self.pendingSignatureValidation.removeAll { $0.message === msg } }
-            self.lock.unlock()
-            if wasPresent {
-                msg.unverifiedReason = .sourceUnknown
-                self.finalizeInboundDelivery(msg)
-            }
-        }
+    /// The previous Swift behavior *deferred* delivery until the source announce
+    /// arrived (or a 60 s fallback fired). That diverged from Python and, worse,
+    /// **dropped** the message whenever the source announce did not reach us
+    /// within the application's receive window — the announce is forwarded on a
+    /// separate backbone thread and can lag the data packet, so opportunistic
+    /// delivery from a not-yet-announced sender became a race (flaky). Delivering
+    /// immediately (unverified) matches Python and removes the race. Re-delivery
+    /// once the announce lands is neither needed nor possible: the transient-ID
+    /// dedup in `finalizeInboundDelivery` would suppress it. See swift_devel
+    /// bug 006.
+    private func deliverWithUnknownSource(_ msg: LXMessage) {
+        if msg.unverifiedReason == nil { msg.unverifiedReason = .sourceUnknown }
+        finalizeInboundDelivery(msg)
     }
 
     // MARK: - Inbound
@@ -1514,8 +1507,9 @@ public final class LXMRouter {
             msg.validateSignature(knownIdentity: srcIdentity)
             finalizeInboundDelivery(msg)
         } else {
-            // Source identity not yet known — defer until announce arrives.
-            deferDeliveryUntilSourceKnown(msg)
+            // Source identity not yet known — deliver immediately as unverified
+            // (matching Python), rather than deferring until the announce arrives.
+            deliverWithUnknownSource(msg)
         }
     }
 
