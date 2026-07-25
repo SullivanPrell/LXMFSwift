@@ -127,8 +127,28 @@ public final class LXMRouter {
     /// Python: `LXMRouter.allowed_list`.
     private var allowedList: Set<Data> = []
 
-    /// Locally delivered transient IDs (for `has_message`).
-    var locallyDeliveredTransientIDs: Set<Data> = []
+    /// Locally delivered transient IDs, mapped to when they were delivered
+    /// (for `has_message`). The timestamp is what lets `cleanTransientIDCaches`
+    /// expire them — without it the cache grows for the lifetime of the install
+    /// and is persisted to disk in full on every save.
+    /// Mirrors Python's `locally_delivered_transient_ids` dict.
+    var locallyDeliveredTransientIDs: [Data: TimeInterval] = [:]
+
+    /// Transient IDs a propagation node has already handled and since dropped
+    /// from `propagationEntries`. Acts as a tombstone set so a message that was
+    /// delivered and pruned is not silently re-ingested the next time a peer
+    /// offers it. Mapped to when it was processed, and expired on the same
+    /// schedule as the delivered cache.
+    /// Mirrors Python's `locally_processed_transient_ids` dict.
+    var locallyProcessedTransientIDs: [Data: TimeInterval] = [:]
+
+    /// How long a transient ID stays in the delivered/processed caches.
+    /// Mirrors Python's `MESSAGE_EXPIRY * 6.0` (30 days x 6 = 180 days).
+    static let transientIDCacheExpiry: TimeInterval = 30 * 24 * 60 * 60 * 6.0
+
+    /// Job ticks between transient-ID cache reaps.
+    /// Mirrors Python's `LXMRouter.JOB_TRANSIENT_INTERVAL = 60`.
+    static let jobTransientInterval = 60
 
     // MARK: - Priority and ignore lists
 
@@ -328,6 +348,11 @@ public final class LXMRouter {
             // JOB_RESOURCE_INTERVAL-th tick, not every tick.
             if self.processingCount % LXMRouter.jobResourceInterval == 0 {
                 self.cleanResourceTracking()
+            }
+            if self.processingCount % LXMRouter.jobTransientInterval == 0 {
+                self.cleanTransientIDCaches()
+                self.saveLocallyDeliveredTransientIDs()
+                self.saveLocallyProcessedTransientIDs()
             }
         }
         timer.resume()
@@ -821,7 +846,7 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.has_message(transient_id)`.
     public func hasMessage(transientID: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        return locallyDeliveredTransientIDs.contains(transientID)
+        return locallyDeliveredTransientIDs[transientID] != nil
     }
 
     // MARK: - Inbound message resource transfers
@@ -1480,7 +1505,7 @@ public final class LXMRouter {
             guard let dest,
                   let plaintext = try? dest.decrypt(encryptedPayload) else { continue }
 
-            lock.lock(); locallyDeliveredTransientIDs.insert(transientID); lock.unlock()
+            lock.lock(); locallyDeliveredTransientIDs[transientID] = Date().timeIntervalSince1970; lock.unlock()
             deliverInboundResource(destHash + plaintext)
         }
         // Persist the updated delivered-id set once per sync batch (not per id).
@@ -1697,7 +1722,7 @@ public final class LXMRouter {
         //    `locally_delivered_transient_ids`).
         if let tid = msg.hash {
             if hasMessage(transientID: tid) { return false }
-            lock.lock(); locallyDeliveredTransientIDs.insert(tid); lock.unlock()
+            lock.lock(); locallyDeliveredTransientIDs[tid] = Date().timeIntervalSince1970; lock.unlock()
             saveLocallyDeliveredTransientIDs()   // persist across restarts
         }
 
@@ -2001,8 +2026,16 @@ public final class LXMRouter {
         guard lxmfData.count >= LXMessage.destinationLength else { return nil }
 
         // Existing entry? Skip. (dedup check under the lock)
+        //
+        // The tombstone cache is checked alongside it: once a message has been
+        // delivered and pruned from propagationEntries, only
+        // locallyProcessedTransientIDs remembers it, and without that check the
+        // very next peer to offer it would have it re-ingested from scratch.
+        // Mirrors Python's `not transient_id in self.propagation_entries and
+        // not transient_id in self.locally_processed_transient_ids`.
         lock.lock()
         if let existing = propagationEntries[transientID] { lock.unlock(); return existing }
+        if locallyProcessedTransientIDs[transientID] != nil { lock.unlock(); return nil }
         lock.unlock()
 
         let received  = Date().timeIntervalSince1970
@@ -2046,6 +2079,9 @@ public final class LXMRouter {
         // Remove the entry under the lock; snapshot its file path and unlink OUTSIDE.
         lock.lock()
         guard let entry = propagationEntries.removeValue(forKey: transientID) else { lock.unlock(); return }
+        // Remember that we handled it, so it is not re-ingested after the entry
+        // is gone. Expired on the same schedule as the delivered cache.
+        locallyProcessedTransientIDs[transientID] = Date().timeIntervalSince1970
         lock.unlock()
         try? FileManager.default.removeItem(atPath: entry.filePath)
     }
@@ -2428,6 +2464,7 @@ public final class LXMRouter {
     /// is set. Safe to call repeatedly; missing/corrupt files are ignored.
     public func loadPersistedClientState() {
         loadLocallyDeliveredTransientIDs()
+        loadLocallyProcessedTransientIDs()
         loadOutboundStampCosts()
         loadAvailableTickets()
     }
@@ -2437,7 +2474,10 @@ public final class LXMRouter {
     public func saveLocallyDeliveredTransientIDs() {
         guard let sp = storagePath else { return }
         lock.lock(); let snapshot = locallyDeliveredTransientIDs; lock.unlock()
-        let value = MsgPack.Value.array(snapshot.map { .bytes($0) })
+        // Python persists this as a msgpack dict {transient_id: timestamp}; the
+        // port previously wrote a bare array, which had nowhere to put the
+        // timestamp the expiry job needs.
+        let value = MsgPack.Value.map(snapshot.map { (MsgPack.Value.bytes($0.key), MsgPack.Value.double($0.value)) })
         try? MsgPack.encode(value).write(
             to: URL(fileURLWithPath: sp + "/local_deliveries"), options: .atomic)
     }
@@ -2445,10 +2485,61 @@ public final class LXMRouter {
     private func loadLocallyDeliveredTransientIDs() {
         guard let sp = storagePath,
               let data = try? Data(contentsOf: URL(fileURLWithPath: sp + "/local_deliveries")),
-              case .array(let items) = (try? MsgPack.decode(data)) ?? .nil else { return }
-        var loaded: Set<Data> = []
-        for item in items { if case .bytes(let b) = item { loaded.insert(b) } }
+              let decoded = try? MsgPack.decode(data) else { return }
+        var loaded: [Data: TimeInterval] = [:]
+        switch decoded {
+        case .map(let pairs):
+            for (k, v) in pairs {
+                guard case .bytes(let id) = k else { continue }
+                loaded[id] = v.asDouble ?? Date().timeIntervalSince1970
+            }
+        case .array(let items):
+            // Legacy format written by earlier versions of this port: a bare
+            // array with no timestamps. Stamp them as of now rather than
+            // discarding the file, which would re-deliver every message the
+            // node had already seen.
+            let now = Date().timeIntervalSince1970
+            for item in items { if case .bytes(let b) = item { loaded[b] = now } }
+        default:
+            return
+        }
         lock.lock(); locallyDeliveredTransientIDs = loaded; lock.unlock()
+        // Python reaps immediately after loading, so a long-idle node does not
+        // carry an expired cache until the first interval elapses.
+        cleanTransientIDCaches()
+    }
+
+    /// Persist the propagation-node tombstone cache.
+    /// Python: `save_locally_processed_transient_ids`.
+    public func saveLocallyProcessedTransientIDs() {
+        guard let sp = storagePath else { return }
+        lock.lock(); let snapshot = locallyProcessedTransientIDs; lock.unlock()
+        let value = MsgPack.Value.map(snapshot.map { (MsgPack.Value.bytes($0.key), MsgPack.Value.double($0.value)) })
+        try? MsgPack.encode(value).write(
+            to: URL(fileURLWithPath: sp + "/locally_processed"), options: .atomic)
+    }
+
+    private func loadLocallyProcessedTransientIDs() {
+        guard let sp = storagePath,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: sp + "/locally_processed")),
+              case .map(let pairs) = (try? MsgPack.decode(data)) ?? .nil else { return }
+        var loaded: [Data: TimeInterval] = [:]
+        for (k, v) in pairs {
+            guard case .bytes(let id) = k else { continue }
+            loaded[id] = v.asDouble ?? Date().timeIntervalSince1970
+        }
+        lock.lock(); locallyProcessedTransientIDs = loaded; lock.unlock()
+    }
+
+    /// Expire transient IDs older than `transientIDCacheExpiry` from both
+    /// caches. Mirrors Python's `LXMRouter.clean_transient_id_caches()`.
+    func cleanTransientIDCaches() {
+        let now = Date().timeIntervalSince1970
+        let cutoff = now - LXMRouter.transientIDCacheExpiry
+        lock.lock()
+        locallyDeliveredTransientIDs = locallyDeliveredTransientIDs.filter { $0.value > cutoff }
+        locallyProcessedTransientIDs = locallyProcessedTransientIDs.filter { $0.value > cutoff }
+        lock.unlock()
     }
 
     /// Persist learned outbound stamp costs, so they survive a restart.
@@ -2621,5 +2712,22 @@ private final class PropagationNodeAnnounceHandler: AnnounceHandler {
         guard router.outboundPropagationNode == destinationHash else { return }
         guard propagationNodeAnnounceDataIsValid(appData) else { return }
         router.triggerPropagatedOutbound()
+    }
+}
+
+// MARK: - msgpack numeric coercion
+
+extension MsgPack.Value {
+    /// Read a msgpack number as a `Double`, regardless of whether the encoder
+    /// wrote it as a float, a signed int, or an unsigned int. Timestamps
+    /// round-trip through all three depending on the writer, so every reader of
+    /// a persisted timestamp needs this.
+    var asDouble: Double? {
+        switch self {
+        case .double(let d): return d
+        case .int(let n):    return Double(n)
+        case .uint(let n):   return Double(n)
+        default:             return nil
+        }
     }
 }
