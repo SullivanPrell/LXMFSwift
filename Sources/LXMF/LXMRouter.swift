@@ -95,6 +95,12 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.propagation_transfer_progress`.
     public var propagationTransferProgress: Double = 0.0
 
+    /// Size in bytes of the in-flight propagation-node message-get response, or
+    /// `nil` when no sync is running. Lets a UI render "x of y bytes" instead of
+    /// only a fraction. Reset on every new sync request and on completion or
+    /// failure. Mirrors Python's `LXMRouter.propagation_transfer_size`.
+    public var propagationTransferSize: Int? = nil
+
     /// Maximum messages to fetch (nil = all).
     /// Mirrors Python's `LXMRouter.propagation_transfer_max_messages` (PR_ALL_MESSAGES = -1 → nil).
     public var propagationTransferMaxMessages: Int? = nil
@@ -271,6 +277,26 @@ public final class LXMRouter {
     /// Periodic job timer — mirrors Python's `LXMRouter.jobloop()` / `PROCESSING_INTERVAL = 4`.
     private var jobTimer: DispatchSourceTimer?
 
+    /// How many job ticks between reaps of `incomingDeliveryResources`.
+    /// Mirrors Python's `LXMRouter.JOB_RESOURCE_INTERVAL = 2` (so every 8 s at
+    /// the 4 s processing interval).
+    static let jobResourceInterval = 2
+
+    /// Job-loop tick counter, used to phase the resource reap.
+    /// Mirrors Python's `LXMRouter.processing_count`.
+    private var processingCount = 0
+
+    /// In-flight inbound message resource transfers, keyed by resource hash.
+    /// Lets a UI show what is currently arriving and cancel it mid-transfer.
+    /// Mirrors Python's `LXMRouter.incoming_delivery_resources`.
+    private var incomingDeliveryResources: [Data: ResourceTransfer] = [:]
+
+    /// Guards `incomingDeliveryResources`. Kept separate from the router's main
+    /// `lock` so a resource callback firing on a link's receive thread never
+    /// contends with outbound processing.
+    /// Mirrors Python's `incoming_delivery_resource_lock`.
+    private let incomingDeliveryResourceLock = NSLock()
+
     // MARK: - Init
 
     public init(transport: Transport) {
@@ -295,7 +321,14 @@ public final class LXMRouter {
         // Repeat every 4 s, first fire after 4 s (no need to run immediately on start).
         timer.schedule(deadline: .now() + 4, repeating: 4)
         timer.setEventHandler { [weak self] in
-            self?.processOutbound()
+            guard let self else { return }
+            self.processingCount &+= 1
+            self.processOutbound()
+            // Mirrors Python's jobs(): the resource reap runs on every
+            // JOB_RESOURCE_INTERVAL-th tick, not every tick.
+            if self.processingCount % LXMRouter.jobResourceInterval == 0 {
+                self.cleanResourceTracking()
+            }
         }
         timer.resume()
         jobTimer = timer
@@ -407,6 +440,12 @@ public final class LXMRouter {
                     return Int(resource.dataSize) <= limitKB * 1000
                 }
                 return true
+            }
+            // Register the transfer as it begins so it can be listed and
+            // cancelled while it is still arriving.
+            // Mirrors Python's `delivery_resource_transfer_began` callback.
+            link.onResourceStarted = { [weak self] transfer in
+                self?.trackIncomingDeliveryResource(transfer)
             }
             link.onResourceConcluded = { [weak self] data, _, _ in
                 self?.deliverInboundResource(data)
@@ -783,6 +822,82 @@ public final class LXMRouter {
     public func hasMessage(transientID: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return locallyDeliveredTransientIDs.contains(transientID)
+    }
+
+    // MARK: - Inbound message resource transfers
+    //
+    // A large inbound message arrives as a Resource, which can take a long time
+    // over a slow or multi-hop path. Tracking the in-flight transfers lets a UI
+    // show what is arriving and lets the user abort one that is unwanted or
+    // oversized, rather than being forced to wait it out.
+    // Mirrors Python LXMF 1.1.0 (commit d909619).
+
+    /// Whether a transfer is still running (Python's `status < RNS.Resource.COMPLETE`).
+    private static func isActive(_ transfer: ResourceTransfer) -> Bool {
+        switch transfer.status {
+        case .complete, .rejected, .failed: return false
+        default:                            return true
+        }
+    }
+
+    /// Record an inbound delivery resource as it starts transferring.
+    /// Mirrors Python's `delivery_resource_transfer_began`.
+    private func trackIncomingDeliveryResource(_ transfer: ResourceTransfer) {
+        incomingDeliveryResourceLock.lock()
+        incomingDeliveryResources[transfer.resourceHash] = transfer
+        incomingDeliveryResourceLock.unlock()
+    }
+
+    /// Drop concluded entries from the in-flight registry. Without this the
+    /// registry grows for the lifetime of the router.
+    /// Mirrors Python's `LXMRouter.clean_resource_tracking()`.
+    func cleanResourceTracking() {
+        incomingDeliveryResourceLock.lock()
+        for (hash, transfer) in incomingDeliveryResources where !LXMRouter.isActive(transfer) {
+            incomingDeliveryResources.removeValue(forKey: hash)
+        }
+        incomingDeliveryResourceLock.unlock()
+    }
+
+    /// Number of inbound message transfers currently in progress.
+    /// Mirrors Python's `LXMRouter.inbound_count()`.
+    public func inboundCount() -> Int {
+        incomingDeliveryResourceLock.lock(); defer { incomingDeliveryResourceLock.unlock() }
+        return incomingDeliveryResources.values.filter(LXMRouter.isActive).count
+    }
+
+    /// The inbound message transfers currently in progress.
+    /// Mirrors Python's `LXMRouter.inbound_resources()`.
+    public func inboundResources() -> [ResourceTransfer] {
+        incomingDeliveryResourceLock.lock(); defer { incomingDeliveryResourceLock.unlock() }
+        return incomingDeliveryResources.values.filter(LXMRouter.isActive)
+    }
+
+    /// Cancel one in-flight inbound message transfer.
+    /// - Returns: `true` if a running transfer was cancelled; `false` if it is
+    ///   unknown or already concluded.
+    /// Mirrors Python's `LXMRouter.cancel_inbound(resource_hash)`.
+    @discardableResult
+    public func cancelInbound(resourceHash: Data) -> Bool {
+        incomingDeliveryResourceLock.lock()
+        let transfer = incomingDeliveryResources[resourceHash]
+        incomingDeliveryResourceLock.unlock()
+        guard let transfer else { return false }
+        guard LXMRouter.isActive(transfer) else { return false }
+        // cancel() is called outside the lock: it reaches into the link to emit
+        // a cancel packet and may re-enter our own resource callbacks.
+        transfer.cancel()
+        return true
+    }
+
+    /// Cancel every in-flight inbound message transfer.
+    /// - Returns: how many were cancelled.
+    /// Mirrors Python's `LXMRouter.cancel_all_inbound()`.
+    @discardableResult
+    public func cancelAllInbound() -> Int {
+        let active = inboundResources()
+        for transfer in active { transfer.cancel() }
+        return active.count
     }
 
     /// Cancel a pending outbound message by its `messageID`.
@@ -1189,6 +1304,7 @@ public final class LXMRouter {
     /// Mirrors Python `LXMRouter.request_messages_from_propagation_node()`.
     public func requestMessagesFromPropagationNode(identity: Identity, maxMessages: Int? = nil) {
         propagationTransferProgress = 0.0
+        propagationTransferSize = nil
         propagationTransferMaxMessages = maxMessages
 
         guard let nodeHash = outboundPropagationNode else { return }
@@ -1257,6 +1373,7 @@ public final class LXMRouter {
         try? link?.teardown()
         propagationTransferState = .idle
         propagationTransferProgress = 0.0
+        propagationTransferSize = nil
         wantsDownloadOnPathAvailableFrom = nil
     }
 
@@ -1327,6 +1444,8 @@ public final class LXMRouter {
     }
 
     func handleMessageGetResponse(_ data: Data, receipt: RequestReceipt) {
+        // Python: `if request_receipt.response_size: self.propagation_transfer_size = ...`
+        if let size = receipt.responseSize { propagationTransferSize = size }
         guard let decoded = try? MsgPack.decode(data) else {
             propagationTransferState = .done; propagationTransferProgress = 1.0; return
         }
@@ -1383,6 +1502,7 @@ public final class LXMRouter {
 
     private func handleMessageGetFailed(_ receipt: RequestReceipt) {
         propagationTransferState = .failed
+        propagationTransferSize = nil
     }
 
     /// Returns true if the msgpack value represents a propagation-node error code
