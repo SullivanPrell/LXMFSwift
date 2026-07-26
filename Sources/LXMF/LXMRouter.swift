@@ -95,6 +95,12 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.propagation_transfer_progress`.
     public var propagationTransferProgress: Double = 0.0
 
+    /// Size in bytes of the in-flight propagation-node message-get response, or
+    /// `nil` when no sync is running. Lets a UI render "x of y bytes" instead of
+    /// only a fraction. Reset on every new sync request and on completion or
+    /// failure. Mirrors Python's `LXMRouter.propagation_transfer_size`.
+    public var propagationTransferSize: Int? = nil
+
     /// Maximum messages to fetch (nil = all).
     /// Mirrors Python's `LXMRouter.propagation_transfer_max_messages` (PR_ALL_MESSAGES = -1 → nil).
     public var propagationTransferMaxMessages: Int? = nil
@@ -121,8 +127,28 @@ public final class LXMRouter {
     /// Python: `LXMRouter.allowed_list`.
     private var allowedList: Set<Data> = []
 
-    /// Locally delivered transient IDs (for `has_message`).
-    var locallyDeliveredTransientIDs: Set<Data> = []
+    /// Locally delivered transient IDs, mapped to when they were delivered
+    /// (for `has_message`). The timestamp is what lets `cleanTransientIDCaches`
+    /// expire them — without it the cache grows for the lifetime of the install
+    /// and is persisted to disk in full on every save.
+    /// Mirrors Python's `locally_delivered_transient_ids` dict.
+    var locallyDeliveredTransientIDs: [Data: TimeInterval] = [:]
+
+    /// Transient IDs a propagation node has already handled and since dropped
+    /// from `propagationEntries`. Acts as a tombstone set so a message that was
+    /// delivered and pruned is not silently re-ingested the next time a peer
+    /// offers it. Mapped to when it was processed, and expired on the same
+    /// schedule as the delivered cache.
+    /// Mirrors Python's `locally_processed_transient_ids` dict.
+    var locallyProcessedTransientIDs: [Data: TimeInterval] = [:]
+
+    /// How long a transient ID stays in the delivered/processed caches.
+    /// Mirrors Python's `MESSAGE_EXPIRY * 6.0` (30 days x 6 = 180 days).
+    static let transientIDCacheExpiry: TimeInterval = 30 * 24 * 60 * 60 * 6.0
+
+    /// Job ticks between transient-ID cache reaps.
+    /// Mirrors Python's `LXMRouter.JOB_TRANSIENT_INTERVAL = 60`.
+    static let jobTransientInterval = 60
 
     // MARK: - Priority and ignore lists
 
@@ -271,6 +297,26 @@ public final class LXMRouter {
     /// Periodic job timer — mirrors Python's `LXMRouter.jobloop()` / `PROCESSING_INTERVAL = 4`.
     private var jobTimer: DispatchSourceTimer?
 
+    /// How many job ticks between reaps of `incomingDeliveryResources`.
+    /// Mirrors Python's `LXMRouter.JOB_RESOURCE_INTERVAL = 2` (so every 8 s at
+    /// the 4 s processing interval).
+    static let jobResourceInterval = 2
+
+    /// Job-loop tick counter, used to phase the resource reap.
+    /// Mirrors Python's `LXMRouter.processing_count`.
+    private var processingCount = 0
+
+    /// In-flight inbound message resource transfers, keyed by resource hash.
+    /// Lets a UI show what is currently arriving and cancel it mid-transfer.
+    /// Mirrors Python's `LXMRouter.incoming_delivery_resources`.
+    private var incomingDeliveryResources: [Data: ResourceTransfer] = [:]
+
+    /// Guards `incomingDeliveryResources`. Kept separate from the router's main
+    /// `lock` so a resource callback firing on a link's receive thread never
+    /// contends with outbound processing.
+    /// Mirrors Python's `incoming_delivery_resource_lock`.
+    private let incomingDeliveryResourceLock = NSLock()
+
     // MARK: - Init
 
     public init(transport: Transport) {
@@ -295,7 +341,19 @@ public final class LXMRouter {
         // Repeat every 4 s, first fire after 4 s (no need to run immediately on start).
         timer.schedule(deadline: .now() + 4, repeating: 4)
         timer.setEventHandler { [weak self] in
-            self?.processOutbound()
+            guard let self else { return }
+            self.processingCount &+= 1
+            self.processOutbound()
+            // Mirrors Python's jobs(): the resource reap runs on every
+            // JOB_RESOURCE_INTERVAL-th tick, not every tick.
+            if self.processingCount % LXMRouter.jobResourceInterval == 0 {
+                self.cleanResourceTracking()
+            }
+            if self.processingCount % LXMRouter.jobTransientInterval == 0 {
+                self.cleanTransientIDCaches()
+                self.saveLocallyDeliveredTransientIDs()
+                self.saveLocallyProcessedTransientIDs()
+            }
         }
         timer.resume()
         jobTimer = timer
@@ -407,6 +465,12 @@ public final class LXMRouter {
                     return Int(resource.dataSize) <= limitKB * 1000
                 }
                 return true
+            }
+            // Register the transfer as it begins so it can be listed and
+            // cancelled while it is still arriving.
+            // Mirrors Python's `delivery_resource_transfer_began` callback.
+            link.onResourceStarted = { [weak self] transfer in
+                self?.trackIncomingDeliveryResource(transfer)
             }
             link.onResourceConcluded = { [weak self] data, _, _ in
                 self?.deliverInboundResource(data)
@@ -782,7 +846,91 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.has_message(transient_id)`.
     public func hasMessage(transientID: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        return locallyDeliveredTransientIDs.contains(transientID)
+        return locallyDeliveredTransientIDs[transientID] != nil
+    }
+
+    // MARK: - Inbound message resource transfers
+    //
+    // A large inbound message arrives as a Resource, which can take a long time
+    // over a slow or multi-hop path. Tracking the in-flight transfers lets a UI
+    // show what is arriving and lets the user abort one that is unwanted or
+    // oversized, rather than being forced to wait it out.
+    // Mirrors Python LXMF 1.1.0 (commit d909619).
+
+    /// Whether a transfer is still running (Python's `status < RNS.Resource.COMPLETE`).
+    private static func isActive(_ transfer: ResourceTransfer) -> Bool {
+        switch transfer.status {
+        case .complete, .rejected, .failed: return false
+        default:                            return true
+        }
+    }
+
+    /// Record an inbound delivery resource as it starts transferring.
+    /// Mirrors Python's `delivery_resource_transfer_began`.
+    private func trackIncomingDeliveryResource(_ transfer: ResourceTransfer) {
+        incomingDeliveryResourceLock.lock()
+        incomingDeliveryResources[transfer.resourceHash] = transfer
+        incomingDeliveryResourceLock.unlock()
+    }
+
+    /// The keys currently in the in-flight registry, snapshot under the lock.
+    /// Test hook: `inboundResources()` filters to active transfers and so cannot
+    /// tell "two transfers filed under one key" apart from "one transfer".
+    func inboundRegistryKeys() -> [Data] {
+        incomingDeliveryResourceLock.lock(); defer { incomingDeliveryResourceLock.unlock() }
+        return Array(incomingDeliveryResources.keys)
+    }
+
+    /// Drop concluded entries from the in-flight registry. Without this the
+    /// registry grows for the lifetime of the router.
+    /// Mirrors Python's `LXMRouter.clean_resource_tracking()`.
+    func cleanResourceTracking() {
+        incomingDeliveryResourceLock.lock()
+        for (hash, transfer) in incomingDeliveryResources where !LXMRouter.isActive(transfer) {
+            incomingDeliveryResources.removeValue(forKey: hash)
+        }
+        incomingDeliveryResourceLock.unlock()
+    }
+
+    /// Number of inbound message transfers currently in progress.
+    /// Mirrors Python's `LXMRouter.inbound_count()`.
+    public func inboundCount() -> Int {
+        incomingDeliveryResourceLock.lock(); defer { incomingDeliveryResourceLock.unlock() }
+        return incomingDeliveryResources.values.filter(LXMRouter.isActive).count
+    }
+
+    /// The inbound message transfers currently in progress.
+    /// Mirrors Python's `LXMRouter.inbound_resources()`.
+    public func inboundResources() -> [ResourceTransfer] {
+        incomingDeliveryResourceLock.lock(); defer { incomingDeliveryResourceLock.unlock() }
+        return incomingDeliveryResources.values.filter(LXMRouter.isActive)
+    }
+
+    /// Cancel one in-flight inbound message transfer.
+    /// - Returns: `true` if a running transfer was cancelled; `false` if it is
+    ///   unknown or already concluded.
+    /// Mirrors Python's `LXMRouter.cancel_inbound(resource_hash)`.
+    @discardableResult
+    public func cancelInbound(resourceHash: Data) -> Bool {
+        incomingDeliveryResourceLock.lock()
+        let transfer = incomingDeliveryResources[resourceHash]
+        incomingDeliveryResourceLock.unlock()
+        guard let transfer else { return false }
+        guard LXMRouter.isActive(transfer) else { return false }
+        // cancel() is called outside the lock: it reaches into the link to emit
+        // a cancel packet and may re-enter our own resource callbacks.
+        transfer.cancel()
+        return true
+    }
+
+    /// Cancel every in-flight inbound message transfer.
+    /// - Returns: how many were cancelled.
+    /// Mirrors Python's `LXMRouter.cancel_all_inbound()`.
+    @discardableResult
+    public func cancelAllInbound() -> Int {
+        let active = inboundResources()
+        for transfer in active { transfer.cancel() }
+        return active.count
     }
 
     /// Cancel a pending outbound message by its `messageID`.
@@ -1189,6 +1337,7 @@ public final class LXMRouter {
     /// Mirrors Python `LXMRouter.request_messages_from_propagation_node()`.
     public func requestMessagesFromPropagationNode(identity: Identity, maxMessages: Int? = nil) {
         propagationTransferProgress = 0.0
+        propagationTransferSize = nil
         propagationTransferMaxMessages = maxMessages
 
         guard let nodeHash = outboundPropagationNode else { return }
@@ -1257,6 +1406,7 @@ public final class LXMRouter {
         try? link?.teardown()
         propagationTransferState = .idle
         propagationTransferProgress = 0.0
+        propagationTransferSize = nil
         wantsDownloadOnPathAvailableFrom = nil
     }
 
@@ -1322,11 +1472,60 @@ public final class LXMRouter {
             },
             failedCallback: { [weak self] _, receipt in
                 self?.handleMessageGetFailed(receipt)
+            },
+            progressCallback: { [weak self] progress, receipt in
+                self?.messageGetProgress(progress, receipt: receipt)
             }
         )
     }
 
+    /// Track a running message-get transfer so a UI can render live progress and
+    /// the total transfer size while the response resource is still arriving.
+    ///
+    /// Only this request carries a progress callback — Python attaches
+    /// `progress_callback=self.message_get_progress` to the message *fetch*
+    /// (LXMRouter.py:1590-1595) and to neither the initial list request nor the
+    /// receipt-confirmation request. Without it `propagationTransferSize` was
+    /// only readable once the whole transfer had already finished, which is
+    /// exactly when a progress display no longer needs it.
+    /// Mirrors Python's `LXMRouter.message_get_progress(request_receipt)`.
+    func messageGetProgress(_ progress: Double, receipt: RequestReceipt) {
+        propagationTransferState = .receiving
+        propagationTransferProgress = progress
+        // Python guards with a truthy test (`if request_receipt.response_size:`),
+        // so a zero never replaces a previously known size.
+        if let size = receipt.responseSize, size > 0 { propagationTransferSize = size }
+    }
+
+    /// Clear a finished sync's transient result state, so a UI that has shown the
+    /// outcome can dismiss it and the next sync starts clean.
+    ///
+    /// - Parameters:
+    ///   - resetState: also reset a *failed* sync's state. By default a failure is
+    ///     left in place so it stays visible until explicitly acknowledged.
+    ///   - failureState: state to move to instead of `.idle`.
+    ///
+    /// Without this, `propagationTransferSize` survived a successful sync and the
+    /// next one showed the previous transfer's size until its first progress
+    /// callback landed. (Python additionally clears
+    /// `propagation_transfer_last_result` and `wants_download_on_path_available_to`;
+    /// neither field exists here.)
+    /// Mirrors Python's `LXMRouter.acknowledge_sync_completion(reset_state, failure_state)`.
+    public func acknowledgeSyncCompletion(resetState: Bool = false,
+                                          failureState: PropagationTransferState? = nil) {
+        // Python's `propagation_transfer_state <= PR_COMPLETE (0x07)` — every
+        // failure code is 0xf0 or above, so this reads as "not a failure".
+        if resetState || propagationTransferState != .failed {
+            propagationTransferState = failureState ?? .idle
+        }
+        propagationTransferProgress = 0.0
+        propagationTransferSize = nil
+        wantsDownloadOnPathAvailableFrom = nil
+    }
+
     func handleMessageGetResponse(_ data: Data, receipt: RequestReceipt) {
+        // Python: `if request_receipt.response_size: self.propagation_transfer_size = ...`
+        if let size = receipt.responseSize { propagationTransferSize = size }
         guard let decoded = try? MsgPack.decode(data) else {
             propagationTransferState = .done; propagationTransferProgress = 1.0; return
         }
@@ -1361,7 +1560,7 @@ public final class LXMRouter {
             guard let dest,
                   let plaintext = try? dest.decrypt(encryptedPayload) else { continue }
 
-            lock.lock(); locallyDeliveredTransientIDs.insert(transientID); lock.unlock()
+            lock.lock(); locallyDeliveredTransientIDs[transientID] = Date().timeIntervalSince1970; lock.unlock()
             deliverInboundResource(destHash + plaintext)
         }
         // Persist the updated delivered-id set once per sync batch (not per id).
@@ -1383,6 +1582,7 @@ public final class LXMRouter {
 
     private func handleMessageGetFailed(_ receipt: RequestReceipt) {
         propagationTransferState = .failed
+        propagationTransferSize = nil
     }
 
     /// Returns true if the msgpack value represents a propagation-node error code
@@ -1577,7 +1777,7 @@ public final class LXMRouter {
         //    `locally_delivered_transient_ids`).
         if let tid = msg.hash {
             if hasMessage(transientID: tid) { return false }
-            lock.lock(); locallyDeliveredTransientIDs.insert(tid); lock.unlock()
+            lock.lock(); locallyDeliveredTransientIDs[tid] = Date().timeIntervalSince1970; lock.unlock()
             saveLocallyDeliveredTransientIDs()   // persist across restarts
         }
 
@@ -1881,8 +2081,16 @@ public final class LXMRouter {
         guard lxmfData.count >= LXMessage.destinationLength else { return nil }
 
         // Existing entry? Skip. (dedup check under the lock)
+        //
+        // The tombstone cache is checked alongside it: once a message has been
+        // delivered and pruned from propagationEntries, only
+        // locallyProcessedTransientIDs remembers it, and without that check the
+        // very next peer to offer it would have it re-ingested from scratch.
+        // Mirrors Python's `not transient_id in self.propagation_entries and
+        // not transient_id in self.locally_processed_transient_ids`.
         lock.lock()
         if let existing = propagationEntries[transientID] { lock.unlock(); return existing }
+        if locallyProcessedTransientIDs[transientID] != nil { lock.unlock(); return nil }
         lock.unlock()
 
         let received  = Date().timeIntervalSince1970
@@ -1926,6 +2134,9 @@ public final class LXMRouter {
         // Remove the entry under the lock; snapshot its file path and unlink OUTSIDE.
         lock.lock()
         guard let entry = propagationEntries.removeValue(forKey: transientID) else { lock.unlock(); return }
+        // Remember that we handled it, so it is not re-ingested after the entry
+        // is gone. Expired on the same schedule as the delivered cache.
+        locallyProcessedTransientIDs[transientID] = Date().timeIntervalSince1970
         lock.unlock()
         try? FileManager.default.removeItem(atPath: entry.filePath)
     }
@@ -2308,6 +2519,7 @@ public final class LXMRouter {
     /// is set. Safe to call repeatedly; missing/corrupt files are ignored.
     public func loadPersistedClientState() {
         loadLocallyDeliveredTransientIDs()
+        loadLocallyProcessedTransientIDs()
         loadOutboundStampCosts()
         loadAvailableTickets()
     }
@@ -2317,7 +2529,10 @@ public final class LXMRouter {
     public func saveLocallyDeliveredTransientIDs() {
         guard let sp = storagePath else { return }
         lock.lock(); let snapshot = locallyDeliveredTransientIDs; lock.unlock()
-        let value = MsgPack.Value.array(snapshot.map { .bytes($0) })
+        // Python persists this as a msgpack dict {transient_id: timestamp}; the
+        // port previously wrote a bare array, which had nowhere to put the
+        // timestamp the expiry job needs.
+        let value = MsgPack.Value.map(snapshot.map { (MsgPack.Value.bytes($0.key), MsgPack.Value.double($0.value)) })
         try? MsgPack.encode(value).write(
             to: URL(fileURLWithPath: sp + "/local_deliveries"), options: .atomic)
     }
@@ -2325,10 +2540,61 @@ public final class LXMRouter {
     private func loadLocallyDeliveredTransientIDs() {
         guard let sp = storagePath,
               let data = try? Data(contentsOf: URL(fileURLWithPath: sp + "/local_deliveries")),
-              case .array(let items) = (try? MsgPack.decode(data)) ?? .nil else { return }
-        var loaded: Set<Data> = []
-        for item in items { if case .bytes(let b) = item { loaded.insert(b) } }
+              let decoded = try? MsgPack.decode(data) else { return }
+        var loaded: [Data: TimeInterval] = [:]
+        switch decoded {
+        case .map(let pairs):
+            for (k, v) in pairs {
+                guard case .bytes(let id) = k else { continue }
+                loaded[id] = v.asDouble ?? Date().timeIntervalSince1970
+            }
+        case .array(let items):
+            // Legacy format written by earlier versions of this port: a bare
+            // array with no timestamps. Stamp them as of now rather than
+            // discarding the file, which would re-deliver every message the
+            // node had already seen.
+            let now = Date().timeIntervalSince1970
+            for item in items { if case .bytes(let b) = item { loaded[b] = now } }
+        default:
+            return
+        }
         lock.lock(); locallyDeliveredTransientIDs = loaded; lock.unlock()
+        // Python reaps immediately after loading, so a long-idle node does not
+        // carry an expired cache until the first interval elapses.
+        cleanTransientIDCaches()
+    }
+
+    /// Persist the propagation-node tombstone cache.
+    /// Python: `save_locally_processed_transient_ids`.
+    public func saveLocallyProcessedTransientIDs() {
+        guard let sp = storagePath else { return }
+        lock.lock(); let snapshot = locallyProcessedTransientIDs; lock.unlock()
+        let value = MsgPack.Value.map(snapshot.map { (MsgPack.Value.bytes($0.key), MsgPack.Value.double($0.value)) })
+        try? MsgPack.encode(value).write(
+            to: URL(fileURLWithPath: sp + "/locally_processed"), options: .atomic)
+    }
+
+    private func loadLocallyProcessedTransientIDs() {
+        guard let sp = storagePath,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: sp + "/locally_processed")),
+              case .map(let pairs) = (try? MsgPack.decode(data)) ?? .nil else { return }
+        var loaded: [Data: TimeInterval] = [:]
+        for (k, v) in pairs {
+            guard case .bytes(let id) = k else { continue }
+            loaded[id] = v.asDouble ?? Date().timeIntervalSince1970
+        }
+        lock.lock(); locallyProcessedTransientIDs = loaded; lock.unlock()
+    }
+
+    /// Expire transient IDs older than `transientIDCacheExpiry` from both
+    /// caches. Mirrors Python's `LXMRouter.clean_transient_id_caches()`.
+    func cleanTransientIDCaches() {
+        let now = Date().timeIntervalSince1970
+        let cutoff = now - LXMRouter.transientIDCacheExpiry
+        lock.lock()
+        locallyDeliveredTransientIDs = locallyDeliveredTransientIDs.filter { $0.value > cutoff }
+        locallyProcessedTransientIDs = locallyProcessedTransientIDs.filter { $0.value > cutoff }
+        lock.unlock()
     }
 
     /// Persist learned outbound stamp costs, so they survive a restart.
@@ -2501,5 +2767,22 @@ private final class PropagationNodeAnnounceHandler: AnnounceHandler {
         guard router.outboundPropagationNode == destinationHash else { return }
         guard propagationNodeAnnounceDataIsValid(appData) else { return }
         router.triggerPropagatedOutbound()
+    }
+}
+
+// MARK: - msgpack numeric coercion
+
+extension MsgPack.Value {
+    /// Read a msgpack number as a `Double`, regardless of whether the encoder
+    /// wrote it as a float, a signed int, or an unsigned int. Timestamps
+    /// round-trip through all three depending on the writer, so every reader of
+    /// a persisted timestamp needs this.
+    var asDouble: Double? {
+        switch self {
+        case .double(let d): return d
+        case .int(let n):    return Double(n)
+        case .uint(let n):   return Double(n)
+        default:             return nil
+        }
     }
 }

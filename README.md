@@ -33,7 +33,7 @@ This is part of the [ReticulumSwift stack](https://github.com/SullivanPrell/Reti
 
 LXMFSwift implements the full LXMF 0.9.9 message format and router — both a
 client and a propagation-node server — and is wire-compatible with the Python
-reference. Covered by 398 unit tests (~77% line coverage).
+reference. Covered by 434 unit tests (~77% line coverage).
 
 - LXMessage: wire-compatible pack/unpack, packed-container files, URI, QR, compression.
 - Stamps & tickets: proof-of-work stamps, ticket stamps, cost enforcement.

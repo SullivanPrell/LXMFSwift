@@ -213,7 +213,7 @@ final class MessageListResponseTests: XCTestCase {
         let router = makeRouter()
         // Inject a transient ID as already delivered
         let tid = Data(repeating: 0xCC, count: 32)
-        router.locallyDeliveredTransientIDs.insert(tid)
+        router.locallyDeliveredTransientIDs[tid] = Date().timeIntervalSince1970
         router.retainSyncedOnNode = false  // retain=false → should go to haves
 
         let data = encode(.array([.bytes(tid)]))
@@ -226,7 +226,7 @@ final class MessageListResponseTests: XCTestCase {
     func testRetainSyncedOnNodeSkipsHaves() {
         let router = makeRouter()
         let tid = Data(repeating: 0xDD, count: 32)
-        router.locallyDeliveredTransientIDs.insert(tid)
+        router.locallyDeliveredTransientIDs[tid] = Date().timeIntervalSince1970
         router.retainSyncedOnNode = true  // don't add to haves
 
         let data = encode(.array([.bytes(tid)]))
@@ -306,7 +306,7 @@ final class MessageGetResponseTests: XCTestCase {
         let router = makeRouter()
         let lxmfData = Data(repeating: 0xBB, count: 80)
         let tid = Hashes.fullHash(lxmfData)
-        router.locallyDeliveredTransientIDs.insert(tid)
+        router.locallyDeliveredTransientIDs[tid] = Date().timeIntervalSince1970
 
         let data = encode(.array([.bytes(lxmfData)]))
         router.handleMessageGetResponse(data, receipt: makeReceipt())
