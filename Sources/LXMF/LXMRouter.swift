@@ -873,6 +873,14 @@ public final class LXMRouter {
         incomingDeliveryResourceLock.unlock()
     }
 
+    /// The keys currently in the in-flight registry, snapshot under the lock.
+    /// Test hook: `inboundResources()` filters to active transfers and so cannot
+    /// tell "two transfers filed under one key" apart from "one transfer".
+    func inboundRegistryKeys() -> [Data] {
+        incomingDeliveryResourceLock.lock(); defer { incomingDeliveryResourceLock.unlock() }
+        return Array(incomingDeliveryResources.keys)
+    }
+
     /// Drop concluded entries from the in-flight registry. Without this the
     /// registry grows for the lifetime of the router.
     /// Mirrors Python's `LXMRouter.clean_resource_tracking()`.
@@ -1464,8 +1472,55 @@ public final class LXMRouter {
             },
             failedCallback: { [weak self] _, receipt in
                 self?.handleMessageGetFailed(receipt)
+            },
+            progressCallback: { [weak self] progress, receipt in
+                self?.messageGetProgress(progress, receipt: receipt)
             }
         )
+    }
+
+    /// Track a running message-get transfer so a UI can render live progress and
+    /// the total transfer size while the response resource is still arriving.
+    ///
+    /// Only this request carries a progress callback — Python attaches
+    /// `progress_callback=self.message_get_progress` to the message *fetch*
+    /// (LXMRouter.py:1590-1595) and to neither the initial list request nor the
+    /// receipt-confirmation request. Without it `propagationTransferSize` was
+    /// only readable once the whole transfer had already finished, which is
+    /// exactly when a progress display no longer needs it.
+    /// Mirrors Python's `LXMRouter.message_get_progress(request_receipt)`.
+    func messageGetProgress(_ progress: Double, receipt: RequestReceipt) {
+        propagationTransferState = .receiving
+        propagationTransferProgress = progress
+        // Python guards with a truthy test (`if request_receipt.response_size:`),
+        // so a zero never replaces a previously known size.
+        if let size = receipt.responseSize, size > 0 { propagationTransferSize = size }
+    }
+
+    /// Clear a finished sync's transient result state, so a UI that has shown the
+    /// outcome can dismiss it and the next sync starts clean.
+    ///
+    /// - Parameters:
+    ///   - resetState: also reset a *failed* sync's state. By default a failure is
+    ///     left in place so it stays visible until explicitly acknowledged.
+    ///   - failureState: state to move to instead of `.idle`.
+    ///
+    /// Without this, `propagationTransferSize` survived a successful sync and the
+    /// next one showed the previous transfer's size until its first progress
+    /// callback landed. (Python additionally clears
+    /// `propagation_transfer_last_result` and `wants_download_on_path_available_to`;
+    /// neither field exists here.)
+    /// Mirrors Python's `LXMRouter.acknowledge_sync_completion(reset_state, failure_state)`.
+    public func acknowledgeSyncCompletion(resetState: Bool = false,
+                                          failureState: PropagationTransferState? = nil) {
+        // Python's `propagation_transfer_state <= PR_COMPLETE (0x07)` — every
+        // failure code is 0xf0 or above, so this reads as "not a failure".
+        if resetState || propagationTransferState != .failed {
+            propagationTransferState = failureState ?? .idle
+        }
+        propagationTransferProgress = 0.0
+        propagationTransferSize = nil
+        wantsDownloadOnPathAvailableFrom = nil
     }
 
     func handleMessageGetResponse(_ data: Data, receipt: RequestReceipt) {
