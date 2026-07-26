@@ -43,7 +43,7 @@ LXMF/LXMF.py        ← Protocol constants
 ## Current State
 
 **Full LXMF client + propagation-node server, wire-compatible with Python LXMF
-0.9.9. ~77% line coverage across 398 tests.**
+0.9.9. ~77% line coverage across 434 tests.**
 
 ### LXMessage
 
