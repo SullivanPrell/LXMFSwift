@@ -217,6 +217,19 @@ final class LXMRouterResourceTests: XCTestCase {
         // Inject the established link so sendOverLink fires immediately.
         senderRouter.injectDirectLink(aLink, for: dst.hash)
 
+        // This is an end-to-end smoke test, **not** the delivery gate.
+        //
+        // Design D10 named it as a test whose construction made `bugs/014` unobservable: on a
+        // healthy loopback link the proof always comes straight back, so "the callback fired"
+        // reads identically whether delivery is reported at send time or at proof time. It
+        // passed before the fix and passes after it, which is precisely the problem — it pinned
+        // the broken behaviour rather than testing the right one.
+        //
+        // Left in place because it still earns its keep: the message really does travel A→B and
+        // arrive intact. But *when* delivery may be reported now belongs to
+        // `ProofGatedDeliveryTests`, which holds the proof back so the two events can be
+        // separated and ordered against each other. Do not add delivery-timing assertions
+        // here — a healthy link cannot express them.
         var deliveredMsg: LXMessage?
         let deliverExp = expectation(description: "sender marks delivered")
         msg.onDelivery = { m in

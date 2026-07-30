@@ -1314,14 +1314,56 @@ public final class LXMRouter {
             // Small message: send as a single link packet.
             // Python DIRECT delivery sends the FULL packed bytes (destHash included).
             // Mirrors Python LXMessage.__as_packet(): `RNS.Packet(delivery_dest, self.packed)`.
+            //
+            // `bugs/014`. This used to set `.delivered` and fire `onDelivery` on the line after
+            // `link.send(...)` returned. Returning from a send call means the bytes were handed
+            // to an interface, not that anyone received them — so a message dropped by the very
+            // next hop was reported delivered, and the recipient never saw it. The reference
+            // reaches DELIVERED only from the receipt's delivery callback
+            // (`LXMessage.py:479-483`, `__mark_delivered` at `:563-568`).
             msg.state = .sending
             do {
-                try link.send(packed)
-                removePending(msg)
-                msg.state = .delivered
-                // Retain destination announce data (LXMF commit 8bdb434).
-                _ = transport.retainDestinationData(msg.destinationHash)
-                msg.onDelivery?(msg)
+                let receipt = try link.send(packed)
+
+                guard let receipt else {
+                    // Python tears the delivery destination down when no receipt came back
+                    // (`LXMessage.py:484-486`) — without one there is no way to ever learn
+                    // whether the message arrived, so the link is not worth keeping.
+                    try? link.teardown()
+                    msg.state = .outbound
+                    msg.deliveryAttempts += 1
+                    msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+                    return
+                }
+
+                msg.deliveryReceipt = receipt
+                msg.progress = 0.50
+
+                receipt.onDelivery = { [weak self, weak msg] _ in
+                    guard let self, let msg else { return }
+                    // Removed from the queue before the state flips, so a concurrent
+                    // `processOutbound` cannot see a delivered message still pending and fire
+                    // the application callback a second time.
+                    self.removePending(msg)
+                    msg.state = .delivered
+                    msg.progress = 1.0
+                    // Retain destination announce data (LXMF commit 8bdb434).
+                    _ = self.transport.retainDestinationData(msg.destinationHash)
+                    msg.onDelivery?(msg)
+                }
+
+                receipt.onTimeout = { [weak msg] _ in
+                    guard let msg, msg.state != .cancelled else { return }
+                    // Python tears the link down and returns the message to OUTBOUND for
+                    // another attempt (`__link_packet_timed_out`, `LXMessage.py:616-621`). The
+                    // link is torn down because a proof that never came back is evidence about
+                    // the link, not just about this packet.
+                    try? link.teardown()
+                    msg.state = .outbound
+                    msg.progress = 0
+                    msg.deliveryAttempts += 1
+                    msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+                }
             } catch {
                 msg.state = .outbound
                 msg.deliveryAttempts += 1

@@ -194,6 +194,14 @@ public final class LXMessage {
     /// Mirrors Python's `LXMessage.source_blackholed`.
     public var sourceBlackholed: Bool = false
 
+    /// The delivery receipt for a DIRECT packet-representation send, once one exists.
+    ///
+    /// Python keeps this in a local and attaches its callbacks (`LXMessage.py:479-483`); it is
+    /// held here so an application can read the true transport state — round-trip time, timeout
+    /// instant, whether a proof arrived — instead of inferring delivery from the fact that
+    /// `send()` returned. That inference was `bugs/014`.
+    public var deliveryReceipt: PacketReceipt?
+
     public var onDelivery: ((LXMessage) -> Void)?
     public var onFailed: ((LXMessage) -> Void)?
 
