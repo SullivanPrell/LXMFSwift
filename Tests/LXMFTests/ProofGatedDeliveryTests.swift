@@ -32,7 +32,8 @@ final class ProofGatedDeliveryTests: XCTestCase {
         net.senderInterface.dropOutbound = { $0.destinationType == .link && $0.packetType == .data }
 
         var deliveryFired = false
-        let message = try net.sendMessage(content: "into the void") { _ in deliveryFired = true }
+        let message = try net.sendMessage(content: "into the void",
+                                          onDelivery: { _ in deliveryFired = true })
 
         XCTAssertEqual(message.state, .sending,
                        "the message never arrived, so it cannot be past 'sending'")
@@ -53,7 +54,8 @@ final class ProofGatedDeliveryTests: XCTestCase {
         try net.senderTransport.start()
 
         var deliveryFired = false
-        let message = try net.sendMessage(content: "never acknowledged") { _ in deliveryFired = true }
+        let message = try net.sendMessage(content: "never acknowledged",
+                                          onDelivery: { _ in deliveryFired = true })
         XCTAssertEqual(message.state, .sending)
 
         // Expire the receipt almost immediately; the sweep still has to notice it.
@@ -69,6 +71,38 @@ final class ProofGatedDeliveryTests: XCTestCase {
         XCTAssertNotEqual(net.link?.status, .active,
                           "the reference tears the link down on timeout, because a proof that "
                           + "never returned is evidence about the link, not just the packet")
+    }
+
+    /// Spec: "The user interface reflects the true state" — "a retry after a timeout is visible
+    /// rather than silent" (R3).
+    ///
+    /// `onDelivery` reports one terminal outcome, so an application wired only to it sees a
+    /// message vanish into `.sending` and, on a timeout, nothing at all. This asserts the
+    /// transitions themselves are observable, which is what the application needs to show a
+    /// dwell and a retry honestly.
+    func testEveryStateTransitionIsObservable() throws {
+        let net = try LoopbackPair()
+        net.senderInterface.dropOutbound = { $0.destinationType == .link && $0.packetType == .data }
+        try net.senderTransport.start()
+
+        // Locked: state changes arrive on whichever thread made them — the receipt's timeout
+        // callback runs on a background queue — while the poller below reads concurrently.
+        let observed = StateLog()
+        let message = try net.sendMessage(content: "watch me",
+                                          onStateChange: { observed.record($0.state) })
+
+        XCTAssertEqual(observed.last, .sending, "the dwell must be reported when it begins")
+
+        let receipt = try XCTUnwrap(message.deliveryReceipt)
+        receipt.setTimeout(0.5)
+
+        let retried = expectation(description: "retry observed")
+        net.poll(until: { observed.last == .outbound }, fulfilling: retried, limit: 900)
+        wait(for: [retried], timeout: 12.0)
+
+        XCTAssertEqual(observed.suffix(2), [.sending, .outbound],
+                       "an application wired to state changes sees the dwell and then the retry, "
+                       + "instead of a message that silently stops moving")
     }
 
     // MARK: - Ordering, not occurrence
@@ -92,7 +126,8 @@ final class ProofGatedDeliveryTests: XCTestCase {
         net.receiverInterface.holdOutbound = { $0.packetType == .proof && $0.context == .none }
 
         var deliveryFired = false
-        let message = try net.sendMessage(content: "prove it") { _ in deliveryFired = true }
+        let message = try net.sendMessage(content: "prove it",
+                                          onDelivery: { _ in deliveryFired = true })
 
         wait(for: [received], timeout: 2.0)
 
@@ -110,6 +145,18 @@ final class ProofGatedDeliveryTests: XCTestCase {
         net.poll(until: { deliveryFired }, fulfilling: delivered)
         wait(for: [delivered], timeout: 2.0)
         XCTAssertEqual(message.state, .delivered)
+    }
+}
+
+/// Thread-safe log of observed state transitions.
+private final class StateLog {
+    private let lock = NSLock()
+    private var states: [LXMessage.State] = []
+
+    func record(_ state: LXMessage.State) { lock.lock(); states.append(state); lock.unlock() }
+    var last: LXMessage.State? { lock.lock(); defer { lock.unlock() }; return states.last }
+    func suffix(_ n: Int) -> [LXMessage.State] {
+        lock.lock(); defer { lock.unlock() }; return Array(states.suffix(n))
     }
 }
 
@@ -164,7 +211,8 @@ private final class LoopbackPair {
 
     /// Bring up a link, hand it to the router, and send one small message over it.
     func sendMessage(content: String,
-                     onDelivery: @escaping (LXMessage) -> Void) throws -> LXMessage {
+                     onDelivery: @escaping (LXMessage) -> Void = { _ in },
+                     onStateChange: ((LXMessage) -> Void)? = nil) throws -> LXMessage {
         let receiverDestination = try Destination(
             identity: receiverIdentity, direction: .in, kind: .single,
             appName: "lxmf", aspects: ["delivery"])
@@ -195,6 +243,7 @@ private final class LoopbackPair {
             content: Data(content.utf8),
             desiredMethod: .direct)
         message.onDelivery = onDelivery
+        message.onStateChange = onStateChange
         try senderRouter.send(message)
         senderRouter.processOutbound()
         return message

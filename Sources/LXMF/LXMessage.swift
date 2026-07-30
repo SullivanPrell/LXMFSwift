@@ -110,7 +110,38 @@ public final class LXMessage {
     /// Leading zero bit count of the stamp (its "value"). Set by `validateStamp`.
     public private(set) var stampValue: Int?
 
-    public var state: State = .generating
+    /// Delivery state, and the one place a change to it is announced.
+    ///
+    /// A computed property over a locked store rather than a plain stored one. Two reasons, and
+    /// the second was found the hard way:
+    ///
+    /// 1. Every transition must reach ``onStateChange`` no matter which of the dozen-plus
+    ///    assignment sites made it, so a transition added later cannot silently go unreported.
+    ///    Hanging that off the property is the seam; wiring each site is what produced
+    ///    `bugs/013`.
+    /// 2. `state` is genuinely written from more than one thread — the packet receipt's timeout
+    ///    callback fires on a background queue while `LXMRouter`'s four-second job loop can be
+    ///    in `processOutbound` on another. A `didSet` observer holds an exclusive-access window
+    ///    on the property for the whole duration of the observer body, so that pre-existing race
+    ///    became a hard trap (`SIGTRAP`, caught by the full LXMF suite while the same test passed
+    ///    in isolation). The lock removes both the trap and the race that was always there.
+    ///
+    /// The callback fires **outside** the lock: it re-enters application code, which is free to
+    /// read this message's state.
+    public var state: State {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return _state }
+        set {
+            stateLock.lock()
+            let changed = _state != newValue
+            _state = newValue
+            let notify = changed ? onStateChange : nil
+            stateLock.unlock()
+            notify?(self)
+        }
+    }
+    private var _state: State = .generating
+    private let stateLock = NSLock()
+
     public var method: Method = .unknown
     public var representation: Representation = .unknown
     public var desiredMethod: Method?
@@ -204,6 +235,23 @@ public final class LXMessage {
 
     public var onDelivery: ((LXMessage) -> Void)?
     public var onFailed: ((LXMessage) -> Void)?
+
+    /// Fires on every change of ``state``, from wherever the change was made.
+    ///
+    /// `onDelivery` reports one terminal outcome; an application that shows progress needs the
+    /// transitions in between. Once delivery became proof-gated (`bugs/014`) a message dwells in
+    /// `.sending` for as long as the network takes and can drop back to `.outbound` on a
+    /// timeout — real states a user should see, and previously invisible because nothing fired
+    /// between send and delivery.
+    ///
+    /// Deliberately hung off the ``state`` property itself rather than called from each site that
+    /// assigns one. There are more than a dozen such sites across four delivery methods, and
+    /// wiring them individually is the shape that produced `bugs/013`: a transition added later
+    /// would silently not be reported. Here a new one cannot escape.
+    ///
+    /// Set it before handing the message to the router. Fired outside `state`'s lock, on whichever
+    /// thread made the change — an application that touches its UI must hop to the main queue.
+    public var onStateChange: ((LXMessage) -> Void)?
 
     // MARK: - Init (outbound)
 
