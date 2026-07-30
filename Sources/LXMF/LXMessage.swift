@@ -33,6 +33,11 @@ public final class LXMessage {
         case unknown  = 0x00
         case packet   = 0x01
         case resource = 0x02
+        /// Python reuses the `PAPER` method constant as a representation
+        /// (`LXMessage.py:456`: `self.representation = LXMessage.PAPER`), even though
+        /// `representations` lists only the first three. Representation is an internal
+        /// routing hint, never a wire field, so mirroring the value is safe.
+        case paper    = 0x05
     }
 
     // MARK: - Delivery method
@@ -92,6 +97,16 @@ public final class LXMessage {
     /// Matches Python's `LXMessage.propagation_packed`.
     /// Set by `pack()` alongside `packed`.
     public private(set) var propagationPacked: Data?
+
+    /// Paper-delivery wire format: `packed[:16] + destination.encrypt(packed[16:])`.
+    /// Matches Python's `LXMessage.paper_packed` (`LXMessage.py:449-451`).
+    ///
+    /// Set by `pack()` when `desiredMethod == .paper`, and it is this — never `packed` —
+    /// that `asURI()` and `asQR()` encode. The destination hash stays in the clear
+    /// because it is how the message is addressed; everything after it is encrypted to
+    /// the destination identity, so a printed or photographed paper message is readable
+    /// only by the addressee (`bugs/026`).
+    public private(set) var paperPacked: Data?
 
     /// Proof-of-work stamp (32 bytes). Set by `pack()` when `stampCost != nil`.
     /// Appended as index 4 of the msgpack payload array (after fields).
@@ -380,6 +395,24 @@ public final class LXMessage {
             .array([.bytes(lxmfData)])
         ]))
 
+        // Paper-delivery wire format. Python: `LXMessage.py:446-458`
+        //   encrypted_data = destination.encrypt(packed[DESTINATION_LENGTH:])
+        //   paper_packed   = packed[:DESTINATION_LENGTH] + encrypted_data
+        //   raise TypeError if len(paper_packed) > PAPER_MDU
+        //
+        // Encryption here is not an optimisation — it is the whole point of the paper
+        // representation, which crosses a channel the sender does not control. So unlike
+        // the propagation branch above, a failure to encrypt must not fall back to
+        // plaintext (`bugs/026`).
+        if desiredMethod == .paper {
+            let paperCiphertext = try destination.encrypt(payloadToEncrypt)
+            let paper = destination.hash + paperCiphertext
+            guard paper.count <= LXMessage.paperMDU else {
+                throw LXMessageError.paperMDUExceeded(size: paper.count, limit: LXMessage.paperMDU)
+            }
+            self.paperPacked = paper
+        }
+
         selectMethod(contentSize: corePayload.count - LXMessage.timestampSize - LXMessage.structOverhead)
     }
 
@@ -503,6 +536,11 @@ public final class LXMessage {
         case .propagated:
             self.method = .propagated
             self.representation = .packet
+        case .paper:
+            // Python: `LXMessage.py:455-456`. The size check happened in pack(), which
+            // throws rather than falling through to another method.
+            self.method = .paper
+            self.representation = .paper
         default:
             self.method = .direct
             self.representation = contentSize <= linkPacketMaxContent ? .packet : .resource
@@ -521,8 +559,18 @@ public final class LXMessage {
         case notPaperMethod
         /// Thrown when packing fails unexpectedly.
         case packingFailed
-        /// Thrown by `fromURI(_:)` or `ingestLXMURI(_:)` for malformed/wrong-scheme URIs.
+        /// Thrown by `fromURI(_:destination:)` or `ingestLXMURI(_:)` for malformed/wrong-scheme URIs.
         case invalidURI
+        /// Thrown by `pack()` when the encrypted paper form exceeds `paperMDU`, so no URI
+        /// is produced that would silently fail to fit in a QR code.
+        /// Python: `TypeError` at `LXMessage.py:457-458`.
+        case paperMDUExceeded(size: Int, limit: Int)
+        /// Thrown when a paper payload cannot be decrypted with the supplied delivery
+        /// destination — a URI addressed elsewhere, or a corrupted scan.
+        case paperDecryptionFailed
+        /// Thrown by `LXMRouter.ingestLXMURI(_:)` when the paper message is addressed to a
+        /// destination this router does not host, so it cannot be read here.
+        case noMatchingDeliveryDestination
     }
 
     /// Unpack a received wire blob into an LXMessage. Does NOT verify the
@@ -776,9 +824,11 @@ public extension LXMessage {
             throw LXMessageError.notPaperMethod
         }
         if packed == nil { try pack() }
-        guard let raw = packed else { throw LXMessageError.packingFailed }
-        // Python uses paper_packed (first 16 bytes dest hash + encrypted content)
-        // For our purposes, packed is the wire bytes; encode them as-is.
+        // Python encodes `paper_packed` — the destination hash followed by the payload
+        // encrypted to the destination identity — never `packed` (`LXMessage.py:702-704`).
+        // Encoding `packed` here is what put the message in cleartext on every printed
+        // QR code (`bugs/026`).
+        guard let raw = paperPacked else { throw LXMessageError.notPaperMethod }
         let b64 = raw.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
@@ -816,11 +866,16 @@ public extension LXMessage {
         return image
     }
 
-    /// Decode an LXM from a `lxm://` URI.
+    /// Base64url-decode the payload of a `lxm://` URI into paper-packed bytes:
+    /// a plaintext destination hash followed by the payload encrypted to that destination.
     ///
-    /// Mirrors Python's `LXMRouter.ingest_lxm_uri()` decoding step.
-    static func fromURI(_ uri: String) throws -> LXMessage {
-        guard uri.hasPrefix(LXMessage.uriSchema + "://") else {
+    /// Mirrors the decoding half of Python's `LXMRouter.ingest_lxm_uri()`
+    /// (`LXMRouter.py:2543-2549`). The result is *not* a wire-format LXM — it cannot be
+    /// unpacked without the addressed identity's private key. Use
+    /// `fromURI(_:destination:)`, or `LXMRouter.ingestLXMURI(_:)` for the full
+    /// inbound-delivery path.
+    static func paperData(fromURI uri: String) throws -> Data {
+        guard uri.lowercased().hasPrefix(LXMessage.uriSchema + "://") else {
             throw LXMessageError.invalidURI
         }
         let encoded = String(uri.dropFirst(LXMessage.uriSchema.count + 3))
@@ -830,10 +885,33 @@ public extension LXMessage {
             .replacingOccurrences(of: "_", with: "/")
         let padLen = (4 - padded.count % 4) % 4
         let paddedStr = padded + String(repeating: "=", count: padLen)
-        guard let data = Data(base64Encoded: paddedStr) else {
+        guard let data = Data(base64Encoded: paddedStr),
+              data.count > LXMessage.destinationLength else {
             throw LXMessageError.invalidURI
         }
-        return try LXMessage.unpack(data)
+        return data
+    }
+
+    /// Decode an LXM from a `lxm://` URI, decrypting the payload with `destination`.
+    ///
+    /// Mirrors Python's `LXMRouter.ingest_lxm_uri()` decoding step together with the
+    /// symmetric decrypt at `LXMRouter.py:2503-2504`:
+    /// `delivery_destination.decrypt(lxmf_data[DESTINATION_LENGTH:])`.
+    ///
+    /// The destination must be the addressed delivery destination and must hold a private
+    /// key; there is no key-less form, because the payload after the destination hash is
+    /// ciphertext.
+    ///
+    /// - Throws: `invalidURI` for a malformed or wrong-scheme URI,
+    ///   `paperDecryptionFailed` when the payload is not decryptable by `destination`.
+    static func fromURI(_ uri: String, destination: Destination) throws -> LXMessage {
+        let paperData = try paperData(fromURI: uri)
+        let destHash  = Data(paperData.prefix(LXMessage.destinationLength))
+        let ciphertext = Data(paperData.dropFirst(LXMessage.destinationLength))
+        guard let plaintext = try? destination.decrypt(ciphertext) else {
+            throw LXMessageError.paperDecryptionFailed
+        }
+        return try LXMessage.unpack(destHash + plaintext)
     }
 
     // MARK: - Transport encryption description

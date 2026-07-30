@@ -114,17 +114,29 @@ final class LXMessageQRTests: XCTestCase {
             "Repeated asQR() calls must produce same-size images")
     }
 
-    func testAsQREncodesLXMUri() throws {
-        // The QR content must be the lxm:// URI — verify by decoding the image
-        // and confirming it starts with "lxm://"
+    /// Rebuilt for `bugs/026`. The previous version asserted only that `asURI()` returned
+    /// something starting with `lxm://` and that `asQR()` did not throw — which is true of a
+    /// QR carrying the message in cleartext. A QR code is the form of a paper message most
+    /// likely to be photographed by someone it was not shown to, so the assertion that
+    /// matters is what the encoded payload contains.
+    func testAsQREncodesTheEncryptedPaperURI() throws {
         let (src, dst) = try makeSrcDst()
+        let secret = "QR-PLAINTEXT-CANARY-4B71"
         let msg = LXMessage(destination: dst, source: src,
-                            content: "uri content", desiredMethod: .paper)
-        // Just verify we can get the URI separately and QR doesn't throw
+                            content: secret, desiredMethod: .paper)
         let uri = try msg.asURI()
         let image = try msg.asQR()
         XCTAssertNotNil(image)
         XCTAssertTrue(uri.hasPrefix("lxm://"), "URI used for QR must start with lxm://")
+
+        // The QR encodes the URI, so the URI's payload is what a photograph yields.
+        XCTAssertFalse(uri.contains(secret),
+                       "the QR's URI must not contain the message body as readable text")
+        let payload = try LXMessage.paperData(fromURI: uri)
+        XCTAssertNil(payload.range(of: Data(secret.utf8)),
+                     "the QR payload must not contain the message body in cleartext")
+        XCTAssertEqual(Data(payload.prefix(LXMessage.destinationLength)), msg.destinationHash,
+                       "the addressed destination hash stays in the clear")
     }
 
     func testAsQRErrorIsThrownWhenMethodNotPaper() throws {
