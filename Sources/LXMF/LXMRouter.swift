@@ -956,11 +956,42 @@ public final class LXMRouter {
     // MARK: - URI ingestion
 
     /// Decode a `lxm://` URI and deliver the contained message locally.
-    /// Mirrors Python's `LXMRouter.ingest_lxm_uri(uri)`.
-    public func ingestLXMURI(_ uri: String) throws {
-        let msg = try LXMessage.fromURI(uri)
-        msg.state = .delivered
-        onMessageReceived?(msg)
+    ///
+    /// Mirrors Python's `LXMRouter.ingest_lxm_uri(uri)` (`LXMRouter.py:2542-2562`), which
+    /// hands the decoded bytes to `lxmf_propagation(..., is_paper_message=True)` and so
+    /// down the same `lxmf_delivery` path as every other inbound route: the payload is
+    /// decrypted with the addressed delivery destination (`:2503-2504`), and ticket
+    /// ingest, the ignore list and duplicate suppression all apply. Stamp enforcement is
+    /// waived for paper messages (`:2489`, `is_paper_message → no_stamp_enforcement`).
+    ///
+    /// Calling the application callback directly instead — as this did — skipped all of
+    /// it, so an ignored sender's paper message was delivered and a re-scanned QR was
+    /// delivered twice (`bugs/026`).
+    ///
+    /// - Returns: `true` when the message was delivered to the application, `false` when
+    ///   the inbound path dropped it (ignored sender, duplicate, failed stamp).
+    /// - Throws: `invalidURI` for a malformed or wrong-scheme URI,
+    ///   `noMatchingDeliveryDestination` when the message is addressed to a destination
+    ///   this router does not host, `paperDecryptionFailed` when it cannot be decrypted.
+    @discardableResult
+    public func ingestLXMURI(_ uri: String) throws -> Bool {
+        let paperData = try LXMessage.paperData(fromURI: uri)
+        let destHash  = Data(paperData.prefix(LXMessage.destinationLength))
+        let ciphertext = Data(paperData.dropFirst(LXMessage.destinationLength))
+
+        lock.lock(); let destination = deliveryDestinations[destHash]; lock.unlock()
+        guard let destination else {
+            // Python returns True here having done nothing (it would queue the message for
+            // propagation, which a paper message never is). Reporting a failure the caller
+            // can act on is the point of this change — a scanned QR addressed elsewhere is
+            // not an ingest that succeeded.
+            throw LXMessage.LXMessageError.noMatchingDeliveryDestination
+        }
+        guard let plaintext = try? destination.decrypt(ciphertext) else {
+            throw LXMessage.LXMessageError.paperDecryptionFailed
+        }
+
+        return deliverInboundResource(destHash + plaintext, noStampEnforcement: true)
     }
 
     // MARK: - Outbound
@@ -1314,14 +1345,56 @@ public final class LXMRouter {
             // Small message: send as a single link packet.
             // Python DIRECT delivery sends the FULL packed bytes (destHash included).
             // Mirrors Python LXMessage.__as_packet(): `RNS.Packet(delivery_dest, self.packed)`.
+            //
+            // `bugs/014`. This used to set `.delivered` and fire `onDelivery` on the line after
+            // `link.send(...)` returned. Returning from a send call means the bytes were handed
+            // to an interface, not that anyone received them — so a message dropped by the very
+            // next hop was reported delivered, and the recipient never saw it. The reference
+            // reaches DELIVERED only from the receipt's delivery callback
+            // (`LXMessage.py:479-483`, `__mark_delivered` at `:563-568`).
             msg.state = .sending
             do {
-                try link.send(packed)
-                removePending(msg)
-                msg.state = .delivered
-                // Retain destination announce data (LXMF commit 8bdb434).
-                _ = transport.retainDestinationData(msg.destinationHash)
-                msg.onDelivery?(msg)
+                let receipt = try link.send(packed)
+
+                guard let receipt else {
+                    // Python tears the delivery destination down when no receipt came back
+                    // (`LXMessage.py:484-486`) — without one there is no way to ever learn
+                    // whether the message arrived, so the link is not worth keeping.
+                    try? link.teardown()
+                    msg.state = .outbound
+                    msg.deliveryAttempts += 1
+                    msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+                    return
+                }
+
+                msg.deliveryReceipt = receipt
+                msg.progress = 0.50
+
+                receipt.onDelivery = { [weak self, weak msg] _ in
+                    guard let self, let msg else { return }
+                    // Removed from the queue before the state flips, so a concurrent
+                    // `processOutbound` cannot see a delivered message still pending and fire
+                    // the application callback a second time.
+                    self.removePending(msg)
+                    msg.state = .delivered
+                    msg.progress = 1.0
+                    // Retain destination announce data (LXMF commit 8bdb434).
+                    _ = self.transport.retainDestinationData(msg.destinationHash)
+                    msg.onDelivery?(msg)
+                }
+
+                receipt.onTimeout = { [weak msg] _ in
+                    guard let msg, msg.state != .cancelled else { return }
+                    // Python tears the link down and returns the message to OUTBOUND for
+                    // another attempt (`__link_packet_timed_out`, `LXMessage.py:616-621`). The
+                    // link is torn down because a proof that never came back is evidence about
+                    // the link, not just about this packet.
+                    try? link.teardown()
+                    msg.state = .outbound
+                    msg.progress = 0
+                    msg.deliveryAttempts += 1
+                    msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+                }
             } catch {
                 msg.state = .outbound
                 msg.deliveryAttempts += 1
@@ -1606,22 +1679,27 @@ public final class LXMRouter {
     /// raw bytes as received from `ResourceTransfer.onPayloadReceived` — for LXMF
     /// this is the full packed message (including leading destination hash).
     /// Called by `delivery.onLinkEstablished → link.onResourceConcluded`.
-    public func deliverInboundResource(_ data: Data) {
-        guard let msg = try? LXMessage.unpack(data) else { return }
+    /// - Parameter noStampEnforcement: waive stamp enforcement for a message already
+    ///   validated upstream. Python sets this for paper messages
+    ///   (`LXMRouter.py:2489`) and for messages fetched from a propagation node.
+    /// - Returns: `true` when the message reached the application.
+    @discardableResult
+    public func deliverInboundResource(_ data: Data, noStampEnforcement: Bool = false) -> Bool {
+        guard let msg = try? LXMessage.unpack(data) else { return false }
         // Drop messages from blackholed source identities (LXMF commit 2ac2b10).
-        if msg.sourceBlackholed { return }
+        if msg.sourceBlackholed { return false }
         lock.lock()
         let isDelivery = deliveryDestinations[msg.destinationHash] != nil
         lock.unlock()
-        guard isDelivery else { return }
+        guard isDelivery else { return false }
         msg.incoming = true
         msg.state = .delivered
 
         if let srcIdentity = transport.recall(identity: msg.sourceHash) {
             msg.validateSignature(knownIdentity: srcIdentity)
-            finalizeInboundDelivery(msg)
+            return finalizeInboundDelivery(msg, noStampEnforcement: noStampEnforcement)
         } else {
-            deliverWithUnknownSource(msg)
+            return deliverWithUnknownSource(msg, noStampEnforcement: noStampEnforcement)
         }
     }
 
@@ -1675,9 +1753,10 @@ public final class LXMRouter {
     /// once the announce lands is neither needed nor possible: the transient-ID
     /// dedup in `finalizeInboundDelivery` would suppress it. See swift_devel
     /// bug 006.
-    private func deliverWithUnknownSource(_ msg: LXMessage) {
+    @discardableResult
+    private func deliverWithUnknownSource(_ msg: LXMessage, noStampEnforcement: Bool = false) -> Bool {
         if msg.unverifiedReason == nil { msg.unverifiedReason = .sourceUnknown }
-        finalizeInboundDelivery(msg)
+        return finalizeInboundDelivery(msg, noStampEnforcement: noStampEnforcement)
     }
 
     // MARK: - Inbound
