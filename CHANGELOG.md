@@ -3,6 +3,54 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased] — 1.3.0
+
+**Requires ReticulumSwift 1.8.0.** Proof-gated delivery needs link-packet receipts, which do
+not exist before it.
+
+**BREAKING.** Two API changes and one wire-format change, all of them deliberate:
+
+- `LXMessage.fromURI(_:)` is now `fromURI(_:destination:)`. There is no key-less form, because
+  the payload after the destination hash is ciphertext — a decoder that appeared to work
+  without a key could only ever report a success it did not achieve.
+- `LXMRouter.ingestLXMURI(_:)` returns `Bool` (`@discardableResult`) so a caller can tell a
+  delivery from a drop, and throws `noMatchingDeliveryDestination` for a URI addressed
+  elsewhere.
+- **Existing Swift-produced paper URIs become unreadable.** That is the point: they were never
+  readable by Python either.
+
+### Fixed
+
+- **Paper messages carried the message in cleartext** (`bugs/026`). Python encrypts the payload
+  to the destination identity before base64-encoding it
+  (`packed[:16] + destination.encrypt(packed[16:])`, `LXMessage.py:449-451`); this port had no
+  paper branch at all, so `asURI()` and `asQR()` base64-encoded the raw plaintext wire bytes. A
+  printed or photographed QR exposed the title, body, fields and sender hash to anyone who read
+  it — on a feature whose entire purpose is to cross a channel the sender does not control —
+  and no Python client could ingest one. `pack()` now builds the paper form and throws
+  `paperMDUExceeded` past `PAPER_MDU` rather than handing back a URI that silently will not fit
+  in a QR code.
+
+- **The paper route bypassed every inbound check** (`bugs/026`). `ingestLXMURI` called the
+  application callback directly, so ticket ingest, the ignore list and duplicate suppression
+  were all skipped: an ignored sender's paper message was delivered, and the same QR scanned
+  twice was delivered twice. It now decrypts with the addressed delivery destination and routes
+  through the same seam as every other inbound path, with stamp enforcement waived for paper as
+  the reference does (`LXMRouter.py:2489`).
+
+- **A message was reported delivered when `send()` returned** (`bugs/014`). Returning from a
+  send call is not evidence of delivery: the packet may be dropped by the very next hop while
+  the sender's screen says it arrived. `.delivered` is now reached only from a validated
+  receiver proof (`LXMessage.py:482-483`, `:563-568`), and the timeout path tears the link down
+  and returns the message to `.outbound` for another attempt (`:616-621`).
+
+### Changed
+
+- **`.delivered` now dwells in `.sending` until the recipient proves receipt, and a retry after
+  a timeout is visible.** This will read as a regression to anyone who has not been told: the
+  checkmark used to appear before anything left the device. `onStateChange` reports every
+  transition so an application can show the dwell and the retry honestly.
+
 ## [1.2.0] — LXMF 1.1.0 parity: inbound resource tracking and live sync progress
 
 **Requires ReticulumSwift 1.5.0.** The inbound registry keys on the resource
