@@ -2061,8 +2061,8 @@ public final class LXMRouter {
                 }
                 return true
             }
-            link.onResourceConcluded = { [weak self] data, _, _ in
-                self?.handleInboundPropagationResource(data)
+            link.onResourceConcluded = { [weak self] data, _, concludingLink in
+                self?.handleInboundPropagationResource(data, on: concludingLink)
             }
             // Evict this link's PN-link bookkeeping when it closes (growth fix:
             // validatedPeerLinks was inserted on every offer request but never
@@ -2100,7 +2100,13 @@ public final class LXMRouter {
     /// where each element = `destHash + encrypt(payload) + 32-byte-stamp`.
     ///
     /// Mirrors Python's `propagation_resource_concluded()`.
-    public func handleInboundPropagationResource(_ data: Data) {
+    ///
+    /// `link` is the link the resource concluded on, and is what identifies the sender. Python
+    /// derives the remote's propagation destination from `resource.link.get_remote_identity()`
+    /// (`LXMRouter.py:2348-2352`) and every decision that depends on *who* uploaded — autopeering
+    /// (`:2366-2375`) and stamp throttling (`:2449-2454`) — reads it from there. Pass the link
+    /// whenever one exists.
+    public func handleInboundPropagationResource(_ data: Data, on link: Link?) {
         guard case .array(let outer) = (try? MsgPack.decode(data)) ?? .nil,
               outer.count >= 2,
               case .array(let messages) = outer[1] else { return }
@@ -2118,6 +2124,25 @@ public final class LXMRouter {
                                     stampValue: entry.stampValue,
                                     stamp:      entry.stamp)
         }
+    }
+
+    /// Ingest a propagation payload with no sender attached.
+    ///
+    /// **Does not peer and does not throttle** — both need to know who uploaded, and this entry
+    /// point does not. It exists for callers that genuinely have no link (tests driving the store,
+    /// and re-ingest from disk); anything reached from a propagation link must use the variant
+    /// above.
+    public func handleInboundPropagationResource(_ data: Data) {
+        handleInboundPropagationResource(data, on: nil)
+    }
+
+    /// The remote's propagation destination hash for a link it identified on, or nil if it has
+    /// not identified. Python: `RNS.Destination(remote_identity, OUT, SINGLE, APP_NAME,
+    /// "propagation").hash` (`LXMRouter.py:2350-2351`).
+    func remotePropagationHash(of link: Link) -> Data? {
+        guard let remoteIdentity = link.remoteIdentity else { return nil }
+        return try? Destination(identity: remoteIdentity, direction: .out, kind: .single,
+                                appName: APP_NAME, aspects: ["propagation"]).hash
     }
 
     // MARK: - Message store
