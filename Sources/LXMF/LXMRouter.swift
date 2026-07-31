@@ -2505,7 +2505,20 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.unpeer()` (`LXMRouter.py:2049-2057`) — the removal path used by
     /// rotation (`:2122`), by the peering-cost ceiling (`:2008`) and by the remote control verb
     /// `peer_unpeer_request` (`:864`).
+    ///
+    /// `timestamp` defaults to now, which is what makes a locally-decided unpeer (rotation, the
+    /// ceiling) always take effect. An unpeer carrying a timebase *older* than the peer's is
+    /// ignored: announces reorder in a mesh, and without the guard a delayed unpeer removes a peer
+    /// that has since re-peered.
     public func unpeer(destinationHash: Data, timestamp: TimeInterval? = nil) {
+        let stamp = timestamp ?? Date().timeIntervalSince1970
+
+        lock.lock()
+        let peeringTimebase = peers[destinationHash]?.peeringTimebase
+        lock.unlock()
+
+        guard let peeringTimebase else { return }
+        guard stamp >= peeringTimebase else { return }
         removePeer(destinationHash: destinationHash)
     }
 
