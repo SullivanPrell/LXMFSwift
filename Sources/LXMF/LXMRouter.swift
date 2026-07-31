@@ -63,6 +63,11 @@ public final class LXMRouter {
     /// Default automatic peering depth, in hops.
     /// Python: `LXMRouter.AUTOPEER_MAXDEPTH = 4` (`:45`).
     public static let defaultAutopeerMaxdepth = 4
+    /// Default ceiling on the peer table. Python: `LXMRouter.MAX_PEERS = 20` (`:43`).
+    public static let defaultMaxPeers = 20
+    /// Default ceiling on a remote's peering cost.
+    /// Python: `LXMRouter.MAX_PEERING_COST = 26` (`:51`).
+    public static let defaultMaxPeeringCost = 26
 
     // MARK: - State
 
@@ -278,6 +283,14 @@ public final class LXMRouter {
     /// Whether to peer automatically with propagation nodes discovered through incoming syncs.
     /// Python: `LXMRouter.AUTOPEER = True` (`LXMRouter.py:44`), consulted at `:2365`.
     public var autopeer: Bool = LXMRouter.defaultAutopeer
+
+    /// The greatest number of peers this node will hold.
+    /// Python: `LXMRouter.MAX_PEERS = 20` (`LXMRouter.py:43`), per-node at `:206`.
+    public var maxPeers: Int = LXMRouter.defaultMaxPeers
+
+    /// The highest peering cost this node is willing to pay to peer with a remote.
+    /// Python: `LXMRouter.max_peering_cost` (`:150`), applied at `:2005`.
+    public var maxPeeringCost: Int = LXMRouter.defaultMaxPeeringCost
 
     /// The furthest, in hops, a node may be and still be peered with automatically.
     ///
@@ -2472,6 +2485,15 @@ public final class LXMRouter {
         lock.unlock()
         for tid in allTids { peer.addUnhandledMessage(tid) }
         return peer
+    }
+
+    /// Break peering with a node.
+    ///
+    /// Mirrors Python's `LXMRouter.unpeer()` (`LXMRouter.py:2049-2057`) — the removal path used by
+    /// rotation (`:2122`), by the peering-cost ceiling (`:2008`) and by the remote control verb
+    /// `peer_unpeer_request` (`:864`).
+    public func unpeer(destinationHash: Data, timestamp: TimeInterval? = nil) {
+        removePeer(destinationHash: destinationHash)
     }
 
     /// Remove a peer from the peering table.
