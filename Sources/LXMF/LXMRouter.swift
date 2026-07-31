@@ -2133,6 +2133,12 @@ public final class LXMRouter {
             return nil
         }
 
+        // Derived once, here, rather than at each site that needs it: autopeering, stamp throttling
+        // and the single-packet upload path (`bugs/021`) all ask the same question of the same
+        // link, and N independent derivations is how the `bugs/013` sub-defects came back
+        // (design D1).
+        let sender = link.flatMap { remotePropagationHash(of: $0) }
+
         let minCost = max(0, propagationStampCost - propagationStampCostFlexibility)
         let validated = LXStamper.validatePNStamps(transientList: transientList, targetCost: minCost)
         for entry in validated {
@@ -2141,6 +2147,8 @@ public final class LXMRouter {
                                     stampValue: entry.stampValue,
                                     stamp:      entry.stamp)
         }
+
+        if let sender { considerAutopeering(with: sender) }
     }
 
     /// Ingest a propagation payload with no sender attached.
@@ -2345,11 +2353,112 @@ public final class LXMRouter {
 
     // MARK: - Peer management
 
-    /// Add a peer propagation node.
-    /// Python: `self.peers[destination_hash] = LXMPeer(...)`.
+    /// Peer with a propagation node, or update an existing peering.
+    ///
+    /// Mirrors Python's `LXMRouter.peer()` (`LXMRouter.py:2004-2047`). This is the **only** way a
+    /// peer is created: the reference applies its limits here rather than at the call sites that
+    /// peer, so no caller can peer some other way and skip them (design D2).
+    ///
+    /// An existing peer is updated only when `timestamp` is newer than its current peering
+    /// timebase (`:2013`), so a replayed or reordered announce cannot reset a peer's negotiated
+    /// state.
+    public func peer(destinationHash: Data,
+                     timestamp: TimeInterval,
+                     transferLimit: Double?,
+                     syncLimit: Double?,
+                     stampCost: Int,
+                     stampCostFlexibility: Int,
+                     peeringCost: Int,
+                     metadata: [String: String]?) {
+        lock.lock()
+        let existing = peers[destinationHash]
+        lock.unlock()
+
+        if let existing {
+            guard timestamp > existing.peeringTimebase else { return }
+            apply(announcedTimestamp: timestamp, transferLimit: transferLimit,
+                  syncLimit: syncLimit, stampCost: stampCost,
+                  stampCostFlexibility: stampCostFlexibility, peeringCost: peeringCost,
+                  metadata: metadata, to: existing)
+            // Python also clears the backoff on re-peering (`:2017-2018`), so a peer that comes
+            // back after a run of failures is retried at once rather than after its accumulated
+            // wait.
+            existing.syncBackoff     = 0
+            existing.nextSyncAttempt = 0
+            return
+        }
+
+        let peer = addPeer(destinationHash: destinationHash)
+        apply(announcedTimestamp: timestamp, transferLimit: transferLimit,
+              syncLimit: syncLimit, stampCost: stampCost,
+              stampCostFlexibility: stampCostFlexibility, peeringCost: peeringCost,
+              metadata: metadata, to: peer)
+    }
+
+    /// The field assignments Python makes identically in both branches of `peer()`
+    /// (`:2014-2029` and `:2035-2046`) — shared so the two cannot drift apart.
+    private func apply(announcedTimestamp: TimeInterval,
+                       transferLimit: Double?,
+                       syncLimit: Double?,
+                       stampCost: Int,
+                       stampCostFlexibility: Int,
+                       peeringCost: Int,
+                       metadata: [String: String]?,
+                       to peer: LXMPeer) {
+        peer.alive                          = true
+        peer.metadata                       = metadata
+        peer.peeringTimebase                = announcedTimestamp
+        peer.lastHeard                      = Date().timeIntervalSince1970
+        peer.propagationStampCost           = stampCost
+        peer.propagationStampCostFlexibility = stampCostFlexibility
+        peer.peeringCost                    = peeringCost
+        peer.propagationTransferLimit       = transferLimit
+        // Python: an unset sync limit means "same as the transfer limit" (`:2028-2029`).
+        peer.propagationSyncLimit           = syncLimit ?? transferLimit
+    }
+
+    /// Peer with the sender of a sync, if the reference's conditions are met.
+    ///
+    /// Python does this on concluding an incoming propagation transfer (`LXMRouter.py:2357-2375`):
+    /// a remote that is not already a peer, whose recalled announce data says it is an active
+    /// propagation node, is peered with when autopeering is on and it is within
+    /// `autopeer_maxdepth` hops.
+    func considerAutopeering(with propagationHash: Data) {
+        guard autopeer else { return }
+
+        lock.lock()
+        let alreadyPeered = peers[propagationHash] != nil
+        lock.unlock()
+        guard !alreadyPeered else { return }
+
+        guard let announce = PropagationNodeAnnounce(
+            appData: transport.recallAppData(forDestination: propagationHash)),
+              announce.isPropagationNode
+        else { return }
+
+        // Python's `Transport.hops_to` answers `PATHFINDER_M` (128) for a destination it has no
+        // path to, so an unknown hop count fails the depth test rather than passing it.
+        guard let hops = transport.hopsTo(propagationHash),
+              Int(hops) <= autopeerMaxdepth
+        else { return }
+
+        peer(destinationHash: propagationHash,
+             timestamp: announce.timebase,
+             transferLimit: announce.transferLimit,
+             syncLimit: announce.syncLimit,
+             stampCost: announce.stampCost,
+             stampCostFlexibility: announce.stampCostFlexibility,
+             peeringCost: announce.peeringCost,
+             metadata: announce.metadata)
+    }
+
+    /// Insert a peer into the table unconditionally.
+    ///
+    /// The internal half of `peer(destinationHash:...)`, which is where the reference's peering
+    /// conditions live. Not public: a caller that reached this directly would bypass them.
     @discardableResult
-    public func addPeer(destinationHash: Data,
-                        syncStrategy: LXMSyncStrategy = LXMPeer.defaultSyncStrategy) -> LXMPeer {
+    func addPeer(destinationHash: Data,
+                 syncStrategy: LXMSyncStrategy = LXMPeer.defaultSyncStrategy) -> LXMPeer {
         lock.lock()
         if let existing = peers[destinationHash] { lock.unlock(); return existing }
         let peer = LXMPeer(router: self, destinationHash: destinationHash,

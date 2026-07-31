@@ -241,6 +241,62 @@ public func pnStampCostFromAppData(_ appData: Data?) -> Int? {
     }
 }
 
+// MARK: - Propagation node announce
+
+/// The fields of a propagation node's announce, decoded once.
+///
+/// Python reads these positionally at the peering call site
+/// (`LXMF/LXMRouter.py:2367-2373`) as `pn_config[1..6]`. `pnNameFromAppData` and
+/// `pnStampCostFromAppData` each re-decode the same array for one field; this type exists for the
+/// caller that needs most of them at once, rather than adding a third partial decoder.
+struct PropagationNodeAnnounce {
+    /// `pn_config[1]` — the node's peering timebase.
+    let timebase: TimeInterval
+    /// `pn_config[2]` — whether the node is currently acting as a propagation node.
+    let isPropagationNode: Bool
+    /// `pn_config[3]` — per-transfer limit, in KB.
+    let transferLimit: Double?
+    /// `pn_config[4]` — per-sync limit, in KB. Python falls back to the transfer limit when unset
+    /// (`:2029`, `:2044`); that fallback lives at the peering site, not here.
+    let syncLimit: Double?
+    /// `pn_config[5][0]`, `[1]`, `[2]`.
+    let stampCost: Int
+    let stampCostFlexibility: Int
+    let peeringCost: Int
+    /// `pn_config[6]` — node metadata. Only `PN_META_NAME` is carried, under the `"name"` key
+    /// `LXMPeer.name` already reads (`LXMPeer.swift:765-767`); no other key has a consumer in the
+    /// port, and inventing string keys for them would be a divergence, not a port.
+    let metadata: [String: String]?
+
+    init?(appData: Data?) {
+        guard let appData, propagationNodeAnnounceDataIsValid(appData),
+              case .array(let items) = (try? MsgPack.decode(appData)), items.count >= 7
+        else { return nil }
+
+        func number(_ value: MsgPack.Value) -> Double? {
+            switch value {
+            case .int(let n):    return Double(n)
+            case .uint(let n):   return Double(n)
+            case .double(let d): return d
+            default:             return nil
+            }
+        }
+
+        guard let timebase = number(items[1]) else { return nil }
+        guard case .bool(let nodeState) = items[2] else { return nil }
+        guard case .array(let costs) = items[5], costs.count >= 3 else { return nil }
+
+        self.timebase             = timebase
+        self.isPropagationNode    = nodeState
+        self.transferLimit        = number(items[3])
+        self.syncLimit            = number(items[4])
+        self.stampCost            = Int(number(costs[0]) ?? 0)
+        self.stampCostFlexibility = Int(number(costs[1]) ?? 0)
+        self.peeringCost          = Int(number(costs[2]) ?? 0)
+        self.metadata             = pnNameFromAppData(appData).map { ["name": $0] }
+    }
+}
+
 // Publicly re-export ReticulumSwift types so callers can write
 // `import LXMF` without also importing ReticulumSwift.
 @_exported import ReticulumSwift
