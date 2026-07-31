@@ -2384,7 +2384,8 @@ public final class LXMRouter {
                      peeringCost: Int,
                      metadata: [String: String]?) {
         lock.lock()
-        let existing = peers[destinationHash]
+        let existing   = peers[destinationHash]
+        let tableIsFull = peers.count >= maxPeers
         lock.unlock()
 
         if let existing {
@@ -2400,6 +2401,10 @@ public final class LXMRouter {
             existing.nextSyncAttempt = 0
             return
         }
+
+        // The bound applies to admitting a *new* peer only — an existing peer's negotiated limits
+        // are still updated above, or a full node stops tracking what its peers will accept.
+        guard !tableIsFull else { return }
 
         let peer = addPeer(destinationHash: destinationHash)
         apply(announcedTimestamp: timestamp, transferLimit: transferLimit,
