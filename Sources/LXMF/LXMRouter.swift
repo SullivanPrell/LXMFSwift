@@ -74,6 +74,9 @@ public final class LXMRouter {
     /// Acceptance rate at or above which a peer is never rotated out.
     /// Python: `LXMRouter.ROTATION_AR_MAX = 0.5` (`:48`).
     public static let rotationAcceptanceRateMax = 0.5
+    /// How many of the fastest waiting peers form the sync-selection pool.
+    /// Python: `LXMRouter.FASTEST_N_RANDOM_POOL = 2` (`:46`).
+    public static let fastestNRandomPool = 2
 
     // MARK: - State
 
@@ -2649,6 +2652,13 @@ public final class LXMRouter {
     /// Attempt to sync with all peers.
     /// Python: `LXMRouter.sync_peers()`.
     public func syncPeers() {
+        var generator = SystemRandomNumberGenerator()
+        syncPeers(using: &generator)
+    }
+
+    /// `syncPeers()` with the selection source supplied, so a test can assert which peers the pool
+    /// can reach without pinning production to a fixed choice (design D5).
+    public func syncPeers<G: RandomNumberGenerator>(using generator: inout G) {
         guard isPropagationNode else { return }
         lock.lock(); let peerList = Array(peers.values); lock.unlock()
         for peer in peerList { peer.sync() }
