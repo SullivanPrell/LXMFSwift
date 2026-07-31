@@ -59,6 +59,83 @@ final class PropagationPeeringTests: XCTestCase {
                         """)
     }
 
+    // MARK: - The gates
+    //
+    // Each of these fails against 1.4's implementation with only its own gate removed — not
+    // against the pre-fix tree, where all three pass because no peer is ever created and a gate
+    // that is present but never consulted would look identical to one that works.
+
+    func testARemoteThatIsNotAPropagationNodeIsNotPeeredWith() throws {
+        let net = try makeNodeAndRemote()
+        net.announceRemoteAsSomethingElse()
+        net.seedPathToRemote(hops: 2)
+
+        try net.uploadOneMessage()
+
+        XCTAssertNil(net.router.peers[net.remotePropagationHash],
+                     """
+                     the remote's announce data is not a propagation node's, so the node must not \
+                     peer with it (LXMRouter.py:2357). A node that peers with every destination it \
+                     receives a sync from will offer messages to things that cannot store them.
+                     """)
+    }
+
+    func testANodeThatIsNoLongerActiveIsNotPeeredWith() throws {
+        let net = try makeNodeAndRemote()
+        // Valid propagation-node announce data, but the node-state flag is off — how the reference
+        // signals a node that has disabled propagation (`disable_propagation` re-announces with
+        // it false). Python gates on `pn_config[2]` (`:2365`).
+        net.announceRemoteAsPropagationNode(nodeState: false)
+        net.seedPathToRemote(hops: 2)
+
+        try net.uploadOneMessage()
+
+        XCTAssertNil(net.router.peers[net.remotePropagationHash],
+                     "the remote announced propagation as disabled, so it must not be peered with")
+    }
+
+    func testAutopeeringDisabledPreventsPeering() throws {
+        let net = try makeNodeAndRemote()
+        net.router.autopeer = false
+        net.announceRemoteAsPropagationNode()
+        net.seedPathToRemote(hops: 2)
+
+        try net.uploadOneMessage()
+
+        XCTAssertNil(net.router.peers[net.remotePropagationHash],
+                     """
+                     autopeering is off and the node peered anyway — the setting the port \
+                     documents in its own example configuration is not being read (bugs/042).
+                     """)
+    }
+
+    func testANodeBeyondTheAutopeerDepthIsNotPeeredWith() throws {
+        let net = try makeNodeAndRemote()
+        net.announceRemoteAsPropagationNode()
+        net.seedPathToRemote(hops: UInt8(LXMRouter.defaultAutopeerMaxdepth + 1))
+
+        try net.uploadOneMessage()
+
+        XCTAssertNil(net.router.peers[net.remotePropagationHash],
+                     """
+                     the remote is \(LXMRouter.defaultAutopeerMaxdepth + 1) hops away and the \
+                     depth limit is \(LXMRouter.defaultAutopeerMaxdepth) (LXMRouter.py:2365).
+                     """)
+    }
+
+    func testARemoteWithNoKnownPathIsNotPeeredWith() throws {
+        let net = try makeNodeAndRemote()
+        net.announceRemoteAsPropagationNode()
+        // Deliberately no path seeded. Python's `Transport.hops_to` answers `PATHFINDER_M` (128)
+        // for a destination it has no path to, so "unknown" fails the depth test. Swift's
+        // `hopsTo` answers nil, and a nil that is read as "0 hops, very close" would peer with
+        // every unreachable destination that ever synced.
+        try net.uploadOneMessage()
+
+        XCTAssertNil(net.router.peers[net.remotePropagationHash],
+                     "an unknown hop count must fail the depth test, not pass it")
+    }
+
     // MARK: - Harness
 
     /// A propagation node, a remote that syncs to it, and the announce/path state the node would
