@@ -3,7 +3,112 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
-## [Unreleased] — 1.3.0
+## [1.4.0] — a propagation node that actually peers
+
+**Requires ReticulumSwift 1.9.0.** A propagation node peers off the announces it hears, and before
+1.9.0 a node also heard its own — so it peered with itself (`ReticulumSwift bugs/047`).
+
+**BREAKING.** Three changes, all of them deliberate:
+
+- `LXMRouter.addPeer` and `removePeer` are now **internal**. `peer(destinationHash:timestamp:…)`
+  and `unpeer(destinationHash:timestamp:)` are the public construction and removal points, because
+  they are where the reference's peering conditions live — the peering-cost ceiling, the `maxPeers`
+  bound and the peering timebase. A caller that reached `addPeer` directly bypassed all three.
+- `LXMRouter.peerDistributionQueue` is now `[(transientID: Data, fromPeer: LXMPeer?)]`.
+- **An existing node with more peers than `maxPeers` will rotate down to the bound on first run.**
+  There was no bound before, so a long-running node may hold more than 20 peers; rotation drops the
+  worst-performing ones over successive passes. This is the intended behaviour and not data loss —
+  the messages stay in the store.
+
+### What still does not work
+
+Stated plainly, because the peer table this release fills is real and only half the machinery
+drains it: **a node built on this port still cannot INITIATE a sync.** `LXMPeer.sync()` opens no
+link, no peering key is ever generated, and `buildOffer` / `linkEstablished` /
+`processOfferResponse` / `resourceConcluded` have no production callers. A node accepts syncs,
+serves clients and answers offers correctly; it does not push its store to its peers. That is
+`bugs/054` and the next release's work.
+
+So: this release makes a node a correct *participant* in a propagation mesh in the receive
+direction, and an accurate advertiser of itself. It does not yet make it a full peer.
+
+### Fixed
+
+- **A node never peered with anyone** (`bugs/042`). `addPeer` had zero call sites outside its own
+  tests, anywhere in the tree. `autopeer` and `autopeer_maxdepth` existed only as lines inside an
+  example-configuration *string*. Autopeering now happens on the incoming-sync path
+  (`LXMRouter.py:2366-2375`).
+
+- **A node ignored every announce it heard** (`bugs/046`). The reference peers on two paths, and
+  the port had only the reactive one. Reactive peering cannot start on its own — peering is what
+  causes a sync, and a sync is what causes reactive peering — so two nodes built on this port sat
+  with empty tables waiting for each other, and everything `bugs/042` fixed was unreachable
+  between them. Both registered handlers now reach one router method carrying `Handlers.py:41-99`
+  whole: the outbound-PN trigger, autopeering with its path-response and depth gates, static-peer
+  refresh, and unpeering a node that moves out of range or says it has stopped propagating.
+
+- **The advertised costs defaulted to zero, which no Python peer can satisfy** (`bugs/048`). A zero
+  peering cost is not "no proof of work required" — `peering_key_ready` opens with
+  `if not self.peering_cost: return False` (`LXMPeer.py:228`), so a node advertising 0 is one every
+  Python peer postpones syncing to, forever, with no error on either side. Now `PEERING_COST = 18`,
+  `PROPAGATION_COST = 16` with the `PROPAGATION_COST_MIN = 13` floor on the initialiser argument,
+  and `PROPAGATION_COST_FLEX = 3`.
+
+- **A peer was offered back the messages it had just sent** (`bugs/049`). The distribution queue
+  carried no origin. Threading it through was not sufficient on its own: `addToMessageStore` was
+  constructing every entry with `unhandledPeers: Array(peers.keys)`, so the store was the *first*
+  writer of the unhandled set and the exclusion had nothing left to exclude. The reference builds
+  the entry empty (`LXMRouter.py:2518`) and lets the distribution flush be the only writer; it is
+  the only writer here now. Peering also moved before ingest, as in the reference, because
+  `from_peer` can only exclude a peer that exists by the time its messages are stored.
+
+- **A brand-new peer was seeded with the entire message store** (`bugs/050`). Python's `peer()`
+  seeds nothing; `unhandled_messages` is derived from the store's per-entry lists, so a new peer
+  starts empty and receives only what arrives after peering. A node holding 5,000 messages that
+  autopeered with a remote used to offer it all 5,001 on the next pass — including the message that
+  remote had just uploaded.
+
+- **A configured static peering never happened** (`bugs/051`). `staticPeers` was a set that
+  rotation and sync selection filtered against and nothing ever wrote to: no peer entry, no path
+  request, no error. Activation now runs at the end of `enablePropagation` as in the reference, and
+  requests a path for any peer never heard from — one that was offline at startup never announces,
+  so the solicited path response is the only way its terms are learned.
+
+- **The peer table was read at startup and never written** (`bugs/052`). `savePeers` was reachable
+  only from `disablePropagation`, which has no caller anywhere in the tree, so the port had a
+  complete reader for a file nothing produced. Lost on every restart: each peer's handled and
+  unhandled transient-ID sets, its peering timebase and its measured transfer rate.
+
+- **Every refusal a peer sent read as "the peer wants nothing"** (`bugs/053`). LXMF error codes are
+  all above 127, so msgpack writes them as `uint8` and the decoder returns `.uint`; the response
+  handler matched `case .int`, which matches neither. `ERROR_THROTTLED` produced no back-off,
+  `ERROR_NO_IDENTITY` no re-identify, `ERROR_NO_ACCESS` no unpeer.
+
+- **A node could not throttle a misbehaving remote** (`bugs/044`). The port decoded
+  `ERROR_THROTTLED` as a client and had no path that emitted it, so a transfer of invalid-stamp
+  messages cost full validation over the whole set and could be retried at any rate.
+
+- **The peer table had no bound and never rotated** (`bugs/043`). `maxPeers`,
+  `prioritiseRotatingUnreachablePeers` and `rotatePeers` are ported whole.
+
+- **`syncPeers` synced every peer at once** (`bugs/045`), where the reference selects one per pass
+  from the two fastest plus the equal-unknown-speed set, and culls peers past `MAX_UNREACHABLE`.
+
+- **The job loop ran three of the reference's ten routines** (`bugs/019`). The schedule is now data
+  compared against `LXMRouter.py:880-911` by test. Eight dispatch; `processDeferredStamps` is
+  scheduled with a recorded reason (the port generates stamps synchronously and has no queue to
+  drain), and `cleanLinks` and `flushQueues` were written for it.
+
+### Added — one recorded divergence
+
+`savePeers` runs on the job schedule, which the reference does not do — it persists on exit, via
+`atexit` and the SIGINT/SIGTERM handlers. That suits a daemon stopped politely; this port's primary
+consumer is an iOS app, terminated without notice and unable to run an exit handler at all.
+`LXMRouter.Job` gains `additionReason`, and a test requires every scheduled routine the reference
+lacks to declare why it is there — a divergence with a recorded reason is a decision, one without
+is a mistake nobody has noticed yet.
+
+## [1.3.0] — paper messages encrypted, delivery gated on proof
 
 **Requires ReticulumSwift 1.8.0.** Proof-gated delivery needs link-packet receipts, which do
 not exist before it.
