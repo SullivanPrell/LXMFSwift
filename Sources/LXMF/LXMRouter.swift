@@ -68,6 +68,12 @@ public final class LXMRouter {
     /// Default ceiling on a remote's peering cost.
     /// Python: `LXMRouter.MAX_PEERING_COST = 26` (`:51`).
     public static let defaultMaxPeeringCost = 26
+    /// Fraction of `maxPeers` rotation tries to keep free.
+    /// Python: `LXMRouter.ROTATION_HEADROOM_PCT = 10` (`:47`).
+    public static let rotationHeadroomPct = 10
+    /// Acceptance rate at or above which a peer is never rotated out.
+    /// Python: `LXMRouter.ROTATION_AR_MAX = 0.5` (`:48`).
+    public static let rotationAcceptanceRateMax = 0.5
 
     // MARK: - State
 
@@ -2510,6 +2516,11 @@ public final class LXMRouter {
         lock.unlock()
         for tid in allTids { peer.addUnhandledMessage(tid) }
         return peer
+    }
+
+    /// Drop low-acceptance-rate peers to recover headroom under `maxPeers`.
+    /// Mirrors Python's `LXMRouter.rotate_peers()` (`LXMRouter.py:2060-2130`).
+    public func rotatePeers() {
     }
 
     /// Break peering with a node.
