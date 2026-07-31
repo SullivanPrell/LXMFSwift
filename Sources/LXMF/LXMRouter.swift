@@ -292,6 +292,18 @@ public final class LXMRouter {
     /// Python: `LXMRouter.max_peering_cost` (`:150`), applied at `:2005`.
     public var maxPeeringCost: Int = LXMRouter.defaultMaxPeeringCost
 
+    /// Propagation destinations this node is always peered with, by destination hash.
+    ///
+    /// Python: `LXMRouter.static_peers` (`:211-219`). A static peer is the operator's declared
+    /// upstream rather than a discovered one, so it is exempt from rotation (`:2092`) and from the
+    /// unreachability cull (`:2140`) — losing it is not something discovery can repair.
+    public var staticPeers: Set<Data> = []
+
+    /// Whether rotation drops only unreachable peers when any exist, rather than considering
+    /// merely-waiting ones alongside them.
+    /// Python: `LXMRouter.prioritise_rotating_unreachable_peers` (`:167`), consumed at `:2104`.
+    public var prioritiseRotatingUnreachablePeers: Bool = false
+
     /// The furthest, in hops, a node may be and still be peered with automatically.
     ///
     /// Python: `LXMRouter.AUTOPEER_MAXDEPTH = 4` (`:45`). Note that `lxmd`'s example configuration

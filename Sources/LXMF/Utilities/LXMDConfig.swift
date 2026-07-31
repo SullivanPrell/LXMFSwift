@@ -40,16 +40,9 @@ public enum LXMDConfig {
         "autopeer_maxdepth":       .setting("autopeerMaxdepth"),
         "peering_cost":            .setting("peeringCost"),
 
-        "max_peers": .notImplemented(
-            reason: "swift_devel/bugs/043 — the peer table has no bound. Python caps it at "
-                  + "MAX_PEERS = 20 (LXMRouter.py:43) inside peer() (:2032)."),
-        "static_peers": .notImplemented(
-            reason: "swift_devel/bugs/043 — no static peer list, so there is no way to tell a node "
-                  + "to keep a declared upstream through rotation and unreachability culling "
-                  + "(LXMRouter.py:2092, :2140)."),
-        "remote_peering_cost_max": .notImplemented(
-            reason: "swift_devel/bugs/043 — Python's max_peering_cost (LXMRouter.py:150), the "
-                  + "ceiling peer() applies before peering at all (:2005-2010)."),
+        "max_peers":               .setting("maxPeers"),
+        "static_peers":            .setting("staticPeers"),
+        "remote_peering_cost_max": .setting("maxPeeringCost"),
         "from_static_only": .notImplemented(
             reason: "Out of scope, deliberately: it shares the ERROR_THROTTLED answer with the "
                   + "stamp throttle (LXMRouter.py:2292-2295) and is a different condition. "
