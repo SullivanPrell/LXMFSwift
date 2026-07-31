@@ -2522,6 +2522,83 @@ public final class LXMRouter {
              metadata: announce.metadata)
     }
 
+    /// Everything a propagation-node announce means to this router.
+    ///
+    /// `swift_devel/bugs/046`. The single seam behind both registered announce handlers — the
+    /// public `LXMFPropagationAnnounceHandler` a consumer may register itself, and the private
+    /// `PropagationNodeAnnounceHandler` that `init` always registers. They are two registrations of
+    /// one decision; giving each its own copy is how a fix reaches one and not the other.
+    ///
+    /// Mirrors `LXMF/Handlers.py:41-99` whole: the outbound-PN trigger, then peering.
+    ///
+    /// This is the **proactive** half of autopeering, and the half that starts the relationship.
+    /// `considerAutopeering(with:)` is the reactive half, on the incoming-sync path — it can only
+    /// fire for a remote that has already synced to us, which no remote does until someone peers.
+    func handlePropagationNodeAnnounce(destinationHash: Data,
+                                       appData: Data?,
+                                       isPathResponse: Bool) {
+        // `Handlers.py:44-54` — our configured outbound PN is back; retry propagated messages now
+        // rather than at the next delivery attempt.
+        if outboundPropagationNode == destinationHash,
+           propagationNodeAnnounceDataIsValid(appData) {
+            triggerPropagatedOutbound()
+        }
+
+        // `Handlers.py:56` — the rest is a propagation node's business only. A client has no peer
+        // table to put anything in.
+        guard isPropagationNode else { return }
+        guard let announce = PropagationNodeAnnounce(appData: appData) else { return }
+
+        lock.lock()
+        let isStatic  = staticPeers.contains(destinationHash)
+        let lastHeard = peers[destinationHash]?.lastHeard
+        lock.unlock()
+
+        func adoptTerms() {
+            peer(destinationHash: destinationHash,
+                 timestamp: announce.timebase,
+                 transferLimit: announce.transferLimit,
+                 syncLimit: announce.syncLimit,
+                 stampCost: announce.stampCost,
+                 stampCostFlexibility: announce.stampCostFlexibility,
+                 peeringCost: announce.peeringCost,
+                 metadata: announce.metadata)
+        }
+
+        if isStatic {
+            // `Handlers.py:68-78`. A static peering is the operator's decision, so it does not
+            // consult `autopeer` or the depth limit. It accepts a path response only when the peer
+            // has never been heard from — which is how a peer that was offline at startup is
+            // learned at all, since a solicited path response is the only announce it will produce.
+            guard !isPathResponse || (lastHeard ?? 0) == 0 else { return }
+            adoptTerms()
+            return
+        }
+
+        // `Handlers.py:81`. `not is_path_response` gates autopeering only: a path response is a
+        // replayed announce this node solicited, so peering off one means peering off an
+        // advertisement of unknown age.
+        guard autopeer, !isPathResponse else { return }
+
+        guard announce.isPropagationNode else {
+            // `:98-99` — it says it has stopped propagating. Take it at its word rather than
+            // waiting for MAX_UNREACHABLE failed syncs to cull it.
+            unpeer(destinationHash: destinationHash, timestamp: announce.timebase)
+            return
+        }
+
+        // `:83`. An unknown hop count is out of range, not zero hops — Python gets that from
+        // `hops_to` answering `PATHFINDER_M`; `hopsTo` answers nil, so it is a decision here.
+        guard let hops = transport.hopsTo(destinationHash), Int(hops) <= autopeerMaxdepth else {
+            // `:93-96` — an existing peer that has moved out of range is dropped, so the depth
+            // limit bounds which peers are *held* and not merely which are acquired.
+            unpeer(destinationHash: destinationHash, timestamp: announce.timebase)
+            return
+        }
+
+        adoptTerms()
+    }
+
     /// Insert a peer into the table unconditionally.
     ///
     /// The internal half of `peer(destinationHash:...)`, which is where the reference's peering
@@ -3374,23 +3451,26 @@ private final class DeliveryAnnounceHandler: AnnounceHandler {
     }
 }
 
-/// Listens for announces from the configured outbound propagation node.
-/// When the configured PN announces, triggers outbound processing for any
-/// pending propagated messages so they are sent without waiting for the
-/// next retry timer. Mirrors Python `Handlers.PropagationNodeAnnounceHandler`
-/// (outbound processing trigger added in LXMF 0.9.9 / a8505ea).
+/// Listens for propagation-node announces: triggers outbound processing when the configured
+/// outbound PN announces, and peers when the router is itself a propagation node.
+///
+/// Mirrors Python `Handlers.LXMFPropagationAnnounceHandler`. Both behaviours live in
+/// `LXMRouter.handlePropagationNodeAnnounce`, which the public handler in `Handlers.swift` also
+/// calls — see `swift_devel/bugs/046` for what having two copies of it cost.
 private final class PropagationNodeAnnounceHandler: AnnounceHandler {
     let aspectFilter: String? = APP_NAME + ".propagation"
+    /// `Handlers.py:38`. The peering branch needs to *see* path responses in order to distinguish
+    /// them — a static peer takes its terms from one, and autopeering must refuse one.
+    let receivePathResponses: Bool = true
     weak var router: LXMRouter?
 
     init(router: LXMRouter) { self.router = router }
 
-    func receivedAnnounce(destinationHash: Data, identity: Identity, appData: Data?) {
-        guard let router else { return }
-        // Only act if this announce is from our configured outbound PN.
-        guard router.outboundPropagationNode == destinationHash else { return }
-        guard propagationNodeAnnounceDataIsValid(appData) else { return }
-        router.triggerPropagatedOutbound()
+    func receivedAnnounce(destinationHash: Data, identity: Identity, appData: Data?,
+                          announcePacketHash: Data, isPathResponse: Bool) {
+        router?.handlePropagationNodeAnnounce(destinationHash: destinationHash,
+                                              appData: appData,
+                                              isPathResponse: isPathResponse)
     }
 }
 

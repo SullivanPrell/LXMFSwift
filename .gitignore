@@ -9,3 +9,4 @@ Packages/
 DerivedData/
 .netrc
 .claude/
+.build-linux/
