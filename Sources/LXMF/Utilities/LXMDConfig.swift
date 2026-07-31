@@ -15,6 +15,47 @@ public enum LXMDConfig {
     /// Python: JOBS_INTERVAL = 5
     public static let jobsInterval: Int = 5
 
+    // MARK: - Peering settings ledger
+
+    /// How a peering key in `exampleConfig` is answered by the port.
+    public enum SettingBacking: Equatable {
+        /// The name of the `LXMRouter` property that carries this key's value.
+        case setting(String)
+        /// The port does not implement this key, for the stated reason.
+        ///
+        /// Recorded rather than omitted: the standing rule is that a divergence from the reference
+        /// is documented, never left implicit, and a key that simply vanishes from this table is
+        /// indistinguishable from one nobody noticed.
+        case notImplemented(reason: String)
+    }
+
+    /// Every peering key `exampleConfig` shows an operator, and what answers it.
+    ///
+    /// `autopeer` and `autopeer_maxdepth` were in the template with nothing behind them for the
+    /// life of the port (`swift_devel/bugs/042`), which is `bugs/030`'s defect at key scale. This
+    /// table is what `PeeringSettingsGuardTests` checks the template against, so a key added to
+    /// one without the other fails rather than quietly becoming decoration.
+    public static let peeringSettings: [String: SettingBacking] = [
+        "autopeer":                .setting("autopeer"),
+        "autopeer_maxdepth":       .setting("autopeerMaxdepth"),
+        "peering_cost":            .setting("peeringCost"),
+
+        "max_peers": .notImplemented(
+            reason: "swift_devel/bugs/043 — the peer table has no bound. Python caps it at "
+                  + "MAX_PEERS = 20 (LXMRouter.py:43) inside peer() (:2032)."),
+        "static_peers": .notImplemented(
+            reason: "swift_devel/bugs/043 — no static peer list, so there is no way to tell a node "
+                  + "to keep a declared upstream through rotation and unreachability culling "
+                  + "(LXMRouter.py:2092, :2140)."),
+        "remote_peering_cost_max": .notImplemented(
+            reason: "swift_devel/bugs/043 — Python's max_peering_cost (LXMRouter.py:150), the "
+                  + "ceiling peer() applies before peering at all (:2005-2010)."),
+        "from_static_only": .notImplemented(
+            reason: "Out of scope, deliberately: it shares the ERROR_THROTTLED answer with the "
+                  + "stamp throttle (LXMRouter.py:2292-2295) and is a different condition. "
+                  + "Recorded in swift_devel/bugs/044 rather than folded into it."),
+    ]
+
     // MARK: - Example configuration
 
     /// Example lxmd configuration file contents.
