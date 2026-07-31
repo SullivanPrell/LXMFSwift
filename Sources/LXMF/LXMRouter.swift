@@ -320,6 +320,10 @@ public final class LXMRouter {
     /// the router's default, and the port keeps both as the reference has them.
     public var autopeerMaxdepth: Int = LXMRouter.defaultAutopeerMaxdepth
 
+    /// Remotes whose offers are refused until the recorded time, keyed by propagation destination
+    /// hash. Python: `LXMRouter.throttled_peers` (`LXMRouter.py:154`).
+    public var throttledPeers: [Data: TimeInterval] = [:]
+
     /// Active inbound propagation links from peers/clients.
     public var activePropagationLinks: [ObjectIdentifier: Link] = [:]
 
@@ -2519,6 +2523,11 @@ public final class LXMRouter {
         lock.unlock()
         for tid in allTids { peer.addUnhandledMessage(tid) }
         return peer
+    }
+
+    /// Drop throttle records that have expired.
+    /// Mirrors Python's `LXMRouter.clean_throttled_peers()` (`LXMRouter.py:1136-1142`).
+    public func cleanThrottledPeers(now: TimeInterval = Date().timeIntervalSince1970) {
     }
 
     /// Drop low-acceptance-rate peers to recover headroom under `maxPeers`.
