@@ -100,6 +100,15 @@ final class LXMRouterJobsTests: XCTestCase {
         }
 
         for entry in Self.reference where entry.interval <= 12 {
+            // A routine the port has not written is scheduled but not dispatched, and says why
+            // (`testEveryScheduledRoutineHasABodyOrARecordedReason`). Asserting it ran would
+            // require a body that does nothing, which is the shape that hides a missing routine.
+            guard LXMRouter.jobSchedule.first(where: { $0.name == entry.name })?.pendingReason == nil
+            else {
+                XCTAssertNil(ranOn[entry.name],
+                             "\(entry.name) is recorded as unimplemented and ran anyway")
+                continue
+            }
             let expected = Array(stride(from: entry.interval, through: 12, by: entry.interval))
             XCTAssertEqual(ranOn[entry.name] ?? [], expected,
                            """

@@ -173,6 +173,23 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.JOB_TRANSIENT_INTERVAL = 60`.
     static let jobTransientInterval = 60
 
+    // The rest of the reference's job intervals (`LXMRouter.py:871-879`), in ticks of
+    // `PROCESSING_INTERVAL` (4 s).
+    static let jobOutboundInterval   = 1        // JOB_OUTBOUND_INTERVAL
+    static let jobStampsInterval     = 1        // JOB_STAMPS_INTERVAL
+    static let jobLinksInterval      = 1        // JOB_LINKS_INTERVAL
+    static let jobStoreInterval      = 120      // JOB_STORE_INTERVAL
+    static let jobPeerSyncInterval   = 6        // JOB_PEERSYNC_INTERVAL
+    static let jobPeerIngestInterval = 6        // JOB_PEERINGEST_INTERVAL = JOB_PEERSYNC_INTERVAL
+    static let jobRotateInterval     = 56 * jobPeerIngestInterval   // JOB_ROTATE_INTERVAL
+
+    /// Seconds a direct delivery link may sit idle before it is torn down.
+    /// Python: `LXMRouter.LINK_MAX_INACTIVITY = 600` (`LXMRouter.py:36`).
+    public static let linkMaxInactivity: TimeInterval = 600
+    /// Seconds a propagation link may sit idle before it is torn down.
+    /// Python: `LXMRouter.P_LINK_MAX_INACTIVITY = 180` (`:37`).
+    public static let propagationLinkMaxInactivity: TimeInterval = 180
+
     // MARK: - Priority and ignore lists
 
     /// Destinations that should receive priority delivery.
@@ -398,21 +415,10 @@ public final class LXMRouter {
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         // Repeat every 4 s, first fire after 4 s (no need to run immediately on start).
         timer.schedule(deadline: .now() + 4, repeating: 4)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.processingCount &+= 1
-            self.processOutbound()
-            // Mirrors Python's jobs(): the resource reap runs on every
-            // JOB_RESOURCE_INTERVAL-th tick, not every tick.
-            if self.processingCount % LXMRouter.jobResourceInterval == 0 {
-                self.cleanResourceTracking()
-            }
-            if self.processingCount % LXMRouter.jobTransientInterval == 0 {
-                self.cleanTransientIDCaches()
-                self.saveLocallyDeliveredTransientIDs()
-                self.saveLocallyProcessedTransientIDs()
-            }
-        }
+        // One line, because the schedule is `jobSchedule` and not this closure: a routine added to
+        // the reference is added there, where a test compares it against `LXMRouter.py:880-911`.
+        // This block previously ran three of the reference's ten routines, and nothing said so.
+        timer.setEventHandler { [weak self] in self?.jobs() }
         timer.resume()
         jobTimer = timer
     }
@@ -2571,7 +2577,42 @@ public final class LXMRouter {
     }
 
     /// The reference's `jobs()` as a schedule. Mirrors `LXMRouter.py:880-911`.
-    public static let jobSchedule: [Job] = []
+    public static let jobSchedule: [Job] = [
+        .init("processOutbound", every: jobOutboundInterval) { $0.processOutbound() },
+
+        .init("processDeferredStamps", every: jobStampsInterval,
+              pending: "The deferred-stamp queue is not ported. Python defers stamp generation for "
+                     + "outbound messages onto this tick (LXMRouter.py:887-888); the port generates "
+                     + "stamps synchronously in send(), so there is no queue to drain. Scheduled "
+                     + "here so porting the queue does not also require noticing the loop."),
+
+        .init("cleanLinks", every: jobLinksInterval) { $0.cleanLinks() },
+        .init("cleanResourceTracking", every: jobResourceInterval) { $0.cleanResourceTracking() },
+
+        .init("cleanTransientIDCaches", every: jobTransientInterval) {
+            $0.cleanTransientIDCaches()
+            $0.saveLocallyDeliveredTransientIDs()
+            $0.saveLocallyProcessedTransientIDs()
+        },
+
+        .init("cleanMessageStore", every: jobStoreInterval, propagationNodeOnly: true) {
+            $0.cleanMessageStore()
+        },
+        .init("flushQueues", every: jobPeerIngestInterval, propagationNodeOnly: true) {
+            $0.flushQueues()
+        },
+        .init("rotatePeers", every: jobRotateInterval, propagationNodeOnly: true) {
+            $0.rotatePeers()
+        },
+        .init("syncPeers", every: jobPeerSyncInterval, propagationNodeOnly: true) {
+            $0.syncPeers()
+        },
+
+        // Shares the peer-sync interval but sits *outside* its propagation-node guard
+        // (`LXMRouter.py:908-910`): a client throttled by a node it talked to needs its own record
+        // expired too.
+        .init("cleanThrottledPeers", every: jobPeerSyncInterval) { $0.cleanThrottledPeers() },
+    ]
 
     /// Run the routines due on this tick, and return their names.
     ///
@@ -2580,7 +2621,62 @@ public final class LXMRouter {
     /// `public final`, so there is no subclass to spy with.
     @discardableResult
     public func jobs() -> [String] {
-        []
+        processingCount &+= 1
+        let tick = processingCount
+
+        var ran: [String] = []
+        for job in LXMRouter.jobSchedule {
+            guard tick % job.interval == 0 else { continue }
+            guard !job.propagationNodeOnly || isPropagationNode else { continue }
+            guard job.pendingReason == nil else { continue }
+            job.run(self)
+            ran.append(job.name)
+        }
+        return ran
+    }
+
+    /// Tear down links that have sat idle past their limit.
+    ///
+    /// Mirrors the link-reaping half of Python's `clean_links()` (`LXMRouter.py:951-975`). A link
+    /// held open indefinitely pins a slot in the link table of **every relay along its path**, not
+    /// just locally, and keepalive traffic keeps flowing over it.
+    ///
+    /// The reference's `clean_links` also maps outbound-propagation link closure onto the sync
+    /// state machine (`:991-1000`); that is `swift_devel/bugs/020` and belongs with the sync
+    /// terminality work, not here.
+    public func cleanLinks() {
+        lock.lock()
+        let direct = directLinks
+        let propagation = activePropagationLinks
+        lock.unlock()
+
+        for (destinationHash, link) in direct where link.noDataFor() > LXMRouter.linkMaxInactivity {
+            try? link.teardown()
+            lock.lock()
+            directLinks.removeValue(forKey: destinationHash)
+            validatedPeerLinks.removeValue(forKey: ObjectIdentifier(link))
+            lock.unlock()
+        }
+
+        for (key, link) in propagation
+        where link.noDataFor() > LXMRouter.propagationLinkMaxInactivity {
+            lock.lock(); activePropagationLinks.removeValue(forKey: key); lock.unlock()
+            try? link.teardown()
+        }
+    }
+
+    /// Map newly stored messages onto the peers that have not seen them.
+    ///
+    /// Mirrors Python's `flush_queues()` (`LXMRouter.py:923-933`): drain the distribution queue,
+    /// then let each peer fold its own queued items into its handled/unhandled sets.
+    public func flushQueues() {
+        lock.lock(); let hasPeers = !peers.isEmpty; lock.unlock()
+        guard hasPeers else { return }
+
+        flushPeerDistributionQueue()
+
+        lock.lock(); let peerList = Array(peers.values); lock.unlock()
+        for peer in peerList { peer.processQueues() }
     }
 
     /// Drop throttle records that have expired.
