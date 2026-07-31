@@ -136,6 +136,64 @@ final class PropagationPeeringTests: XCTestCase {
                      "an unknown hop count must fail the depth test, not pass it")
     }
 
+    // MARK: - Re-peering
+
+    func testAnExistingPeerIsUpdatedNotDuplicated() throws {
+        let router = LXMRouter(transport: Transport())
+        let hash = Data(repeating: 0xB1, count: LXMessage.destinationLength)
+
+        router.peer(destinationHash: hash, timestamp: 1_000, transferLimit: 128, syncLimit: 512,
+                    stampCost: 4, stampCostFlexibility: 1, peeringCost: 2, metadata: nil)
+        let first = try XCTUnwrap(router.peers[hash])
+        first.syncBackoff     = 90       // as a run of failed syncs would leave it
+        first.nextSyncAttempt = 1_000_000
+        first.alive           = false
+
+        router.peer(destinationHash: hash, timestamp: 2_000, transferLimit: 256, syncLimit: nil,
+                    stampCost: 8, stampCostFlexibility: 3, peeringCost: 5,
+                    metadata: ["name": "Renamed"])
+
+        XCTAssertEqual(router.peers.count, 1, "re-peering must not add a second entry")
+        XCTAssertTrue(router.peers[hash] === first,
+                      "re-peering must update the existing peer, not replace the object — the "
+                      + "sync state machine and unhandled-message set live on it")
+
+        XCTAssertEqual(first.peeringTimebase, 2_000)
+        XCTAssertEqual(first.propagationTransferLimit, 256)
+        XCTAssertEqual(first.propagationStampCost, 8)
+        XCTAssertEqual(first.propagationStampCostFlexibility, 3)
+        XCTAssertEqual(first.peeringCost, 5)
+        XCTAssertTrue(first.alive, "a peer that just peered again is reachable (LXMRouter.py:2015)")
+        XCTAssertEqual(first.metadata?["name"], "Renamed")
+
+        XCTAssertEqual(first.propagationSyncLimit, 256,
+                       "an unset sync limit means the transfer limit (LXMRouter.py:2028-2029), "
+                       + "not the previous peering's value")
+        XCTAssertEqual(first.syncBackoff, 0,
+                       "re-peering clears the accumulated backoff (LXMRouter.py:2017-2018), so a "
+                       + "peer that comes back is retried now rather than after its old wait")
+        XCTAssertEqual(first.nextSyncAttempt, 0)
+    }
+
+    func testAStalePeeringDoesNotOverwriteANewerOne() throws {
+        let router = LXMRouter(transport: Transport())
+        let hash = Data(repeating: 0xB2, count: LXMessage.destinationLength)
+
+        router.peer(destinationHash: hash, timestamp: 2_000, transferLimit: 256, syncLimit: 256,
+                    stampCost: 8, stampCostFlexibility: 0, peeringCost: 0, metadata: nil)
+        router.peer(destinationHash: hash, timestamp: 1_000, transferLimit: 1, syncLimit: 1,
+                    stampCost: 99, stampCostFlexibility: 9, peeringCost: 9, metadata: nil)
+
+        let peer = try XCTUnwrap(router.peers[hash])
+        XCTAssertEqual(peer.peeringTimebase, 2_000,
+                       """
+                       a peering older than the peer's timebase must be ignored \
+                       (LXMRouter.py:2013) — announces reorder, and without the guard the last one \
+                       to arrive wins rather than the newest one.
+                       """)
+        XCTAssertEqual(peer.propagationStampCost, 8, "the stale announce's limits were applied")
+    }
+
     // MARK: - Harness
 
     /// A propagation node, a remote that syncs to it, and the announce/path state the node would
