@@ -194,6 +194,10 @@ public final class LXMRouter {
     static let jobPeerSyncInterval   = 6        // JOB_PEERSYNC_INTERVAL
     static let jobPeerIngestInterval = 6        // JOB_PEERINGEST_INTERVAL = JOB_PEERSYNC_INTERVAL
     static let jobRotateInterval     = 56 * jobPeerIngestInterval   // JOB_ROTATE_INTERVAL
+    /// Not a reference interval — see the `savePeers` entry's `addedBecause`. 30 ticks is two
+    /// minutes at the 4 s processing interval: frequent enough that an unannounced termination
+    /// loses little, rare enough that it is not rewriting the peer file behind every sync.
+    static let jobSaveInterval       = 30
 
     /// Seconds a direct delivery link may sit idle before it is torn down.
     /// Python: `LXMRouter.LINK_MAX_INACTIVITY = 600` (`LXMRouter.py:36`).
@@ -2095,6 +2099,23 @@ public final class LXMRouter {
             }
         }
 
+        // Activate configured static peers.
+        //
+        // Python does this immediately after rebuilding the saved peers (`LXMRouter.py:633-641`):
+        // any static peer not already restored gets an entry, and one that has never been heard
+        // from gets a path request, because a peer that was offline at startup will not announce
+        // on its own and the solicited path response is the only way its terms are ever learned.
+        //
+        // Without it `staticPeers` was a set the sync path filtered against and nothing ever put
+        // a peer into — an operator could configure a peering that silently never happened.
+        for staticPeer in staticPeers {
+            // `addPeer` returns the existing entry when there is one, which is what supplies
+            // Python's `if not static_peer in self.peers` (`:635`) — a peer restored from disk
+            // keeps its terms and sync history rather than being replaced with a blank one.
+            let peer = addPeer(destinationHash: staticPeer)
+            if peer.lastHeard == 0 { try? transport.requestPath(for: staticPeer) }
+        }
+
         // Load saved node statistics.
         let statsPath = rootPath + "/node_stats"
         if fm.fileExists(atPath: statsPath),
@@ -2711,27 +2732,51 @@ public final class LXMRouter {
         /// Recorded rather than left out of the schedule: an omitted routine is indistinguishable
         /// from one nobody noticed.
         public let pendingReason: String?
+        /// Non-nil when the routine is **not** in the reference's `jobs()` and this port runs it
+        /// anyway, saying why.
+        ///
+        /// The schedule is compared against `LXMRouter.py:880-911` by test, so an addition has to
+        /// declare itself. A divergence with a recorded reason is a decision; one without is a
+        /// mistake nobody has noticed yet.
+        public let additionReason: String?
         let run: (LXMRouter) -> Void
 
         init(_ name: String, every interval: Int, propagationNodeOnly: Bool = false,
-             pending pendingReason: String? = nil, run: @escaping (LXMRouter) -> Void = { _ in }) {
+             pending pendingReason: String? = nil, addedBecause additionReason: String? = nil,
+             run: @escaping (LXMRouter) -> Void = { _ in }) {
             self.name = name
             self.interval = interval
             self.propagationNodeOnly = propagationNodeOnly
             self.pendingReason = pendingReason
+            self.additionReason = additionReason
             self.run = run
         }
     }
+
+    /// Why `processDeferredStamps` is scheduled but not dispatched.
+    static let deferredStampsPendingReason = """
+        The deferred-stamp queue is not ported. Python defers stamp generation for outbound \
+        messages onto this tick (LXMRouter.py:887-888); the port generates stamps synchronously \
+        in send(), so there is no queue to drain. Scheduled here so porting the queue does not \
+        also require noticing the loop.
+        """
+
+    /// Why `savePeers` is in this port's schedule and not in the reference's.
+    static let savePeersAdditionReason = """
+        The reference persists the peer table on exit only — atexit plus SIGINT/SIGTERM handlers \
+        (LXMRouter.py:307-309, :1400-1423) — which suits a daemon that is stopped politely. This \
+        port's primary consumer is an iOS app, terminated without notice and unable to run an \
+        exit handler at all, so exit-only persistence would lose every peer's handled/unhandled \
+        sets, peering timebase and measured transfer rates on each kill. Periodic saving also \
+        covers the daemon case; disablePropagation still saves immediately.
+        """
 
     /// The reference's `jobs()` as a schedule. Mirrors `LXMRouter.py:880-911`.
     public static let jobSchedule: [Job] = [
         .init("processOutbound", every: jobOutboundInterval) { $0.processOutbound() },
 
         .init("processDeferredStamps", every: jobStampsInterval,
-              pending: "The deferred-stamp queue is not ported. Python defers stamp generation for "
-                     + "outbound messages onto this tick (LXMRouter.py:887-888); the port generates "
-                     + "stamps synchronously in send(), so there is no queue to drain. Scheduled "
-                     + "here so porting the queue does not also require noticing the loop."),
+              pending: deferredStampsPendingReason),
 
         .init("cleanLinks", every: jobLinksInterval) { $0.cleanLinks() },
         .init("cleanResourceTracking", every: jobResourceInterval) { $0.cleanResourceTracking() },
@@ -2759,6 +2804,12 @@ public final class LXMRouter {
         // (`LXMRouter.py:908-910`): a client throttled by a node it talked to needs its own record
         // expired too.
         .init("cleanThrottledPeers", every: jobPeerSyncInterval) { $0.cleanThrottledPeers() },
+
+        .init("savePeers", every: jobSaveInterval, propagationNodeOnly: true,
+              addedBecause: savePeersAdditionReason) {
+            $0.savePeers()
+            $0.saveNodeStats()
+        },
     ]
 
     /// Run the routines due on this tick, and return their names.

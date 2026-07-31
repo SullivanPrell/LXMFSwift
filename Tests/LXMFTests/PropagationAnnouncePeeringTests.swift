@@ -312,6 +312,13 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
                 queued.fulfill()
             }
             test.wait(for: [queued], timeout: 5.0)
+            // `send` also kicks off `processOutbound()` on that same background task, and it
+            // writes `nextDeliveryAttempt` too. Settle before returning, so the caller's timer is
+            // set after the last writer other than the announce trigger has finished — otherwise
+            // the assertion races the queueing that set it up.
+            let settled = test.expectation(description: "outbound processing settled")
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) { settled.fulfill() }
+            test.wait(for: [settled], timeout: 3.0)
             return message
         }
 

@@ -49,14 +49,29 @@ final class LXMRouterJobsTests: XCTestCase {
         let declared = Set(LXMRouter.jobSchedule.map(\.name))
         let expected = Set(Self.reference.map(\.name))
 
-        XCTAssertEqual(declared, expected,
-                       """
-                       missing: \(expected.subtracting(declared).sorted()); \
-                       unexpected: \(declared.subtracting(expected).sorted()). \
-                       Running only outbound processing is not a partial implementation of this \
-                       loop — it is a node that accepts peerings, answers announces and never \
-                       propagates anything.
-                       """)
+        XCTAssertTrue(expected.subtracting(declared).isEmpty,
+                      """
+                      missing: \(expected.subtracting(declared).sorted()). Running only outbound \
+                      processing is not a partial implementation of this loop — it is a node that \
+                      accepts peerings, answers announces and never propagates anything.
+                      """)
+    }
+
+    func testEveryRoutineTheReferenceDoesNotHaveSaysWhyItIsHere() {
+        let expected = Set(Self.reference.map(\.name))
+        let additions = LXMRouter.jobSchedule.filter { !expected.contains($0.name) }
+
+        for job in additions {
+            XCTAssertNotNil(job.additionReason,
+                            """
+                            \(job.name) is in this port's schedule and not in the reference's \
+                            (LXMRouter.py:880-911), with no reason recorded. A divergence with a \
+                            recorded reason is a decision; one without is a mistake nobody has \
+                            noticed yet — which is exactly how the three-of-ten loop survived.
+                            """)
+            XCTAssertFalse(job.additionReason?.isEmpty ?? true,
+                           "\(job.name) declares an empty reason for diverging")
+        }
     }
 
     func testEveryRoutineRunsOnTheReferenceInterval() {
@@ -150,6 +165,29 @@ final class LXMRouterJobsTests: XCTestCase {
     }
 
     // MARK: - Bodies
+
+    /// `jobs()` returns the names of the routines it dispatched, and every other test in this file
+    /// reads that return value — so all of them would stay green if a routine's *body* were
+    /// emptied. The name is reported by the schedule, not by the work.
+    ///
+    /// This one asserts an observable effect instead: `cleanThrottledPeers` is the cheapest
+    /// routine to set up state for and is dispatched on a plain client, so it needs no propagation
+    /// node. Deleting its body fails here and nowhere else.
+    func testARoutinesBodyActuallyRuns() throws {
+        let router = try makePropagationNode()
+        router.throttledPeers[Data(repeating: 0x11, count: 16)] = Date().timeIntervalSince1970 - 1
+        XCTAssertEqual(router.throttledPeers.count, 1, "precondition: there is an expired entry")
+
+        // cleanThrottledPeers runs every jobPeerSyncInterval ticks.
+        for _ in 1...LXMRouter.jobPeerSyncInterval { _ = router.jobs() }
+
+        XCTAssertTrue(router.throttledPeers.isEmpty,
+                      """
+                      the loop reported running cleanThrottledPeers and the expired entry is still \
+                      there. A schedule that names a routine and dispatches an empty body is \
+                      indistinguishable, to every other test here, from one that works.
+                      """)
+    }
 
     func testEveryScheduledRoutineHasABodyOrARecordedReason() {
         let pending = LXMRouter.jobSchedule.filter { $0.pendingReason != nil }
