@@ -2538,6 +2538,51 @@ public final class LXMRouter {
         return peer
     }
 
+    // MARK: - Periodic jobs
+
+    /// One entry of the periodic job schedule.
+    ///
+    /// The schedule is data rather than a chain of `if processingCount % … == 0` blocks so that
+    /// "which routines run, and how often" is a value a test can compare against the reference
+    /// (`LXMRouter.py:880-911`) — a missing routine is then a failing assertion rather than an
+    /// absence nobody can see, which is how `swift_devel/bugs/019` survived.
+    public struct Job {
+        /// The routine's name, matching the Swift method it dispatches.
+        public let name: String
+        /// How many ticks apart it runs. Python's `JOB_*_INTERVAL`.
+        public let interval: Int
+        /// Whether the reference runs it only on a propagation node.
+        public let propagationNodeOnly: Bool
+        /// Non-nil when the port schedules the routine but has not implemented it yet, saying why.
+        ///
+        /// Recorded rather than left out of the schedule: an omitted routine is indistinguishable
+        /// from one nobody noticed.
+        public let pendingReason: String?
+        let run: (LXMRouter) -> Void
+
+        init(_ name: String, every interval: Int, propagationNodeOnly: Bool = false,
+             pending pendingReason: String? = nil, run: @escaping (LXMRouter) -> Void = { _ in }) {
+            self.name = name
+            self.interval = interval
+            self.propagationNodeOnly = propagationNodeOnly
+            self.pendingReason = pendingReason
+            self.run = run
+        }
+    }
+
+    /// The reference's `jobs()` as a schedule. Mirrors `LXMRouter.py:880-911`.
+    public static let jobSchedule: [Job] = []
+
+    /// Run the routines due on this tick, and return their names.
+    ///
+    /// The return value is what makes dispatch observable without instrumenting production: a test
+    /// can drive the schedule and see exactly which routines ran on which tick. `LXMRouter` is
+    /// `public final`, so there is no subclass to spy with.
+    @discardableResult
+    public func jobs() -> [String] {
+        []
+    }
+
     /// Drop throttle records that have expired.
     /// Mirrors Python's `LXMRouter.clean_throttled_peers()` (`LXMRouter.py:1136-1142`).
     public func cleanThrottledPeers(now: TimeInterval = Date().timeIntervalSince1970) {
