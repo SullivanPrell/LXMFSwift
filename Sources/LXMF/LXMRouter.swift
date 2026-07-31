@@ -2660,8 +2660,64 @@ public final class LXMRouter {
     /// can reach without pinning production to a fixed choice (design D5).
     public func syncPeers<G: RandomNumberGenerator>(using generator: inout G) {
         guard isPropagationNode else { return }
-        lock.lock(); let peerList = Array(peers.values); lock.unlock()
-        for peer in peerList { peer.sync() }
+        lock.lock()
+        let all = Array(peers.values)
+        let staticHashes = staticPeers
+        lock.unlock()
+
+        let now = Date().timeIntervalSince1970
+        var culled:       [Data]    = []
+        var waiting:      [LXMPeer] = []
+        var unresponsive: [LXMPeer] = []
+
+        for peer in all {
+            // A peer not heard from for MAX_UNREACHABLE has gone away; without this it is
+            // attempted on every pass for the life of the process. A static peer is the operator's
+            // declared upstream and is exempt — a node behind a constrained link may legitimately
+            // be silent this long (`LXMRouter.py:2138-2140`).
+            if now > peer.lastHeard + LXMPeer.maxUnreachable {
+                if !staticHashes.contains(peer.destinationHash) {
+                    culled.append(peer.destinationHash)
+                }
+                continue
+            }
+
+            guard peer.state == .idle, peer.unhandledMessageCount > 0 else { continue }
+            if peer.alive {
+                waiting.append(peer)
+            } else if now > peer.nextSyncAttempt {
+                // Otherwise it is in sync backoff, and dialling it every pass is what backoff
+                // exists to prevent (`:2145`).
+                unresponsive.append(peer)
+            }
+        }
+
+        // The pool: the fastest peers by measured throughput, widened with up to as many again
+        // whose speed is not yet known (`:2148-2166`). The mix is deliberate — it lets a node
+        // converge on its good peers without starving peers it has never tried.
+        var pool: [LXMPeer] = []
+        if !waiting.isEmpty {
+            let fastest = waiting
+                .sorted { $0.syncTransferRate > $1.syncTransferRate }
+                .prefix(min(LXMRouter.fastestNRandomPool, waiting.count))
+            pool.append(contentsOf: fastest)
+
+            // A peer whose rate is still 0 can land in `fastest` as well — when every waiting peer
+            // is unmeasured, they all do — and so appears in the pool twice, weighting the draw
+            // toward it. The reference does exactly this (`:2151-2166` extends the same list), and
+            // it is left alone: de-duplicating would change the selection distribution away from
+            // the reference's for no stated reason.
+            let unknownSpeed = waiting.filter { $0.syncTransferRate == 0 }
+            pool.append(contentsOf: unknownSpeed.prefix(min(unknownSpeed.count, fastest.count)))
+        } else {
+            // Unresponsive peers are the pool only when nobody reachable is waiting (`:2168-2170`).
+            pool = unresponsive
+        }
+
+        // One peer per pass, not all of them (`:2172-2176`).
+        if let selected = pool.randomElement(using: &generator) { selected.sync() }
+
+        for destinationHash in culled { removePeer(destinationHash: destinationHash) }
     }
 
     // MARK: - Offer / get request handlers

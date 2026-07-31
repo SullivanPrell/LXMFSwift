@@ -79,11 +79,17 @@ final class PeerSyncSelectionTests: XCTestCase {
             stampValue: 0)
     }
 
-    /// Peers this pass asked to sync. `LXMPeer.sync()` moves an eligible peer out of `.idle`, so
-    /// the state after the pass is what distinguishes "asked" from "not asked" — no production
-    /// instrumentation needed.
+    /// Peers this pass **selected**, read from `lastSyncAttempt`, which `LXMPeer.sync()` stamps
+    /// unconditionally before any of its own guards (`LXMPeer.swift:556-557`).
+    ///
+    /// Not `state != .idle`: `sync()` self-gates on backoff, outstanding messages and transfer
+    /// state, so a peer the router *did* select can decline and stay `.idle`, making "not
+    /// selected" and "selected, then declined" indistinguishable. Measured — with the state
+    /// observable, removing the router's own outstanding-messages filter changed nothing any test
+    /// could see. The router's selection is a separate property from the peer's decision, and the
+    /// reference has both.
     private func syncsStarted(_ router: LXMRouter) -> [Data] {
-        router.peers.values.filter { $0.state != .idle }.map(\.destinationHash)
+        router.peers.values.filter { $0.lastSyncAttempt != 0 }.map(\.destinationHash)
     }
 
     // MARK: - The defect
@@ -176,19 +182,29 @@ final class PeerSyncSelectionTests: XCTestCase {
     }
 
     func testAReachablePeerIsPreferredOverAnUnresponsiveOne() throws {
-        let router = try makeNode()
-        seedStore(router)
-        addSyncablePeer(router, 0)
-        let unresponsive = addSyncablePeer(router, 1)
-        unresponsive.alive = false
+        // Over many draws, not one: a single draw against a pool that wrongly included the
+        // unresponsive peer would still pick the reachable one most of the time, so one pass
+        // cannot tell "excluded" from "included and not drawn".
+        var selected: Set<Data> = []
+        for seed in 0..<32 {
+            let router = try makeNode()
+            seedStore(router)
+            addSyncablePeer(router, 0)
+            let unresponsive = addSyncablePeer(router, 1)
+            unresponsive.alive = false
 
-        router.syncPeers()
+            var generator = SeededGenerator(seed: UInt64(seed))
+            router.syncPeers(using: &generator)
+            selected.formUnion(syncsStarted(router))
+        }
 
-        XCTAssertEqual(syncsStarted(router), [hash(0)],
+        XCTAssertFalse(selected.contains(hash(1)),
                        """
-                       unresponsive peers are the pool only when no reachable peer is waiting \
+                       an unresponsive peer was selected while a reachable one was waiting. \
+                       Unresponsive peers are the pool only when nobody reachable is waiting \
                        (LXMRouter.py:2168-2170).
                        """)
+        XCTAssertEqual(selected, [hash(0)], "the reachable peer should be the only one selected")
     }
 
     // MARK: - The pool
