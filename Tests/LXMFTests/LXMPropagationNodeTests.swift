@@ -300,7 +300,12 @@ final class LXMPropagationNodeTests: XCTestCase {
         XCTAssertEqual(router.peers.count, 1)
     }
 
-    func testAddPeerMarksExistingMessagesAsUnhandled() throws {
+    /// Inverted 2026-07-31: this asserted that a new peer is seeded with the whole store, which
+    /// is a divergence, not a requirement. Python's `peer()` constructs the peer, sets its
+    /// advertised terms and stops (`LXMRouter.py:2032-2045`); `unhandled_messages` is derived from
+    /// the store's per-entry peer lists (`LXMPeer.py:583-588`), and a peer created now appears in
+    /// none of them. See `swift_devel/bugs/050` for what the back-fill cost.
+    func testAddPeerDoesNotSeedTheExistingStore() throws {
         let router = makeRouter()
         try router.enablePropagation(storagePath: tempDir)
 
@@ -312,8 +317,8 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         let hash = fakeHash(0xBB)
         let peer = router.addPeer(destinationHash: hash)
-        XCTAssertTrue(peer.unhandledMessages.contains(tid),
-                      "Existing messages must be queued as unhandled for new peer")
+        XCTAssertFalse(peer.unhandledMessages.contains(tid),
+                       "a new peer receives what arrives after peering, not the existing store")
     }
 
     func testRemovePeer() {
@@ -330,7 +335,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let router = makeRouter()
         let tid    = fakeHash(0x01)
         router.enqueueForPeerDistribution(transientID: tid)
-        XCTAssertTrue(router.peerDistributionQueue.contains(tid))
+        XCTAssertTrue(router.peerDistributionQueue.contains { $0.transientID == tid })
     }
 
     func testEnqueueDeduplicates() {

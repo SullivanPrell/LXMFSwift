@@ -374,7 +374,12 @@ public final class LXMRouter {
     public var validatedPeerLinks: [ObjectIdentifier: Bool] = [:]
 
     /// Queue of transient IDs waiting to be distributed to peers.
-    public var peerDistributionQueue: [Data] = []
+    /// Transient IDs awaiting fan-out to peers, each with the peer it arrived from.
+    ///
+    /// The origin is not decoration: Python queues `[transient_id, from_peer]` and skips that peer
+    /// when it fans out (`LXMRouter.py:2469-2486`). A queue of bare IDs offers every message back
+    /// to whoever supplied it.
+    public var peerDistributionQueue: [(transientID: Data, fromPeer: LXMPeer?)] = []
 
     /// Number of messages received from unpeered clients.
     public var clientPropagationMessagesReceived: Int = 0
@@ -2219,13 +2224,36 @@ public final class LXMRouter {
         // (design D1).
         let sender = link.flatMap { remotePropagationHash(of: $0) }
 
+        // Peer BEFORE ingesting, as the reference does (`LXMRouter.py:2366-2375` runs above the
+        // validation loop at `:2400+`). The order is load-bearing: `from_peer` can only exclude a
+        // peer that exists by the time its messages are stored, so peering afterwards would offer
+        // the remote its own upload straight back.
+        if let sender { considerAutopeering(with: sender) }
+
+        lock.lock()
+        let senderPeer = sender.flatMap { peers[$0] }
+        lock.unlock()
+
         let minCost = max(0, propagationStampCost - propagationStampCostFlexibility)
         let validated = LXStamper.validatePNStamps(transientList: transientList, targetCost: minCost)
         for entry in validated {
-            lock.lock(); clientPropagationMessagesReceived += 1; lock.unlock()
+            lock.lock()
+            if let senderPeer {
+                // `LXMRouter.py:2434-2436` — a sync from a peer counts against that peer, not
+                // against the client tally.
+                senderPeer.incoming += 1
+                senderPeer.rxBytes  += entry.lxmfData.count
+            } else if sender != nil {
+                unpeeredPropagationIncoming += 1
+                unpeeredPropagationRxBytes  += entry.lxmfData.count
+            } else {
+                clientPropagationMessagesReceived += 1
+            }
+            lock.unlock()
             _ = ingestPropagatedLXM(lxmfData: entry.lxmfData,
                                     stampValue: entry.stampValue,
-                                    stamp:      entry.stamp)
+                                    stamp:      entry.stamp,
+                                    fromPeer:   senderPeer)
         }
 
         // A transfer carrying messages whose stamps do not validate costs this node full
@@ -2240,8 +2268,6 @@ public final class LXMRouter {
             lock.unlock()
             try? link?.teardown()
         }
-
-        if let sender { considerAutopeering(with: sender) }
     }
 
     /// Ingest a propagation payload with no sender attached.
@@ -2326,9 +2352,8 @@ public final class LXMRouter {
         guard (try? fileBytes.write(to: URL(fileURLWithPath: filePath))) != nil else { return nil }
 
         let destHash = Data(lxmfData.prefix(LXMessage.destinationLength))
-        // Re-check dedup + construct the entry under the lock (unhandledPeers reflects
-        // the peer set at insert time; a concurrent add of the same transientID that
-        // won while we wrote the file is honoured — we return its entry).
+        // Re-check dedup + construct the entry under the lock. A concurrent add of the same
+        // transientID that won while we wrote the file is honoured — we return its entry.
         lock.lock()
         if let existing = propagationEntries[transientID] {
             lock.unlock()
@@ -2342,7 +2367,13 @@ public final class LXMRouter {
             received:       received,
             msgSize:        fileBytes.count,
             handledPeers:   [],
-            unhandledPeers: Array(peers.keys),  // all peers need this message
+            // Empty, as the reference constructs it (`LXMRouter.py:2518`, and `:586-587` on load
+            // from disk). Populating it with every peer here made the store the *first* writer of
+            // the unhandled set and left the distribution queue's origin exclusion
+            // (`:2484`, `if peer != from_peer`) with nothing to exclude — the peer that uploaded a
+            // message was already recorded as needing it before the queue was ever consulted.
+            // `flushPeerDistributionQueue` is now the single writer.
+            unhandledPeers: [],
             stampValue:     stampValue
         )
         propagationEntries[transientID] = entry
@@ -2647,13 +2678,16 @@ public final class LXMRouter {
         let peer = LXMPeer(router: self, destinationHash: destinationHash,
                            syncStrategy: syncStrategy)
         peers[destinationHash] = peer
-        // Snapshot existing message IDs, then seed the new peer OUTSIDE the lock
-        // (addUnhandledMessage self-locks; seeding is idempotent — peerAddUnhandled
-        // dedups — so a concurrent addToMessageStore that already included the new
-        // peer causes no double-add).
-        let allTids = Array(propagationEntries.keys)
         lock.unlock()
-        for tid in allTids { peer.addUnhandledMessage(tid) }
+        // Deliberately NOT seeded with the existing store. Python's `peer()` constructs the peer,
+        // sets its advertised terms, and stops (`LXMRouter.py:2032-2045`); `unhandled_messages` is
+        // derived from the store's per-entry peer lists (`LXMPeer.py:583-588`), so a peer created
+        // now appears in none of them and starts empty. Back-filling made a node's first act after
+        // autopeering be to offer the new peer its entire store — including, because autopeering
+        // happens after ingest, the messages that peer had just uploaded.
+        //
+        // Restore is the opposite case and does seed: `LXMPeer.from(bytes:router:)` re-adds the
+        // sets that were recorded before the restart (`LXMPeer.py:118-129`).
         return peer
     }
 
@@ -2903,10 +2937,10 @@ public final class LXMRouter {
 
     /// Notify all peers that a new message has arrived and queue it for distribution.
     /// Python: `LXMRouter.peer_distribution_queue.append(transient_id)` + per-peer queue.
-    public func enqueueForPeerDistribution(transientID: Data) {
+    public func enqueueForPeerDistribution(transientID: Data, fromPeer: LXMPeer? = nil) {
         lock.lock(); defer { lock.unlock() }
-        guard !peerDistributionQueue.contains(transientID) else { return }
-        peerDistributionQueue.append(transientID)
+        guard !peerDistributionQueue.contains(where: { $0.transientID == transientID }) else { return }
+        peerDistributionQueue.append((transientID, fromPeer))
     }
 
     /// Flush the peer distribution queue — mark new messages as unhandled for all peers.
@@ -2923,8 +2957,8 @@ public final class LXMRouter {
         let peerList = Array(peers.values)
         lock.unlock()
 
-        for tid in batch {
-            for peer in peerList { peer.queueUnhandledMessage(tid) }
+        for (tid, origin) in batch {
+            for peer in peerList where peer !== origin { peer.queueUnhandledMessage(tid) }
         }
         for peer in peerList { peer.processQueues() }
     }
@@ -3197,15 +3231,23 @@ public final class LXMRouter {
     ///   - lxmfData: Raw LXMF bytes (without appended stamp).
     ///   - stampValue: Pre-validated stamp value.
     ///   - stamp: The 32-byte proof-of-work stamp.
+    ///   - fromPeer: the peer this arrived from on a sync, or nil for a client upload. It is
+    ///     excluded from the fan-out and the message is recorded as handled for it — Python does
+    ///     both (`LXMRouter.py:2444-2445`, `:2484`), because a peer that just sent us a message
+    ///     demonstrably has it.
     @discardableResult
-    public func ingestPropagatedLXM(lxmfData: Data, stampValue: Int, stamp: Data) -> PropagationEntry? {
+    public func ingestPropagatedLXM(lxmfData: Data, stampValue: Int, stamp: Data,
+                                    fromPeer: LXMPeer? = nil) -> PropagationEntry? {
         let transientID = Hashes.fullHash(lxmfData)
         lock.lock(); let isDup = propagationEntries[transientID] != nil; lock.unlock()
         guard !isDup else { return nil } // duplicate (addToMessageStore re-checks under lock)
 
         let entry = addToMessageStore(lxmfData: lxmfData, transientID: transientID,
                                       stampValue: stampValue, stamp: stamp)
-        if entry != nil { enqueueForPeerDistribution(transientID: transientID) }
+        if entry != nil {
+            fromPeer?.queueHandledMessage(transientID)
+            enqueueForPeerDistribution(transientID: transientID, fromPeer: fromPeer)
+        }
         return entry
     }
 
