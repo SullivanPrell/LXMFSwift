@@ -106,8 +106,12 @@ final class PeerRotationTests: XCTestCase {
         let untried = router.peers[hash(0)]!
         untried.offered  = 0
         untried.outgoing = 0
-        // Someone must be droppable, or this passes for the wrong reason.
-        router.peers[hash(1)]!.outgoing = 0
+        // Someone must be droppable, or this passes for the wrong reason — and its acceptance
+        // rate must be *above* zero. `acceptanceRate` returns 0.0 for a peer offered nothing, so a
+        // droppable peer that also scores 0.0 ties with `untried`, and Swift's sort is not stable:
+        // the outcome would depend on which of the two the tie-break happened to pick. Measured:
+        // with both at 0.0 this test passed even with the exclusion removed.
+        router.peers[hash(1)]!.outgoing = 1        // 10%, below the floor, and distinguishable
 
         router.rotatePeers()
 
