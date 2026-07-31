@@ -58,6 +58,12 @@ public final class LXMRouter {
     /// Mirrors Python `LXMRouter.PR_PATH_TIMEOUT`.
     public static let prPathTimeout: TimeInterval = 10.0
 
+    /// Whether a node peers automatically by default. Python: `LXMRouter.AUTOPEER = True` (`:44`).
+    public static let defaultAutopeer = true
+    /// Default automatic peering depth, in hops.
+    /// Python: `LXMRouter.AUTOPEER_MAXDEPTH = 4` (`:45`).
+    public static let defaultAutopeerMaxdepth = 4
+
     // MARK: - State
 
     private let transport: Transport
@@ -268,6 +274,17 @@ public final class LXMRouter {
 
     /// PoW cost for peering with this node.
     public var peeringCost: Int = 0
+
+    /// Whether to peer automatically with propagation nodes discovered through incoming syncs.
+    /// Python: `LXMRouter.AUTOPEER = True` (`LXMRouter.py:44`), consulted at `:2365`.
+    public var autopeer: Bool = LXMRouter.defaultAutopeer
+
+    /// The furthest, in hops, a node may be and still be peered with automatically.
+    ///
+    /// Python: `LXMRouter.AUTOPEER_MAXDEPTH = 4` (`:45`). Note that `lxmd`'s example configuration
+    /// suggests 6 (`Utilities/lxmd.py:995`) — that is the daemon's suggestion to an operator, not
+    /// the router's default, and the port keeps both as the reference has them.
+    public var autopeerMaxdepth: Int = LXMRouter.defaultAutopeerMaxdepth
 
     /// Active inbound propagation links from peers/clients.
     public var activePropagationLinks: [ObjectIdentifier: Link] = [:]
