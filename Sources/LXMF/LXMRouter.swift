@@ -2388,6 +2388,14 @@ public final class LXMRouter {
         let tableIsFull = peers.count >= maxPeers
         lock.unlock()
 
+        // The ceiling is about what the remote *demands*, so it is checked before anything else
+        // and applies to an existing peering too: a peer that raises its cost past what this node
+        // will pay has the peering broken, not merely a new one declined (`LXMRouter.py:2005-2010`).
+        guard peeringCost <= maxPeeringCost else {
+            if existing != nil { unpeer(destinationHash: destinationHash, timestamp: timestamp) }
+            return
+        }
+
         if let existing {
             guard timestamp > existing.peeringTimebase else { return }
             apply(announcedTimestamp: timestamp, transferLimit: transferLimit,
