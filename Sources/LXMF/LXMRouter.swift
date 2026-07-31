@@ -2519,8 +2519,66 @@ public final class LXMRouter {
     }
 
     /// Drop low-acceptance-rate peers to recover headroom under `maxPeers`.
-    /// Mirrors Python's `LXMRouter.rotate_peers()` (`LXMRouter.py:2060-2130`).
+    ///
+    /// Mirrors Python's `LXMRouter.rotate_peers()` (`LXMRouter.py:2060-2130`), kept as one routine
+    /// in the reference's order because its steps depend on each other: the postponement depends on
+    /// the untested count, the pool basis on the fully-synced set, and the drop pool on
+    /// `prioritiseRotatingUnreachablePeers` (design D4).
     public func rotatePeers() {
+        lock.lock()
+        let all = Array(peers.values)
+        let staticHashes = staticPeers
+        let bound = maxPeers
+        lock.unlock()
+
+        // Headroom, and whether the table is far enough over it to be worth rotating. The second
+        // condition keeps a tiny table from rotating itself down to nothing (`:2064`).
+        let headroom = max(1, Int((Double(bound) * Double(LXMRouter.rotationHeadroomPct) / 100.0)
+                                  .rounded(.down)))
+        let requiredDrops = all.count - (bound - headroom)
+        guard requiredDrops > 0, all.count - requiredDrops > 1 else { return }
+
+        // A peer that has never been synced with has no record to be judged on. While enough of
+        // them are outstanding, the whole pass is postponed rather than judging them (`:2067-2075`)
+        // — otherwise rotation drops whichever peer was added most recently.
+        let untested = all.filter { $0.lastSyncAttempt == 0 }
+        guard untested.count < headroom else { return }
+
+        // Prefer peers that have taken everything offered as the basis, when any have: a peer with
+        // messages still outstanding has an acceptance rate that has not finished being measured
+        // (`:2075-2084`).
+        let fullySynced = all.filter { $0.unhandledMessageCount == 0 }
+        let basis = fullySynced.isEmpty ? all : fullySynced
+
+        var waiting:      [LXMPeer] = []
+        var unresponsive: [LXMPeer] = []
+        for peer in basis where !staticHashes.contains(peer.destinationHash) && peer.state == .idle {
+            if peer.alive {
+                // Offered nothing, so there is no acceptance rate to judge — not a candidate,
+                // rather than a candidate scoring zero (`:2095-2098`).
+                if peer.offered != 0 { waiting.append(peer) }
+            } else {
+                unresponsive.append(peer)
+            }
+        }
+
+        var dropPool: [LXMPeer] = []
+        if !unresponsive.isEmpty {
+            dropPool = unresponsive
+            if !prioritiseRotatingUnreachablePeers { dropPool.append(contentsOf: waiting) }
+        } else {
+            dropPool = waiting
+        }
+        guard !dropPool.isEmpty else { return }
+
+        let dropCount = min(requiredDrops, dropPool.count)
+        let lowestAcceptance = dropPool
+            .sorted { $0.acceptanceRate < $1.acceptanceRate }
+            .prefix(dropCount)
+
+        for peer in lowestAcceptance where peer.acceptanceRate < LXMRouter.rotationAcceptanceRateMax {
+            unpeer(destinationHash: peer.destinationHash)
+        }
     }
 
     /// Break peering with a node.

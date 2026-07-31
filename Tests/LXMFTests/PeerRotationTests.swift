@@ -198,7 +198,16 @@ final class PeerRotationTests: XCTestCase {
         // this one is not considered on this pass.
         let stillSyncing = router.peers[hash(0)]!
         stillSyncing.outgoing = 0
-        stillSyncing.addUnhandledMessage(Hashes.fullHash(Data("outstanding".utf8)))
+        // The entry has to exist in the store first: `addUnhandledMessage` routes through the
+        // router and is a no-op for a transient ID it does not hold, so calling it alone leaves
+        // the peer looking fully synced and this test asserting nothing.
+        let outstanding = Hashes.fullHash(Data("outstanding".utf8))
+        router.propagationEntries[outstanding] = PropagationEntry(
+            destinationHash: hash(200), filePath: "/tmp/none", received: 0, msgSize: 1,
+            stampValue: 0)
+        stillSyncing.addUnhandledMessage(outstanding)
+        XCTAssertEqual(stillSyncing.unhandledMessageCount, 1,
+                       "precondition: the peer must actually have something outstanding")
         // The worst of the fully-synced peers.
         router.peers[hash(1)]!.outgoing = 1
 
