@@ -110,6 +110,7 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
                     case 4: _ = router.handleOfferRequest(
                                 data: .array([.bytes(Data([0x01])), .array([.bytes(tid)])]),
                                 remoteIdentityHash: Data(repeating: 0x77, count: 16),
+                                propagationHash: Data(repeating: 0x78, count: 16),
                                 linkID: ObjectIdentifier(linkPool[(w &+ i) % linkPool.count]))
                     case 5: router.enqueueForPeerDistribution(transientID: tid)
                     case 6: router.saveNodeStats()

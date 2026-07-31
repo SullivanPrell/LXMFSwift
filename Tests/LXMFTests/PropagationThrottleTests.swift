@@ -54,7 +54,7 @@ final class PropagationThrottleTests: XCTestCase {
     }
 
     func testAValidTransferThrottlesNobody() throws {
-        let net = try makeNodeAndRemote()
+        let net = try makeNodeAndRemote(stampCost: 4)
         try net.upload(stampIsValid: true)
 
         let answer = try net.makeOffer()
@@ -126,12 +126,39 @@ final class PropagationThrottleTests: XCTestCase {
     private struct Network {
         let router: LXMRouter
         let remotePropagationHash: Data
-        let link: Link
+        let remoteIdentity: Identity
+        let remoteTransport: Transport
+        let propagationDestination: Destination
+        let nodeTransport: Transport
         unowned let test: PropagationThrottleTests
+
+        /// A fresh identified link to the node.
+        ///
+        /// Each interaction gets its own, because an invalid-stamp transfer **tears the link
+        /// down** (`LXMRouter.py:2447`) — so a throttled remote's next offer necessarily arrives on
+        /// a new link, exactly as it would on a real mesh. Reusing one link would test a state that
+        /// cannot occur.
+        func connect() throws -> Link {
+            let localUp  = test.expectation(description: "remote side up")
+            let remoteUp = test.expectation(description: "node side up")
+            remoteTransport.onLinkEstablished = { _ in localUp.fulfill() }
+            nodeTransport.onLinkEstablished   = { _ in remoteUp.fulfill() }
+            let link = try Link.initiate(destination: propagationDestination,
+                                         transport: remoteTransport)
+            test.wait(for: [localUp, remoteUp], timeout: 3.0)
+
+            let nodeSideLink = try XCTUnwrap(nodeTransport.links[try XCTUnwrap(link.linkID)])
+            let identified = test.expectation(description: "node sees the remote's identity")
+            nodeSideLink.onRemoteIdentified = { _, _ in identified.fulfill() }
+            try link.identify(as: remoteIdentity)
+            test.wait(for: [identified], timeout: 2.0)
+            return link
+        }
 
         /// Upload one message as a propagation sync, with a stamp that either meets the node's
         /// required cost or does not.
         func upload(stampIsValid: Bool) throws {
+            let link = try connect()
             let source = try Destination(identity: Identity(), direction: .in, kind: .single,
                                          appName: APP_NAME, aspects: ["delivery"])
             let destination = try Destination(identity: Identity(), direction: .in, kind: .single,
@@ -142,11 +169,17 @@ final class PropagationThrottleTests: XCTestCase {
 
             let stamp: Data
             if stampIsValid {
+                // `pnStampExpandRounds`, not the default: a propagation stamp is computed over a
+                // 1000-round workblock (`LXStamper.swift:146`), so a stamp generated with the
+                // default rounds validates as *invalid* — which silently made this control case
+                // exercise the throttle path it exists to rule out.
                 stamp = try XCTUnwrap(LXStamper.generateStamp(
                     messageID: Hashes.fullHash(lxmfData),
-                    stampCost: router.propagationStampCost))
+                    stampCost: router.propagationStampCost,
+                    expandRounds: LXStamper.pnStampExpandRounds))
             } else {
-                // 32 bytes that are not a proof of work for this message at the node's cost.
+                // 32 bytes that are not a proof of work for this message. At the invalid case's
+                // cost of 16 the chance of this passing by accident is 2^-16.
                 stamp = Data(repeating: 0x00, count: 32)
             }
 
@@ -169,6 +202,7 @@ final class PropagationThrottleTests: XCTestCase {
         /// Offer the node a transient ID it does not have, over the same link, and return the
         /// node's answer.
         func makeOffer() throws -> MsgPack.Value {
+            let link = try connect()
             let offered = Hashes.fullHash(Data(UUID().uuidString.utf8))
             let request = MsgPack.Value.array([
                 .bytes(Data(repeating: 0x00, count: 32)),   // peering key; peeringCost is 0
@@ -187,7 +221,10 @@ final class PropagationThrottleTests: XCTestCase {
         }
     }
 
-    private func makeNodeAndRemote() throws -> Network {
+    /// - Parameter stampCost: what the node demands. The invalid cases want it high, so an
+    ///   arbitrary stamp cannot pass by chance; the valid case wants it low, because generating a
+    ///   real stamp costs `2^cost` hashes of a 256 KB workblock.
+    private func makeNodeAndRemote(stampCost: Int = 16) throws -> Network {
         let nodeTransport   = Transport()
         let remoteTransport = Transport()
         retained.append(contentsOf: [nodeTransport, remoteTransport])
@@ -196,7 +233,7 @@ final class PropagationThrottleTests: XCTestCase {
         try router.register(identity: Identity(), transport: nodeTransport)
         // A cost the all-zero stamp cannot meet, so "invalid" is a real validation failure rather
         // than a malformed payload.
-        router.propagationStampCost = 8
+        router.propagationStampCost = stampCost
         router.peeringCost          = 0
         try router.enablePropagation(storagePath: tempDir)
         retained.append(router)
@@ -216,21 +253,13 @@ final class PropagationThrottleTests: XCTestCase {
                                                     kind: .single, appName: APP_NAME,
                                                     aspects: ["propagation"]).hash
 
-        let localUp  = expectation(description: "remote side up")
-        let remoteUp = expectation(description: "node side up")
-        remoteTransport.onLinkEstablished = { _ in localUp.fulfill() }
-        nodeTransport.onLinkEstablished   = { _ in remoteUp.fulfill() }
-        let link = try Link.initiate(destination: propagationDestination, transport: remoteTransport)
-        wait(for: [localUp, remoteUp], timeout: 3.0)
-
-        let nodeSideLink = try XCTUnwrap(nodeTransport.links[try XCTUnwrap(link.linkID)])
-        let identified = expectation(description: "node sees the remote's identity")
-        nodeSideLink.onRemoteIdentified = { _, _ in identified.fulfill() }
-        try link.identify(as: remoteIdentity)
-        wait(for: [identified], timeout: 2.0)
-
-        return Network(router: router, remotePropagationHash: remotePropagationHash,
-                       link: link, test: self)
+        return Network(router: router,
+                       remotePropagationHash: remotePropagationHash,
+                       remoteIdentity: remoteIdentity,
+                       remoteTransport: remoteTransport,
+                       propagationDestination: propagationDestination,
+                       nodeTransport: nodeTransport,
+                       test: self)
     }
 }
 

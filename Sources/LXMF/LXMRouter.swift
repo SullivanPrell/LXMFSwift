@@ -77,6 +77,9 @@ public final class LXMRouter {
     /// How many of the fastest waiting peers form the sync-selection pool.
     /// Python: `LXMRouter.FASTEST_N_RANDOM_POOL = 2` (`:46`).
     public static let fastestNRandomPool = 2
+    /// How long a remote is refused after sending messages with invalid stamps.
+    /// Python: `LXMRouter.PN_STAMP_THROTTLE = 180` (`:63`).
+    public static let pnStampThrottle: TimeInterval = 180
 
     // MARK: - State
 
@@ -2084,10 +2087,7 @@ public final class LXMRouter {
             allow: .all
         ) { [weak self] _, requestData, _, link, _ -> MsgPack.Value? in
             guard let self else { return nil }
-            let remoteHash = link.remoteIdentity?.hash
-            return self.handleOfferRequest(data: requestData,
-                                           remoteIdentityHash: remoteHash,
-                                           linkID: ObjectIdentifier(link))
+            return self.handleOfferRequest(data: requestData, on: link)
         }
 
         propagationDestination?.registerNativeRequestHandler(
@@ -2184,6 +2184,19 @@ public final class LXMRouter {
             _ = ingestPropagatedLXM(lxmfData: entry.lxmfData,
                                     stampValue: entry.stampValue,
                                     stamp:      entry.stamp)
+        }
+
+        // A transfer carrying messages whose stamps do not validate costs this node full
+        // validation over the whole set, and nothing stops the remote from retrying it at whatever
+        // rate it likes. Python throttles the sender and tears the link down
+        // (`LXMRouter.py:2447-2454`); the port could decode `ERROR_THROTTLED` as a client and had
+        // no path that emitted it.
+        let invalidCount = transientList.count - validated.count
+        if invalidCount > 0, let sender {
+            lock.lock()
+            throttledPeers[sender] = Date().timeIntervalSince1970 + LXMRouter.pnStampThrottle
+            lock.unlock()
+            try? link?.teardown()
         }
 
         if let sender { considerAutopeering(with: sender) }
@@ -2528,6 +2541,10 @@ public final class LXMRouter {
     /// Drop throttle records that have expired.
     /// Mirrors Python's `LXMRouter.clean_throttled_peers()` (`LXMRouter.py:1136-1142`).
     public func cleanThrottledPeers(now: TimeInterval = Date().timeIntervalSince1970) {
+        lock.lock(); defer { lock.unlock() }
+        for (destinationHash, deadline) in throttledPeers where now > deadline {
+            throttledPeers.removeValue(forKey: destinationHash)
+        }
     }
 
     /// Drop low-acceptance-rate peers to recover headroom under `maxPeers`.
@@ -2739,19 +2756,51 @@ public final class LXMRouter {
     ///
     /// - Parameters:
     ///   - data: Decoded msgpack: [peeringKey: Data, transientIDs: [Data]]
-    ///   - remoteIdentityHash: Hash of the requesting peer's identity (nil if unidentified).
-    ///   - linkID: ObjectIdentifier for the requesting link.
+    ///   - link: the link the request arrived on. Two different hashes are derived from it and
+    ///     they are not interchangeable: the peering key is computed over the remote's *identity*
+    ///     hash (`LXMRouter.py:2298`), while the throttle is keyed by its *propagation destination*
+    ///     hash (`:2269-2270`). Taking a pre-narrowed identity hash here, as this method used to,
+    ///     makes the second one underivable (design D1).
     /// - Returns: Response value:
     ///   - `LXMPeerError.noIdentity` if not identified
+    ///   - `LXMPeerError.throttled` if the remote is inside a throttle window
     ///   - `false` (MsgPack.Value.bool) if we already have all offered messages
     ///   - `true`  if we want all offered messages
     ///   - `[Data]` list of wanted transient IDs
-    public func handleOfferRequest(data: MsgPack.Value,
-                                   remoteIdentityHash: Data?,
-                                   linkID: ObjectIdentifier) -> MsgPack.Value {
+    public func handleOfferRequest(data: MsgPack.Value, on link: Link) -> MsgPack.Value {
+        handleOfferRequest(data: data,
+                           remoteIdentityHash: link.remoteIdentity?.hash,
+                           propagationHash: remotePropagationHash(of: link),
+                           linkID: ObjectIdentifier(link))
+    }
+
+    /// The offer handler with its two hashes supplied separately.
+    ///
+    /// Internal, and the only production caller is the entry point above — a `propagationHash` of
+    /// `nil` **cannot be throttled**, so nothing reachable from a link may use this directly. It
+    /// exists for tests of the wanted-IDs logic, which have no link and no interest in one; giving
+    /// the concurrency test a real link would put link machinery inside a race test.
+    func handleOfferRequest(data: MsgPack.Value,
+                            remoteIdentityHash: Data?,
+                            propagationHash: Data?,
+                            linkID: ObjectIdentifier) -> MsgPack.Value {
         guard isPropagationNode else { return .int(Int64(LXMPeerError.noAccess.rawValue)) }
         guard let remoteHash = remoteIdentityHash else {
             return .int(Int64(LXMPeerError.noIdentity.rawValue))
+        }
+
+        // Refuse while the remote is throttled, and drop the record once it has elapsed. The
+        // scheduled sweep (`cleanThrottledPeers`) is not a substitute: this branch only fires for a
+        // remote that comes back (`LXMRouter.py:2285-2290`).
+        if let propagationHash {
+            let now = Date().timeIntervalSince1970
+            lock.lock()
+            let deadline = throttledPeers[propagationHash]
+            if let deadline, deadline <= now { throttledPeers.removeValue(forKey: propagationHash) }
+            lock.unlock()
+            if let deadline, deadline > now {
+                return .int(Int64(LXMPeerError.throttled.rawValue))
+            }
         }
 
         guard case .array(let dataArr) = data, dataArr.count >= 2 else {

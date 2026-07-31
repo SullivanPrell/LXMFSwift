@@ -373,6 +373,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let result = router.handleOfferRequest(
             data: .array([.bytes(Data()), .array([])]),
             remoteIdentityHash: nil,
+            propagationHash: nil,
             linkID: ObjectIdentifier(router)
         )
         if case .int(let code) = result {
@@ -385,6 +386,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let result = router.handleOfferRequest(
             data: .array([.bytes(Data()), .array([])]),
             remoteIdentityHash: fakeHash(),
+            propagationHash: nil,
             linkID: ObjectIdentifier(router)
         )
         if case .int(let code) = result {
@@ -408,6 +410,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let result = router.handleOfferRequest(
             data: data,
             remoteIdentityHash: fakeHash(0xCC),
+            propagationHash: nil,
             linkID: ObjectIdentifier(router)
         )
         if case .bool(let b) = result { XCTAssertTrue(b) }
@@ -431,6 +434,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let result = router.handleOfferRequest(
             data: data,
             remoteIdentityHash: fakeHash(0xCC),
+            propagationHash: nil,
             linkID: ObjectIdentifier(router)
         )
         if case .bool(let b) = result { XCTAssertFalse(b) }
@@ -456,6 +460,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let result = router.handleOfferRequest(
             data: data,
             remoteIdentityHash: fakeHash(0xCC),
+            propagationHash: nil,
             linkID: ObjectIdentifier(router)
         )
         if case .array(let wanted) = result {
