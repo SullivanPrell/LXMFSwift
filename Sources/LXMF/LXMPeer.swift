@@ -60,22 +60,26 @@ public enum LXMPeerError: UInt8, Equatable {
     case timeout      = 0xFE
 }
 
-extension MsgPack.Value {
-    /// This value as an LXMF peer error code, or nil if it is not a single number in that range.
+extension LXMPeerError {
+    /// The peer error this msgpack value carries, or nil if it carries something else.
     ///
-    /// Read numerically because the wire form varies by magnitude and by encoder: every LXMF error
-    /// code is above 127, so it travels as a msgpack `uint8` and decodes to `.uint`
-    /// (`MsgPack.swift:212`), while a hand-built `.int` stays `.int`. Matching on the case alone
-    /// reads one and misses the other.
-    var asErrorCode: UInt8? {
-        let value: UInt64
-        switch self {
-        case .uint(let n): value = n
-        case .int(let n):  guard n >= 0 else { return nil }; value = UInt64(n)
+    /// **The one place** a wire scalar becomes an error code. Both the peer sync path and the
+    /// client download path ask this question; when they each answered it themselves they drifted,
+    /// and `bugs/053` is what that cost.
+    ///
+    /// Read numerically, because the wire form varies with magnitude and encoder: every LXMF error
+    /// code is above 127, so umsgpack and this package's own encoder both emit a `uint8` (`0xCC`)
+    /// which decodes to `.uint` (`MsgPack.swift:212`), while a value built in memory stays `.int`.
+    /// A `switch` tests the enum case, not the number, so matching one case misses the other.
+    init?(msgPack value: MsgPack.Value) {
+        let scalar: UInt64
+        switch value {
+        case .uint(let n): scalar = n
+        case .int(let n):  guard n >= 0 else { return nil }; scalar = UInt64(n)
         default:           return nil
         }
-        guard value <= UInt64(UInt8.max) else { return nil }
-        return UInt8(value)
+        guard scalar <= UInt64(UInt8.max) else { return nil }
+        self.init(rawValue: UInt8(scalar))
     }
 }
 
@@ -703,15 +707,8 @@ public final class LXMPeer {
         let offerSnapshot = lastOffer
         peerLock.unlock()
 
-        // Matched numerically, not by msgpack case. Every error code is > 127, so an encoder
-        // writes it as a `uint8` (`0xCC`) and `MsgPack.decode` hands back `.uint`
-        // (`MsgPack.swift:212`) — a `switch` on `.int` matches none of them and falls through to
-        // `default`. That silently turned every refusal a peer sent, including ERROR_THROTTLED and
-        // ERROR_NO_IDENTITY, into "the peer wants nothing": no back-off, no re-identify, no retry.
-        // See `swift_devel/bugs/053`.
-        if let code = response.asErrorCode, let error = LXMPeerError(rawValue: code) {
-            return .error(error)
-        }
+        // Through the shared decoder — see `LXMPeerError(msgPack:)` and `swift_devel/bugs/053`.
+        if let error = LXMPeerError(msgPack: response) { return .error(error) }
 
         switch response {
         case .bool(false):

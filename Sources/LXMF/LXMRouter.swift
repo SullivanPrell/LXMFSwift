@@ -1767,18 +1767,15 @@ public final class LXMRouter {
         propagationTransferSize = nil
     }
 
-    /// Returns true if the msgpack value represents a propagation-node error code
-    /// (0xF0 = noIdentity, 0xF1 = noAccess). Python encodes these as uint, so
-    /// we must match both .int and .uint variants.
-    private func isPeerError(_ value: MsgPack.Value) -> Bool {
-        let errors: Set<UInt64> = [
-            UInt64(LXMPeerError.noIdentity.rawValue),
-            UInt64(LXMPeerError.noAccess.rawValue),
-        ]
-        switch value {
-        case .int(let code) where code >= 0: return errors.contains(UInt64(code))
-        case .uint(let code):                return errors.contains(code)
-        default: return false
+    /// Whether a propagation node answered this client request with a refusal it can act on.
+    ///
+    /// The two codes a *client* can receive from `/get`: it was not identified, or it is not
+    /// allowed. Decoding goes through `LXMPeerError(msgPack:)` so this path and the peer sync path
+    /// cannot disagree about what a code looks like on the wire again (`bugs/053`).
+    func isPeerError(_ value: MsgPack.Value) -> Bool {
+        switch LXMPeerError(msgPack: value) {
+        case .noIdentity, .noAccess: return true
+        default:                     return false
         }
     }
 
@@ -3157,7 +3154,15 @@ public final class LXMRouter {
 
         // Validate peering key if we have a peering cost.
         if peeringCost > 0 {
-            let peeringID = (identity?.hash ?? Data()) + remoteHash
+            // Without an identity there is no receiver half, and `?? Data()` — what this used to
+            // do — validates the sender's key against 16 bytes of material instead of 32. That
+            // does not fail; it accepts a *different* proof of work than the one the peer was
+            // asked for. A router with no identity cannot peer at all, so say so.
+            guard let myHash = identity?.hash else {
+                return .int(Int64(LXMPeerError.noAccess.rawValue))
+            }
+            let peeringID = LXStamper.peeringID(receiverIdentityHash: myHash,
+                                                senderIdentityHash: remoteHash)
             guard LXStamper.validatePeeringKey(
                 peeringID: peeringID, peeringKey: peeringKeyData, targetCost: peeringCost
             ) else {
