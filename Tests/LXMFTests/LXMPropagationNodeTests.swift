@@ -300,7 +300,12 @@ final class LXMPropagationNodeTests: XCTestCase {
         XCTAssertEqual(router.peers.count, 1)
     }
 
-    func testAddPeerMarksExistingMessagesAsUnhandled() throws {
+    /// Inverted 2026-07-31: this asserted that a new peer is seeded with the whole store, which
+    /// is a divergence, not a requirement. Python's `peer()` constructs the peer, sets its
+    /// advertised terms and stops (`LXMRouter.py:2032-2045`); `unhandled_messages` is derived from
+    /// the store's per-entry peer lists (`LXMPeer.py:583-588`), and a peer created now appears in
+    /// none of them. See `swift_devel/bugs/050` for what the back-fill cost.
+    func testAddPeerDoesNotSeedTheExistingStore() throws {
         let router = makeRouter()
         try router.enablePropagation(storagePath: tempDir)
 
@@ -312,8 +317,8 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         let hash = fakeHash(0xBB)
         let peer = router.addPeer(destinationHash: hash)
-        XCTAssertTrue(peer.unhandledMessages.contains(tid),
-                      "Existing messages must be queued as unhandled for new peer")
+        XCTAssertFalse(peer.unhandledMessages.contains(tid),
+                       "a new peer receives what arrives after peering, not the existing store")
     }
 
     func testRemovePeer() {
@@ -330,7 +335,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let router = makeRouter()
         let tid    = fakeHash(0x01)
         router.enqueueForPeerDistribution(transientID: tid)
-        XCTAssertTrue(router.peerDistributionQueue.contains(tid))
+        XCTAssertTrue(router.peerDistributionQueue.contains { $0.transientID == tid })
     }
 
     func testEnqueueDeduplicates() {
@@ -373,6 +378,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let result = router.handleOfferRequest(
             data: .array([.bytes(Data()), .array([])]),
             remoteIdentityHash: nil,
+            propagationHash: nil,
             linkID: ObjectIdentifier(router)
         )
         if case .int(let code) = result {
@@ -385,6 +391,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let result = router.handleOfferRequest(
             data: .array([.bytes(Data()), .array([])]),
             remoteIdentityHash: fakeHash(),
+            propagationHash: nil,
             linkID: ObjectIdentifier(router)
         )
         if case .int(let code) = result {
@@ -408,6 +415,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let result = router.handleOfferRequest(
             data: data,
             remoteIdentityHash: fakeHash(0xCC),
+            propagationHash: nil,
             linkID: ObjectIdentifier(router)
         )
         if case .bool(let b) = result { XCTAssertTrue(b) }
@@ -431,6 +439,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let result = router.handleOfferRequest(
             data: data,
             remoteIdentityHash: fakeHash(0xCC),
+            propagationHash: nil,
             linkID: ObjectIdentifier(router)
         )
         if case .bool(let b) = result { XCTAssertFalse(b) }
@@ -456,6 +465,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let result = router.handleOfferRequest(
             data: data,
             remoteIdentityHash: fakeHash(0xCC),
+            propagationHash: nil,
             linkID: ObjectIdentifier(router)
         )
         if case .array(let wanted) = result {
@@ -589,10 +599,33 @@ final class LXMPropagationNodeTests: XCTestCase {
     }
 
     // MARK: - syncPeers
+    //
+    // Selection, the unreachability cull and the pool live in `PeerSyncSelectionTests`. What is
+    // left here is the one thing that is about *this* suite's subject: a router that is not a
+    // propagation node does nothing at all. That used to be the whole of `syncPeers`' behavioural
+    // coverage, and because it returns at the routine's first guard it could not observe anything
+    // the routine did — `swift_devel/bugs/045` sat behind it.
 
-    func testSyncPeersNoopsWhenNotEnabled() {
+    func testSyncPeersDoesNothingWhenNotAPropagationNode() {
         let router = makeRouter()
-        router.syncPeers()  // must not crash
+        let hash = fakeHash(0xD1)
+        router.peer(destinationHash: hash, timestamp: 1_000, transferLimit: 256, syncLimit: 256,
+                    stampCost: 0, stampCostFlexibility: 0, peeringCost: 0, metadata: nil)
+        let peer = router.peers[hash]!
+        peer.alive     = true
+        peer.state     = .idle
+        peer.lastHeard = 0        // old enough to be culled, were the cull to run
+
+        router.syncPeers()
+
+        XCTAssertEqual(peer.lastSyncAttempt, 0,
+                       "a router that is not a propagation node must not sync its peers")
+        XCTAssertNotNil(router.peers[hash],
+                        """
+                        it must not cull them either — the guard is on the whole routine \
+                        (LXMRouter.py:2131 is only reached from a propagation node's job loop), \
+                        not on the sync half of it.
+                        """)
     }
 
     // MARK: - Persistence round-trip
@@ -811,6 +844,10 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         let router = LXMRouter(transport: serverTransport)
         try router.register(identity: serverId, transport: serverTransport)
+        // Accept stamps of any cost: this test uploads a cost-0 stamp and is about ingest, not
+        // stamp validation. Legal in the reference — PROPAGATION_COST_MIN clamps the constructor
+        // argument, not later assignment (`LXMRouter.py:136` vs `:147`).
+        router.propagationStampCost = 0
         try router.enablePropagation(storagePath: tempDir)
 
         // Inject a fake propagation entry destined for the client.
@@ -886,6 +923,10 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         let router = LXMRouter(transport: serverTransport)
         try router.register(identity: serverId, transport: serverTransport)
+        // Accept stamps of any cost: this test uploads a cost-0 stamp and is about ingest, not
+        // stamp validation. Legal in the reference — PROPAGATION_COST_MIN clamps the constructor
+        // argument, not later assignment (`LXMRouter.py:136` vs `:147`).
+        router.propagationStampCost = 0
         try router.enablePropagation(storagePath: tempDir)
 
         let serverIface = LoopIface(name: "S2"); let clientIface = LoopIface(name: "C2")

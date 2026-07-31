@@ -58,6 +58,41 @@ public final class LXMRouter {
     /// Mirrors Python `LXMRouter.PR_PATH_TIMEOUT`.
     public static let prPathTimeout: TimeInterval = 10.0
 
+    /// Whether a node peers automatically by default. Python: `LXMRouter.AUTOPEER = True` (`:44`).
+    public static let defaultAutopeer = true
+    /// Default automatic peering depth, in hops.
+    /// Python: `LXMRouter.AUTOPEER_MAXDEPTH = 4` (`:45`).
+    public static let defaultAutopeerMaxdepth = 4
+    /// Default ceiling on the peer table. Python: `LXMRouter.MAX_PEERS = 20` (`:43`).
+    public static let defaultMaxPeers = 20
+    /// Default ceiling on a remote's peering cost.
+    /// Python: `LXMRouter.MAX_PEERING_COST = 26` (`:51`).
+    public static let defaultMaxPeeringCost = 26
+
+    /// Default proof-of-work cost this node charges to peer with it.
+    /// Python: `LXMRouter.PEERING_COST = 18` (`:50`).
+    public static let defaultPeeringCost = 18
+    /// Default stamp cost this node demands of messages offered to it.
+    /// Python: `LXMRouter.PROPAGATION_COST = 16` (`:54`).
+    public static let defaultPropagationStampCost = 16
+    /// Default tolerance on that demand. Python: `LXMRouter.PROPAGATION_COST_FLEX = 3` (`:53`).
+    public static let defaultPropagationStampCostFlexibility = 3
+    /// Floor under the demanded stamp cost, applied on assignment.
+    /// Python: `LXMRouter.PROPAGATION_COST_MIN = 13` (`:52`), enforced at `:136`.
+    public static let propagationStampCostMin = 13
+    /// Fraction of `maxPeers` rotation tries to keep free.
+    /// Python: `LXMRouter.ROTATION_HEADROOM_PCT = 10` (`:47`).
+    public static let rotationHeadroomPct = 10
+    /// Acceptance rate at or above which a peer is never rotated out.
+    /// Python: `LXMRouter.ROTATION_AR_MAX = 0.5` (`:48`).
+    public static let rotationAcceptanceRateMax = 0.5
+    /// How many of the fastest waiting peers form the sync-selection pool.
+    /// Python: `LXMRouter.FASTEST_N_RANDOM_POOL = 2` (`:46`).
+    public static let fastestNRandomPool = 2
+    /// How long a remote is refused after sending messages with invalid stamps.
+    /// Python: `LXMRouter.PN_STAMP_THROTTLE = 180` (`:63`).
+    public static let pnStampThrottle: TimeInterval = 180
+
     // MARK: - State
 
     private let transport: Transport
@@ -149,6 +184,27 @@ public final class LXMRouter {
     /// Job ticks between transient-ID cache reaps.
     /// Mirrors Python's `LXMRouter.JOB_TRANSIENT_INTERVAL = 60`.
     static let jobTransientInterval = 60
+
+    // The rest of the reference's job intervals (`LXMRouter.py:871-879`), in ticks of
+    // `PROCESSING_INTERVAL` (4 s).
+    static let jobOutboundInterval   = 1        // JOB_OUTBOUND_INTERVAL
+    static let jobStampsInterval     = 1        // JOB_STAMPS_INTERVAL
+    static let jobLinksInterval      = 1        // JOB_LINKS_INTERVAL
+    static let jobStoreInterval      = 120      // JOB_STORE_INTERVAL
+    static let jobPeerSyncInterval   = 6        // JOB_PEERSYNC_INTERVAL
+    static let jobPeerIngestInterval = 6        // JOB_PEERINGEST_INTERVAL = JOB_PEERSYNC_INTERVAL
+    static let jobRotateInterval     = 56 * jobPeerIngestInterval   // JOB_ROTATE_INTERVAL
+    /// Not a reference interval — see the `savePeers` entry's `addedBecause`. 30 ticks is two
+    /// minutes at the 4 s processing interval: frequent enough that an unannounced termination
+    /// loses little, rare enough that it is not rewriting the peer file behind every sync.
+    static let jobSaveInterval       = 30
+
+    /// Seconds a direct delivery link may sit idle before it is torn down.
+    /// Python: `LXMRouter.LINK_MAX_INACTIVITY = 600` (`LXMRouter.py:36`).
+    public static let linkMaxInactivity: TimeInterval = 600
+    /// Seconds a propagation link may sit idle before it is torn down.
+    /// Python: `LXMRouter.P_LINK_MAX_INACTIVITY = 180` (`:37`).
+    public static let propagationLinkMaxInactivity: TimeInterval = 180
 
     // MARK: - Priority and ignore lists
 
@@ -261,13 +317,59 @@ public final class LXMRouter {
     public var propagationPerSyncLimit: Int? = nil
 
     /// Minimum proof-of-work stamp cost required for messages accepted by this node.
-    public var propagationStampCost: Int = 0
+    ///
+    /// The floor is applied to the **initialiser argument**, not to this property — the reference
+    /// clamps `propagation_cost` in `__init__` (`LXMRouter.py:136`) and leaves later attribute
+    /// assignment alone. A node cheaper to flood than the network assumes any node is undermines
+    /// every other node's spam control, not just its own, so the configured value is clamped;
+    /// a caller that reaches past the initialiser has, as in Python, taken responsibility.
+    public var propagationStampCost: Int = LXMRouter.defaultPropagationStampCost
 
     /// Flexibility (±) on the stamp cost requirement.
-    public var propagationStampCostFlexibility: Int = 0
+    /// Python: `LXMRouter.PROPAGATION_COST_FLEX = 3` (`:53`).
+    public var propagationStampCostFlexibility: Int = LXMRouter.defaultPropagationStampCostFlexibility
 
     /// PoW cost for peering with this node.
-    public var peeringCost: Int = 0
+    ///
+    /// **Not zero.** Python's `peering_key_ready` opens with `if not self.peering_cost: return
+    /// False` (`LXMPeer.py:228`), so a node advertising 0 is one no Python peer can ever finish
+    /// peering with — it postpones every sync pass, silently, with no error on either side.
+    public var peeringCost: Int = LXMRouter.defaultPeeringCost
+
+    /// Whether to peer automatically with propagation nodes discovered through incoming syncs.
+    /// Python: `LXMRouter.AUTOPEER = True` (`LXMRouter.py:44`), consulted at `:2365`.
+    public var autopeer: Bool = LXMRouter.defaultAutopeer
+
+    /// The greatest number of peers this node will hold.
+    /// Python: `LXMRouter.MAX_PEERS = 20` (`LXMRouter.py:43`), per-node at `:206`.
+    public var maxPeers: Int = LXMRouter.defaultMaxPeers
+
+    /// The highest peering cost this node is willing to pay to peer with a remote.
+    /// Python: `LXMRouter.max_peering_cost` (`:150`), applied at `:2005`.
+    public var maxPeeringCost: Int = LXMRouter.defaultMaxPeeringCost
+
+    /// Propagation destinations this node is always peered with, by destination hash.
+    ///
+    /// Python: `LXMRouter.static_peers` (`:211-219`). A static peer is the operator's declared
+    /// upstream rather than a discovered one, so it is exempt from rotation (`:2092`) and from the
+    /// unreachability cull (`:2140`) — losing it is not something discovery can repair.
+    public var staticPeers: Set<Data> = []
+
+    /// Whether rotation drops only unreachable peers when any exist, rather than considering
+    /// merely-waiting ones alongside them.
+    /// Python: `LXMRouter.prioritise_rotating_unreachable_peers` (`:167`), consumed at `:2104`.
+    public var prioritiseRotatingUnreachablePeers: Bool = false
+
+    /// The furthest, in hops, a node may be and still be peered with automatically.
+    ///
+    /// Python: `LXMRouter.AUTOPEER_MAXDEPTH = 4` (`:45`). Note that `lxmd`'s example configuration
+    /// suggests 6 (`Utilities/lxmd.py:995`) — that is the daemon's suggestion to an operator, not
+    /// the router's default, and the port keeps both as the reference has them.
+    public var autopeerMaxdepth: Int = LXMRouter.defaultAutopeerMaxdepth
+
+    /// Remotes whose offers are refused until the recorded time, keyed by propagation destination
+    /// hash. Python: `LXMRouter.throttled_peers` (`LXMRouter.py:154`).
+    public var throttledPeers: [Data: TimeInterval] = [:]
 
     /// Active inbound propagation links from peers/clients.
     public var activePropagationLinks: [ObjectIdentifier: Link] = [:]
@@ -276,7 +378,12 @@ public final class LXMRouter {
     public var validatedPeerLinks: [ObjectIdentifier: Bool] = [:]
 
     /// Queue of transient IDs waiting to be distributed to peers.
-    public var peerDistributionQueue: [Data] = []
+    /// Transient IDs awaiting fan-out to peers, each with the peer it arrived from.
+    ///
+    /// The origin is not decoration: Python queues `[transient_id, from_peer]` and skips that peer
+    /// when it fans out (`LXMRouter.py:2469-2486`). A queue of bare IDs offers every message back
+    /// to whoever supplied it.
+    public var peerDistributionQueue: [(transientID: Data, fromPeer: LXMPeer?)] = []
 
     /// Number of messages received from unpeered clients.
     public var clientPropagationMessagesReceived: Int = 0
@@ -319,7 +426,20 @@ public final class LXMRouter {
 
     // MARK: - Init
 
-    public init(transport: Transport) {
+    /// - Parameters:
+    ///   - propagationStampCost: what this node demands of messages offered to it. Clamped up to
+    ///     `propagationStampCostMin`, mirroring `LXMRouter.py:136`.
+    ///   - peeringCost: what this node charges to peer with it. **Never pass 0**: Python's
+    ///     `peering_key_ready` treats a falsy peering cost as permanently unsatisfiable
+    ///     (`LXMPeer.py:228`), so a node advertising 0 is one no Python peer can finish peering
+    ///     with — it postpones every sync pass forever, with no error on either side.
+    public init(transport: Transport,
+                propagationStampCost: Int = LXMRouter.defaultPropagationStampCost,
+                propagationStampCostFlexibility: Int = LXMRouter.defaultPropagationStampCostFlexibility,
+                peeringCost: Int = LXMRouter.defaultPeeringCost) {
+        self.propagationStampCost = max(propagationStampCost, LXMRouter.propagationStampCostMin)
+        self.propagationStampCostFlexibility = propagationStampCostFlexibility
+        self.peeringCost = peeringCost
         self.transport = transport
         deliveryAnnounceHandler = DeliveryAnnounceHandler(router: self)
         propagationNodeAnnounceHandler = PropagationNodeAnnounceHandler(router: self)
@@ -340,21 +460,10 @@ public final class LXMRouter {
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         // Repeat every 4 s, first fire after 4 s (no need to run immediately on start).
         timer.schedule(deadline: .now() + 4, repeating: 4)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.processingCount &+= 1
-            self.processOutbound()
-            // Mirrors Python's jobs(): the resource reap runs on every
-            // JOB_RESOURCE_INTERVAL-th tick, not every tick.
-            if self.processingCount % LXMRouter.jobResourceInterval == 0 {
-                self.cleanResourceTracking()
-            }
-            if self.processingCount % LXMRouter.jobTransientInterval == 0 {
-                self.cleanTransientIDCaches()
-                self.saveLocallyDeliveredTransientIDs()
-                self.saveLocallyProcessedTransientIDs()
-            }
-        }
+        // One line, because the schedule is `jobSchedule` and not this closure: a routine added to
+        // the reference is added there, where a test compares it against `LXMRouter.py:880-911`.
+        // This block previously ran three of the reference's ten routines, and nothing said so.
+        timer.setEventHandler { [weak self] in self?.jobs() }
         timer.resume()
         jobTimer = timer
     }
@@ -1990,6 +2099,23 @@ public final class LXMRouter {
             }
         }
 
+        // Activate configured static peers.
+        //
+        // Python does this immediately after rebuilding the saved peers (`LXMRouter.py:633-641`):
+        // any static peer not already restored gets an entry, and one that has never been heard
+        // from gets a path request, because a peer that was offline at startup will not announce
+        // on its own and the solicited path response is the only way its terms are ever learned.
+        //
+        // Without it `staticPeers` was a set the sync path filtered against and nothing ever put
+        // a peer into — an operator could configure a peering that silently never happened.
+        for staticPeer in staticPeers {
+            // `addPeer` returns the existing entry when there is one, which is what supplies
+            // Python's `if not static_peer in self.peers` (`:635`) — a peer restored from disk
+            // keeps its terms and sync history rather than being replaced with a blank one.
+            let peer = addPeer(destinationHash: staticPeer)
+            if peer.lastHeard == 0 { try? transport.requestPath(for: staticPeer) }
+        }
+
         // Load saved node statistics.
         let statsPath = rootPath + "/node_stats"
         if fm.fileExists(atPath: statsPath),
@@ -2029,10 +2155,7 @@ public final class LXMRouter {
             allow: .all
         ) { [weak self] _, requestData, _, link, _ -> MsgPack.Value? in
             guard let self else { return nil }
-            let remoteHash = link.remoteIdentity?.hash
-            return self.handleOfferRequest(data: requestData,
-                                           remoteIdentityHash: remoteHash,
-                                           linkID: ObjectIdentifier(link))
+            return self.handleOfferRequest(data: requestData, on: link)
         }
 
         propagationDestination?.registerNativeRequestHandler(
@@ -2061,8 +2184,8 @@ public final class LXMRouter {
                 }
                 return true
             }
-            link.onResourceConcluded = { [weak self] data, _, _ in
-                self?.handleInboundPropagationResource(data)
+            link.onResourceConcluded = { [weak self] data, _, concludingLink in
+                self?.handleInboundPropagationResource(data, on: concludingLink)
             }
             // Evict this link's PN-link bookkeeping when it closes (growth fix:
             // validatedPeerLinks was inserted on every offer request but never
@@ -2100,7 +2223,13 @@ public final class LXMRouter {
     /// where each element = `destHash + encrypt(payload) + 32-byte-stamp`.
     ///
     /// Mirrors Python's `propagation_resource_concluded()`.
-    public func handleInboundPropagationResource(_ data: Data) {
+    ///
+    /// `link` is the link the resource concluded on, and is what identifies the sender. Python
+    /// derives the remote's propagation destination from `resource.link.get_remote_identity()`
+    /// (`LXMRouter.py:2348-2352`) and every decision that depends on *who* uploaded — autopeering
+    /// (`:2366-2375`) and stamp throttling (`:2449-2454`) — reads it from there. Pass the link
+    /// whenever one exists.
+    public func handleInboundPropagationResource(_ data: Data, on link: Link?) {
         guard case .array(let outer) = (try? MsgPack.decode(data)) ?? .nil,
               outer.count >= 2,
               case .array(let messages) = outer[1] else { return }
@@ -2110,14 +2239,75 @@ public final class LXMRouter {
             return nil
         }
 
+        // Derived once, here, rather than at each site that needs it: autopeering, stamp throttling
+        // and the single-packet upload path (`bugs/021`) all ask the same question of the same
+        // link, and N independent derivations is how the `bugs/013` sub-defects came back
+        // (design D1).
+        let sender = link.flatMap { remotePropagationHash(of: $0) }
+
+        // Peer BEFORE ingesting, as the reference does (`LXMRouter.py:2366-2375` runs above the
+        // validation loop at `:2400+`). The order is load-bearing: `from_peer` can only exclude a
+        // peer that exists by the time its messages are stored, so peering afterwards would offer
+        // the remote its own upload straight back.
+        if let sender { considerAutopeering(with: sender) }
+
+        lock.lock()
+        let senderPeer = sender.flatMap { peers[$0] }
+        lock.unlock()
+
         let minCost = max(0, propagationStampCost - propagationStampCostFlexibility)
         let validated = LXStamper.validatePNStamps(transientList: transientList, targetCost: minCost)
         for entry in validated {
-            lock.lock(); clientPropagationMessagesReceived += 1; lock.unlock()
+            lock.lock()
+            if let senderPeer {
+                // `LXMRouter.py:2434-2436` — a sync from a peer counts against that peer, not
+                // against the client tally.
+                senderPeer.incoming += 1
+                senderPeer.rxBytes  += entry.lxmfData.count
+            } else if sender != nil {
+                unpeeredPropagationIncoming += 1
+                unpeeredPropagationRxBytes  += entry.lxmfData.count
+            } else {
+                clientPropagationMessagesReceived += 1
+            }
+            lock.unlock()
             _ = ingestPropagatedLXM(lxmfData: entry.lxmfData,
                                     stampValue: entry.stampValue,
-                                    stamp:      entry.stamp)
+                                    stamp:      entry.stamp,
+                                    fromPeer:   senderPeer)
         }
+
+        // A transfer carrying messages whose stamps do not validate costs this node full
+        // validation over the whole set, and nothing stops the remote from retrying it at whatever
+        // rate it likes. Python throttles the sender and tears the link down
+        // (`LXMRouter.py:2447-2454`); the port could decode `ERROR_THROTTLED` as a client and had
+        // no path that emitted it.
+        let invalidCount = transientList.count - validated.count
+        if invalidCount > 0, let sender {
+            lock.lock()
+            throttledPeers[sender] = Date().timeIntervalSince1970 + LXMRouter.pnStampThrottle
+            lock.unlock()
+            try? link?.teardown()
+        }
+    }
+
+    /// Ingest a propagation payload with no sender attached.
+    ///
+    /// **Does not peer and does not throttle** — both need to know who uploaded, and this entry
+    /// point does not. It exists for callers that genuinely have no link (tests driving the store,
+    /// and re-ingest from disk); anything reached from a propagation link must use the variant
+    /// above.
+    public func handleInboundPropagationResource(_ data: Data) {
+        handleInboundPropagationResource(data, on: nil)
+    }
+
+    /// The remote's propagation destination hash for a link it identified on, or nil if it has
+    /// not identified. Python: `RNS.Destination(remote_identity, OUT, SINGLE, APP_NAME,
+    /// "propagation").hash` (`LXMRouter.py:2350-2351`).
+    func remotePropagationHash(of link: Link) -> Data? {
+        guard let remoteIdentity = link.remoteIdentity else { return nil }
+        return try? Destination(identity: remoteIdentity, direction: .out, kind: .single,
+                                appName: APP_NAME, aspects: ["propagation"]).hash
     }
 
     // MARK: - Message store
@@ -2183,9 +2373,8 @@ public final class LXMRouter {
         guard (try? fileBytes.write(to: URL(fileURLWithPath: filePath))) != nil else { return nil }
 
         let destHash = Data(lxmfData.prefix(LXMessage.destinationLength))
-        // Re-check dedup + construct the entry under the lock (unhandledPeers reflects
-        // the peer set at insert time; a concurrent add of the same transientID that
-        // won while we wrote the file is honoured — we return its entry).
+        // Re-check dedup + construct the entry under the lock. A concurrent add of the same
+        // transientID that won while we wrote the file is honoured — we return its entry.
         lock.lock()
         if let existing = propagationEntries[transientID] {
             lock.unlock()
@@ -2199,7 +2388,13 @@ public final class LXMRouter {
             received:       received,
             msgSize:        fileBytes.count,
             handledPeers:   [],
-            unhandledPeers: Array(peers.keys),  // all peers need this message
+            // Empty, as the reference constructs it (`LXMRouter.py:2518`, and `:586-587` on load
+            // from disk). Populating it with every peer here made the store the *first* writer of
+            // the unhandled set and left the distribution queue's origin exclusion
+            // (`:2484`, `if peer != from_peer`) with nothing to exclude — the peer that uploaded a
+            // message was already recorded as needing it before the queue was ever consulted.
+            // `flushPeerDistributionQueue` is now the single writer.
+            unhandledPeers: [],
             stampValue:     stampValue
         )
         propagationEntries[transientID] = entry
@@ -2303,24 +2498,477 @@ public final class LXMRouter {
 
     // MARK: - Peer management
 
-    /// Add a peer propagation node.
-    /// Python: `self.peers[destination_hash] = LXMPeer(...)`.
+    /// Peer with a propagation node, or update an existing peering.
+    ///
+    /// Mirrors Python's `LXMRouter.peer()` (`LXMRouter.py:2004-2047`). This is the **only** way a
+    /// peer is created: the reference applies its limits here rather than at the call sites that
+    /// peer, so no caller can peer some other way and skip them (design D2).
+    ///
+    /// An existing peer is updated only when `timestamp` is newer than its current peering
+    /// timebase (`:2013`), so a replayed or reordered announce cannot reset a peer's negotiated
+    /// state.
+    public func peer(destinationHash: Data,
+                     timestamp: TimeInterval,
+                     transferLimit: Double?,
+                     syncLimit: Double?,
+                     stampCost: Int,
+                     stampCostFlexibility: Int,
+                     peeringCost: Int,
+                     metadata: [String: String]?) {
+        lock.lock()
+        let existing   = peers[destinationHash]
+        let tableIsFull = peers.count >= maxPeers
+        lock.unlock()
+
+        // The ceiling is about what the remote *demands*, so it is checked before anything else
+        // and applies to an existing peering too: a peer that raises its cost past what this node
+        // will pay has the peering broken, not merely a new one declined (`LXMRouter.py:2005-2010`).
+        guard peeringCost <= maxPeeringCost else {
+            if existing != nil { unpeer(destinationHash: destinationHash, timestamp: timestamp) }
+            return
+        }
+
+        if let existing {
+            guard timestamp > existing.peeringTimebase else { return }
+            apply(announcedTimestamp: timestamp, transferLimit: transferLimit,
+                  syncLimit: syncLimit, stampCost: stampCost,
+                  stampCostFlexibility: stampCostFlexibility, peeringCost: peeringCost,
+                  metadata: metadata, to: existing)
+            // Python also clears the backoff on re-peering (`:2017-2018`), so a peer that comes
+            // back after a run of failures is retried at once rather than after its accumulated
+            // wait.
+            existing.syncBackoff     = 0
+            existing.nextSyncAttempt = 0
+            return
+        }
+
+        // The bound applies to admitting a *new* peer only — an existing peer's negotiated limits
+        // are still updated above, or a full node stops tracking what its peers will accept.
+        guard !tableIsFull else { return }
+
+        let peer = addPeer(destinationHash: destinationHash)
+        apply(announcedTimestamp: timestamp, transferLimit: transferLimit,
+              syncLimit: syncLimit, stampCost: stampCost,
+              stampCostFlexibility: stampCostFlexibility, peeringCost: peeringCost,
+              metadata: metadata, to: peer)
+    }
+
+    /// The field assignments Python makes identically in both branches of `peer()`
+    /// (`:2014-2029` and `:2035-2046`) — shared so the two cannot drift apart.
+    private func apply(announcedTimestamp: TimeInterval,
+                       transferLimit: Double?,
+                       syncLimit: Double?,
+                       stampCost: Int,
+                       stampCostFlexibility: Int,
+                       peeringCost: Int,
+                       metadata: [String: String]?,
+                       to peer: LXMPeer) {
+        peer.alive                          = true
+        peer.metadata                       = metadata
+        peer.peeringTimebase                = announcedTimestamp
+        peer.lastHeard                      = Date().timeIntervalSince1970
+        peer.propagationStampCost           = stampCost
+        peer.propagationStampCostFlexibility = stampCostFlexibility
+        peer.peeringCost                    = peeringCost
+        peer.propagationTransferLimit       = transferLimit
+        // Python: an unset sync limit means "same as the transfer limit" (`:2028-2029`).
+        peer.propagationSyncLimit           = syncLimit ?? transferLimit
+    }
+
+    /// Peer with the sender of a sync, if the reference's conditions are met.
+    ///
+    /// Python does this on concluding an incoming propagation transfer (`LXMRouter.py:2357-2375`):
+    /// a remote that is not already a peer, whose recalled announce data says it is an active
+    /// propagation node, is peered with when autopeering is on and it is within
+    /// `autopeer_maxdepth` hops.
+    func considerAutopeering(with propagationHash: Data) {
+        guard autopeer else { return }
+
+        lock.lock()
+        let alreadyPeered = peers[propagationHash] != nil
+        lock.unlock()
+        guard !alreadyPeered else { return }
+
+        guard let announce = PropagationNodeAnnounce(
+            appData: transport.recallAppData(forDestination: propagationHash)),
+              announce.isPropagationNode
+        else { return }
+
+        // Python's `Transport.hops_to` answers `PATHFINDER_M` (128) for a destination it has no
+        // path to, so an unknown hop count fails the depth test rather than passing it.
+        guard let hops = transport.hopsTo(propagationHash),
+              Int(hops) <= autopeerMaxdepth
+        else { return }
+
+        peer(destinationHash: propagationHash,
+             timestamp: announce.timebase,
+             transferLimit: announce.transferLimit,
+             syncLimit: announce.syncLimit,
+             stampCost: announce.stampCost,
+             stampCostFlexibility: announce.stampCostFlexibility,
+             peeringCost: announce.peeringCost,
+             metadata: announce.metadata)
+    }
+
+    /// Everything a propagation-node announce means to this router.
+    ///
+    /// `swift_devel/bugs/046`. The single seam behind both registered announce handlers — the
+    /// public `LXMFPropagationAnnounceHandler` a consumer may register itself, and the private
+    /// `PropagationNodeAnnounceHandler` that `init` always registers. They are two registrations of
+    /// one decision; giving each its own copy is how a fix reaches one and not the other.
+    ///
+    /// Mirrors `LXMF/Handlers.py:41-99` whole: the outbound-PN trigger, then peering.
+    ///
+    /// This is the **proactive** half of autopeering, and the half that starts the relationship.
+    /// `considerAutopeering(with:)` is the reactive half, on the incoming-sync path — it can only
+    /// fire for a remote that has already synced to us, which no remote does until someone peers.
+    func handlePropagationNodeAnnounce(destinationHash: Data,
+                                       appData: Data?,
+                                       isPathResponse: Bool) {
+        // `Handlers.py:44-54` — our configured outbound PN is back; retry propagated messages now
+        // rather than at the next delivery attempt.
+        if outboundPropagationNode == destinationHash,
+           propagationNodeAnnounceDataIsValid(appData) {
+            triggerPropagatedOutbound()
+        }
+
+        // `Handlers.py:56` — the rest is a propagation node's business only. A client has no peer
+        // table to put anything in.
+        guard isPropagationNode else { return }
+        guard let announce = PropagationNodeAnnounce(appData: appData) else { return }
+
+        lock.lock()
+        let isStatic  = staticPeers.contains(destinationHash)
+        let lastHeard = peers[destinationHash]?.lastHeard
+        lock.unlock()
+
+        func adoptTerms() {
+            peer(destinationHash: destinationHash,
+                 timestamp: announce.timebase,
+                 transferLimit: announce.transferLimit,
+                 syncLimit: announce.syncLimit,
+                 stampCost: announce.stampCost,
+                 stampCostFlexibility: announce.stampCostFlexibility,
+                 peeringCost: announce.peeringCost,
+                 metadata: announce.metadata)
+        }
+
+        if isStatic {
+            // `Handlers.py:68-78`. A static peering is the operator's decision, so it does not
+            // consult `autopeer` or the depth limit. It accepts a path response only when the peer
+            // has never been heard from — which is how a peer that was offline at startup is
+            // learned at all, since a solicited path response is the only announce it will produce.
+            guard !isPathResponse || (lastHeard ?? 0) == 0 else { return }
+            adoptTerms()
+            return
+        }
+
+        // `Handlers.py:81`. `not is_path_response` gates autopeering only: a path response is a
+        // replayed announce this node solicited, so peering off one means peering off an
+        // advertisement of unknown age.
+        guard autopeer, !isPathResponse else { return }
+
+        guard announce.isPropagationNode else {
+            // `:98-99` — it says it has stopped propagating. Take it at its word rather than
+            // waiting for MAX_UNREACHABLE failed syncs to cull it.
+            unpeer(destinationHash: destinationHash, timestamp: announce.timebase)
+            return
+        }
+
+        // `:83`. An unknown hop count is out of range, not zero hops — Python gets that from
+        // `hops_to` answering `PATHFINDER_M`; `hopsTo` answers nil, so it is a decision here.
+        guard let hops = transport.hopsTo(destinationHash), Int(hops) <= autopeerMaxdepth else {
+            // `:93-96` — an existing peer that has moved out of range is dropped, so the depth
+            // limit bounds which peers are *held* and not merely which are acquired.
+            unpeer(destinationHash: destinationHash, timestamp: announce.timebase)
+            return
+        }
+
+        adoptTerms()
+    }
+
+    /// Insert a peer into the table unconditionally.
+    ///
+    /// The internal half of `peer(destinationHash:...)`, which is where the reference's peering
+    /// conditions live. Not public: a caller that reached this directly would bypass them.
     @discardableResult
-    public func addPeer(destinationHash: Data,
-                        syncStrategy: LXMSyncStrategy = LXMPeer.defaultSyncStrategy) -> LXMPeer {
+    func addPeer(destinationHash: Data,
+                 syncStrategy: LXMSyncStrategy = LXMPeer.defaultSyncStrategy) -> LXMPeer {
         lock.lock()
         if let existing = peers[destinationHash] { lock.unlock(); return existing }
         let peer = LXMPeer(router: self, destinationHash: destinationHash,
                            syncStrategy: syncStrategy)
         peers[destinationHash] = peer
-        // Snapshot existing message IDs, then seed the new peer OUTSIDE the lock
-        // (addUnhandledMessage self-locks; seeding is idempotent — peerAddUnhandled
-        // dedups — so a concurrent addToMessageStore that already included the new
-        // peer causes no double-add).
-        let allTids = Array(propagationEntries.keys)
         lock.unlock()
-        for tid in allTids { peer.addUnhandledMessage(tid) }
+        // Deliberately NOT seeded with the existing store. Python's `peer()` constructs the peer,
+        // sets its advertised terms, and stops (`LXMRouter.py:2032-2045`); `unhandled_messages` is
+        // derived from the store's per-entry peer lists (`LXMPeer.py:583-588`), so a peer created
+        // now appears in none of them and starts empty. Back-filling made a node's first act after
+        // autopeering be to offer the new peer its entire store — including, because autopeering
+        // happens after ingest, the messages that peer had just uploaded.
+        //
+        // Restore is the opposite case and does seed: `LXMPeer.from(bytes:router:)` re-adds the
+        // sets that were recorded before the restart (`LXMPeer.py:118-129`).
         return peer
+    }
+
+    // MARK: - Periodic jobs
+
+    /// One entry of the periodic job schedule.
+    ///
+    /// The schedule is data rather than a chain of `if processingCount % … == 0` blocks so that
+    /// "which routines run, and how often" is a value a test can compare against the reference
+    /// (`LXMRouter.py:880-911`) — a missing routine is then a failing assertion rather than an
+    /// absence nobody can see, which is how `swift_devel/bugs/019` survived.
+    public struct Job {
+        /// The routine's name, matching the Swift method it dispatches.
+        public let name: String
+        /// How many ticks apart it runs. Python's `JOB_*_INTERVAL`.
+        public let interval: Int
+        /// Whether the reference runs it only on a propagation node.
+        public let propagationNodeOnly: Bool
+        /// Non-nil when the port schedules the routine but has not implemented it yet, saying why.
+        ///
+        /// Recorded rather than left out of the schedule: an omitted routine is indistinguishable
+        /// from one nobody noticed.
+        public let pendingReason: String?
+        /// Non-nil when the routine is **not** in the reference's `jobs()` and this port runs it
+        /// anyway, saying why.
+        ///
+        /// The schedule is compared against `LXMRouter.py:880-911` by test, so an addition has to
+        /// declare itself. A divergence with a recorded reason is a decision; one without is a
+        /// mistake nobody has noticed yet.
+        public let additionReason: String?
+        let run: (LXMRouter) -> Void
+
+        init(_ name: String, every interval: Int, propagationNodeOnly: Bool = false,
+             pending pendingReason: String? = nil, addedBecause additionReason: String? = nil,
+             run: @escaping (LXMRouter) -> Void = { _ in }) {
+            self.name = name
+            self.interval = interval
+            self.propagationNodeOnly = propagationNodeOnly
+            self.pendingReason = pendingReason
+            self.additionReason = additionReason
+            self.run = run
+        }
+    }
+
+    /// Why `processDeferredStamps` is scheduled but not dispatched.
+    static let deferredStampsPendingReason = """
+        The deferred-stamp queue is not ported. Python defers stamp generation for outbound \
+        messages onto this tick (LXMRouter.py:887-888); the port generates stamps synchronously \
+        in send(), so there is no queue to drain. Scheduled here so porting the queue does not \
+        also require noticing the loop.
+        """
+
+    /// Why `savePeers` is in this port's schedule and not in the reference's.
+    static let savePeersAdditionReason = """
+        The reference persists the peer table on exit only — atexit plus SIGINT/SIGTERM handlers \
+        (LXMRouter.py:307-309, :1400-1423) — which suits a daemon that is stopped politely. This \
+        port's primary consumer is an iOS app, terminated without notice and unable to run an \
+        exit handler at all, so exit-only persistence would lose every peer's handled/unhandled \
+        sets, peering timebase and measured transfer rates on each kill. Periodic saving also \
+        covers the daemon case; disablePropagation still saves immediately.
+        """
+
+    /// The reference's `jobs()` as a schedule. Mirrors `LXMRouter.py:880-911`.
+    public static let jobSchedule: [Job] = [
+        .init("processOutbound", every: jobOutboundInterval) { $0.processOutbound() },
+
+        .init("processDeferredStamps", every: jobStampsInterval,
+              pending: deferredStampsPendingReason),
+
+        .init("cleanLinks", every: jobLinksInterval) { $0.cleanLinks() },
+        .init("cleanResourceTracking", every: jobResourceInterval) { $0.cleanResourceTracking() },
+
+        .init("cleanTransientIDCaches", every: jobTransientInterval) {
+            $0.cleanTransientIDCaches()
+            $0.saveLocallyDeliveredTransientIDs()
+            $0.saveLocallyProcessedTransientIDs()
+        },
+
+        .init("cleanMessageStore", every: jobStoreInterval, propagationNodeOnly: true) {
+            $0.cleanMessageStore()
+        },
+        .init("flushQueues", every: jobPeerIngestInterval, propagationNodeOnly: true) {
+            $0.flushQueues()
+        },
+        .init("rotatePeers", every: jobRotateInterval, propagationNodeOnly: true) {
+            $0.rotatePeers()
+        },
+        .init("syncPeers", every: jobPeerSyncInterval, propagationNodeOnly: true) {
+            $0.syncPeers()
+        },
+
+        // Shares the peer-sync interval but sits *outside* its propagation-node guard
+        // (`LXMRouter.py:908-910`): a client throttled by a node it talked to needs its own record
+        // expired too.
+        .init("cleanThrottledPeers", every: jobPeerSyncInterval) { $0.cleanThrottledPeers() },
+
+        .init("savePeers", every: jobSaveInterval, propagationNodeOnly: true,
+              addedBecause: savePeersAdditionReason) {
+            $0.savePeers()
+            $0.saveNodeStats()
+        },
+    ]
+
+    /// Run the routines due on this tick, and return their names.
+    ///
+    /// The return value is what makes dispatch observable without instrumenting production: a test
+    /// can drive the schedule and see exactly which routines ran on which tick. `LXMRouter` is
+    /// `public final`, so there is no subclass to spy with.
+    @discardableResult
+    public func jobs() -> [String] {
+        processingCount &+= 1
+        let tick = processingCount
+
+        var ran: [String] = []
+        for job in LXMRouter.jobSchedule {
+            guard tick % job.interval == 0 else { continue }
+            guard !job.propagationNodeOnly || isPropagationNode else { continue }
+            guard job.pendingReason == nil else { continue }
+            job.run(self)
+            ran.append(job.name)
+        }
+        return ran
+    }
+
+    /// Tear down links that have sat idle past their limit.
+    ///
+    /// Mirrors the link-reaping half of Python's `clean_links()` (`LXMRouter.py:951-975`). A link
+    /// held open indefinitely pins a slot in the link table of **every relay along its path**, not
+    /// just locally, and keepalive traffic keeps flowing over it.
+    ///
+    /// The reference's `clean_links` also maps outbound-propagation link closure onto the sync
+    /// state machine (`:991-1000`); that is `swift_devel/bugs/020` and belongs with the sync
+    /// terminality work, not here.
+    public func cleanLinks() {
+        lock.lock()
+        let direct = directLinks
+        let propagation = activePropagationLinks
+        lock.unlock()
+
+        for (destinationHash, link) in direct where link.noDataFor() > LXMRouter.linkMaxInactivity {
+            try? link.teardown()
+            lock.lock()
+            directLinks.removeValue(forKey: destinationHash)
+            validatedPeerLinks.removeValue(forKey: ObjectIdentifier(link))
+            lock.unlock()
+        }
+
+        for (key, link) in propagation
+        where link.noDataFor() > LXMRouter.propagationLinkMaxInactivity {
+            lock.lock(); activePropagationLinks.removeValue(forKey: key); lock.unlock()
+            try? link.teardown()
+        }
+    }
+
+    /// Map newly stored messages onto the peers that have not seen them.
+    ///
+    /// Mirrors Python's `flush_queues()` (`LXMRouter.py:923-933`): drain the distribution queue,
+    /// then let each peer fold its own queued items into its handled/unhandled sets.
+    public func flushQueues() {
+        lock.lock(); let hasPeers = !peers.isEmpty; lock.unlock()
+        guard hasPeers else { return }
+
+        flushPeerDistributionQueue()
+
+        lock.lock(); let peerList = Array(peers.values); lock.unlock()
+        for peer in peerList { peer.processQueues() }
+    }
+
+    /// Drop throttle records that have expired.
+    /// Mirrors Python's `LXMRouter.clean_throttled_peers()` (`LXMRouter.py:1136-1142`).
+    public func cleanThrottledPeers(now: TimeInterval = Date().timeIntervalSince1970) {
+        lock.lock(); defer { lock.unlock() }
+        for (destinationHash, deadline) in throttledPeers where now > deadline {
+            throttledPeers.removeValue(forKey: destinationHash)
+        }
+    }
+
+    /// Drop low-acceptance-rate peers to recover headroom under `maxPeers`.
+    ///
+    /// Mirrors Python's `LXMRouter.rotate_peers()` (`LXMRouter.py:2060-2130`), kept as one routine
+    /// in the reference's order because its steps depend on each other: the postponement depends on
+    /// the untested count, the pool basis on the fully-synced set, and the drop pool on
+    /// `prioritiseRotatingUnreachablePeers` (design D4).
+    public func rotatePeers() {
+        lock.lock()
+        let all = Array(peers.values)
+        let staticHashes = staticPeers
+        let bound = maxPeers
+        lock.unlock()
+
+        // Headroom, and whether the table is far enough over it to be worth rotating. The second
+        // condition keeps a tiny table from rotating itself down to nothing (`:2064`).
+        let headroom = max(1, Int((Double(bound) * Double(LXMRouter.rotationHeadroomPct) / 100.0)
+                                  .rounded(.down)))
+        let requiredDrops = all.count - (bound - headroom)
+        guard requiredDrops > 0, all.count - requiredDrops > 1 else { return }
+
+        // A peer that has never been synced with has no record to be judged on. While enough of
+        // them are outstanding, the whole pass is postponed rather than judging them (`:2067-2075`)
+        // — otherwise rotation drops whichever peer was added most recently.
+        let untested = all.filter { $0.lastSyncAttempt == 0 }
+        guard untested.count < headroom else { return }
+
+        // Prefer peers that have taken everything offered as the basis, when any have: a peer with
+        // messages still outstanding has an acceptance rate that has not finished being measured
+        // (`:2075-2084`).
+        let fullySynced = all.filter { $0.unhandledMessageCount == 0 }
+        let basis = fullySynced.isEmpty ? all : fullySynced
+
+        var waiting:      [LXMPeer] = []
+        var unresponsive: [LXMPeer] = []
+        for peer in basis where !staticHashes.contains(peer.destinationHash) && peer.state == .idle {
+            if peer.alive {
+                // Offered nothing, so there is no acceptance rate to judge — not a candidate,
+                // rather than a candidate scoring zero (`:2095-2098`).
+                if peer.offered != 0 { waiting.append(peer) }
+            } else {
+                unresponsive.append(peer)
+            }
+        }
+
+        var dropPool: [LXMPeer] = []
+        if !unresponsive.isEmpty {
+            dropPool = unresponsive
+            if !prioritiseRotatingUnreachablePeers { dropPool.append(contentsOf: waiting) }
+        } else {
+            dropPool = waiting
+        }
+        guard !dropPool.isEmpty else { return }
+
+        let dropCount = min(requiredDrops, dropPool.count)
+        let lowestAcceptance = dropPool
+            .sorted { $0.acceptanceRate < $1.acceptanceRate }
+            .prefix(dropCount)
+
+        for peer in lowestAcceptance where peer.acceptanceRate < LXMRouter.rotationAcceptanceRateMax {
+            unpeer(destinationHash: peer.destinationHash)
+        }
+    }
+
+    /// Break peering with a node.
+    ///
+    /// Mirrors Python's `LXMRouter.unpeer()` (`LXMRouter.py:2049-2057`) — the removal path used by
+    /// rotation (`:2122`), by the peering-cost ceiling (`:2008`) and by the remote control verb
+    /// `peer_unpeer_request` (`:864`).
+    ///
+    /// `timestamp` defaults to now, which is what makes a locally-decided unpeer (rotation, the
+    /// ceiling) always take effect. An unpeer carrying a timebase *older* than the peer's is
+    /// ignored: announces reorder in a mesh, and without the guard a delayed unpeer removes a peer
+    /// that has since re-peered.
+    public func unpeer(destinationHash: Data, timestamp: TimeInterval? = nil) {
+        let stamp = timestamp ?? Date().timeIntervalSince1970
+
+        lock.lock()
+        let peeringTimebase = peers[destinationHash]?.peeringTimebase
+        lock.unlock()
+
+        guard let peeringTimebase else { return }
+        guard stamp >= peeringTimebase else { return }
+        removePeer(destinationHash: destinationHash)
     }
 
     /// Remove a peer from the peering table.
@@ -2340,10 +2988,10 @@ public final class LXMRouter {
 
     /// Notify all peers that a new message has arrived and queue it for distribution.
     /// Python: `LXMRouter.peer_distribution_queue.append(transient_id)` + per-peer queue.
-    public func enqueueForPeerDistribution(transientID: Data) {
+    public func enqueueForPeerDistribution(transientID: Data, fromPeer: LXMPeer? = nil) {
         lock.lock(); defer { lock.unlock() }
-        guard !peerDistributionQueue.contains(transientID) else { return }
-        peerDistributionQueue.append(transientID)
+        guard !peerDistributionQueue.contains(where: { $0.transientID == transientID }) else { return }
+        peerDistributionQueue.append((transientID, fromPeer))
     }
 
     /// Flush the peer distribution queue — mark new messages as unhandled for all peers.
@@ -2360,8 +3008,8 @@ public final class LXMRouter {
         let peerList = Array(peers.values)
         lock.unlock()
 
-        for tid in batch {
-            for peer in peerList { peer.queueUnhandledMessage(tid) }
+        for (tid, origin) in batch {
+            for peer in peerList where peer !== origin { peer.queueUnhandledMessage(tid) }
         }
         for peer in peerList { peer.processQueues() }
     }
@@ -2369,9 +3017,72 @@ public final class LXMRouter {
     /// Attempt to sync with all peers.
     /// Python: `LXMRouter.sync_peers()`.
     public func syncPeers() {
+        var generator = SystemRandomNumberGenerator()
+        syncPeers(using: &generator)
+    }
+
+    /// `syncPeers()` with the selection source supplied, so a test can assert which peers the pool
+    /// can reach without pinning production to a fixed choice (design D5).
+    public func syncPeers<G: RandomNumberGenerator>(using generator: inout G) {
         guard isPropagationNode else { return }
-        lock.lock(); let peerList = Array(peers.values); lock.unlock()
-        for peer in peerList { peer.sync() }
+        lock.lock()
+        let all = Array(peers.values)
+        let staticHashes = staticPeers
+        lock.unlock()
+
+        let now = Date().timeIntervalSince1970
+        var culled:       [Data]    = []
+        var waiting:      [LXMPeer] = []
+        var unresponsive: [LXMPeer] = []
+
+        for peer in all {
+            // A peer not heard from for MAX_UNREACHABLE has gone away; without this it is
+            // attempted on every pass for the life of the process. A static peer is the operator's
+            // declared upstream and is exempt — a node behind a constrained link may legitimately
+            // be silent this long (`LXMRouter.py:2138-2140`).
+            if now > peer.lastHeard + LXMPeer.maxUnreachable {
+                if !staticHashes.contains(peer.destinationHash) {
+                    culled.append(peer.destinationHash)
+                }
+                continue
+            }
+
+            guard peer.state == .idle, peer.unhandledMessageCount > 0 else { continue }
+            if peer.alive {
+                waiting.append(peer)
+            } else if now > peer.nextSyncAttempt {
+                // Otherwise it is in sync backoff, and dialling it every pass is what backoff
+                // exists to prevent (`:2145`).
+                unresponsive.append(peer)
+            }
+        }
+
+        // The pool: the fastest peers by measured throughput, widened with up to as many again
+        // whose speed is not yet known (`:2148-2166`). The mix is deliberate — it lets a node
+        // converge on its good peers without starving peers it has never tried.
+        var pool: [LXMPeer] = []
+        if !waiting.isEmpty {
+            let fastest = waiting
+                .sorted { $0.syncTransferRate > $1.syncTransferRate }
+                .prefix(min(LXMRouter.fastestNRandomPool, waiting.count))
+            pool.append(contentsOf: fastest)
+
+            // A peer whose rate is still 0 can land in `fastest` as well — when every waiting peer
+            // is unmeasured, they all do — and so appears in the pool twice, weighting the draw
+            // toward it. The reference does exactly this (`:2151-2166` extends the same list), and
+            // it is left alone: de-duplicating would change the selection distribution away from
+            // the reference's for no stated reason.
+            let unknownSpeed = waiting.filter { $0.syncTransferRate == 0 }
+            pool.append(contentsOf: unknownSpeed.prefix(min(unknownSpeed.count, fastest.count)))
+        } else {
+            // Unresponsive peers are the pool only when nobody reachable is waiting (`:2168-2170`).
+            pool = unresponsive
+        }
+
+        // One peer per pass, not all of them (`:2172-2176`).
+        if let selected = pool.randomElement(using: &generator) { selected.sync() }
+
+        for destinationHash in culled { removePeer(destinationHash: destinationHash) }
     }
 
     // MARK: - Offer / get request handlers
@@ -2384,19 +3095,51 @@ public final class LXMRouter {
     ///
     /// - Parameters:
     ///   - data: Decoded msgpack: [peeringKey: Data, transientIDs: [Data]]
-    ///   - remoteIdentityHash: Hash of the requesting peer's identity (nil if unidentified).
-    ///   - linkID: ObjectIdentifier for the requesting link.
+    ///   - link: the link the request arrived on. Two different hashes are derived from it and
+    ///     they are not interchangeable: the peering key is computed over the remote's *identity*
+    ///     hash (`LXMRouter.py:2298`), while the throttle is keyed by its *propagation destination*
+    ///     hash (`:2269-2270`). Taking a pre-narrowed identity hash here, as this method used to,
+    ///     makes the second one underivable (design D1).
     /// - Returns: Response value:
     ///   - `LXMPeerError.noIdentity` if not identified
+    ///   - `LXMPeerError.throttled` if the remote is inside a throttle window
     ///   - `false` (MsgPack.Value.bool) if we already have all offered messages
     ///   - `true`  if we want all offered messages
     ///   - `[Data]` list of wanted transient IDs
-    public func handleOfferRequest(data: MsgPack.Value,
-                                   remoteIdentityHash: Data?,
-                                   linkID: ObjectIdentifier) -> MsgPack.Value {
+    public func handleOfferRequest(data: MsgPack.Value, on link: Link) -> MsgPack.Value {
+        handleOfferRequest(data: data,
+                           remoteIdentityHash: link.remoteIdentity?.hash,
+                           propagationHash: remotePropagationHash(of: link),
+                           linkID: ObjectIdentifier(link))
+    }
+
+    /// The offer handler with its two hashes supplied separately.
+    ///
+    /// Internal, and the only production caller is the entry point above — a `propagationHash` of
+    /// `nil` **cannot be throttled**, so nothing reachable from a link may use this directly. It
+    /// exists for tests of the wanted-IDs logic, which have no link and no interest in one; giving
+    /// the concurrency test a real link would put link machinery inside a race test.
+    func handleOfferRequest(data: MsgPack.Value,
+                            remoteIdentityHash: Data?,
+                            propagationHash: Data?,
+                            linkID: ObjectIdentifier) -> MsgPack.Value {
         guard isPropagationNode else { return .int(Int64(LXMPeerError.noAccess.rawValue)) }
         guard let remoteHash = remoteIdentityHash else {
             return .int(Int64(LXMPeerError.noIdentity.rawValue))
+        }
+
+        // Refuse while the remote is throttled, and drop the record once it has elapsed. The
+        // scheduled sweep (`cleanThrottledPeers`) is not a substitute: this branch only fires for a
+        // remote that comes back (`LXMRouter.py:2285-2290`).
+        if let propagationHash {
+            let now = Date().timeIntervalSince1970
+            lock.lock()
+            let deadline = throttledPeers[propagationHash]
+            if let deadline, deadline <= now { throttledPeers.removeValue(forKey: propagationHash) }
+            lock.unlock()
+            if let deadline, deadline > now {
+                return .int(Int64(LXMPeerError.throttled.rawValue))
+            }
         }
 
         guard case .array(let dataArr) = data, dataArr.count >= 2 else {
@@ -2539,15 +3282,23 @@ public final class LXMRouter {
     ///   - lxmfData: Raw LXMF bytes (without appended stamp).
     ///   - stampValue: Pre-validated stamp value.
     ///   - stamp: The 32-byte proof-of-work stamp.
+    ///   - fromPeer: the peer this arrived from on a sync, or nil for a client upload. It is
+    ///     excluded from the fan-out and the message is recorded as handled for it — Python does
+    ///     both (`LXMRouter.py:2444-2445`, `:2484`), because a peer that just sent us a message
+    ///     demonstrably has it.
     @discardableResult
-    public func ingestPropagatedLXM(lxmfData: Data, stampValue: Int, stamp: Data) -> PropagationEntry? {
+    public func ingestPropagatedLXM(lxmfData: Data, stampValue: Int, stamp: Data,
+                                    fromPeer: LXMPeer? = nil) -> PropagationEntry? {
         let transientID = Hashes.fullHash(lxmfData)
         lock.lock(); let isDup = propagationEntries[transientID] != nil; lock.unlock()
         guard !isDup else { return nil } // duplicate (addToMessageStore re-checks under lock)
 
         let entry = addToMessageStore(lxmfData: lxmfData, transientID: transientID,
                                       stampValue: stampValue, stamp: stamp)
-        if entry != nil { enqueueForPeerDistribution(transientID: transientID) }
+        if entry != nil {
+            fromPeer?.queueHandledMessage(transientID)
+            enqueueForPeerDistribution(transientID: transientID, fromPeer: fromPeer)
+        }
         return entry
     }
 
@@ -2829,23 +3580,26 @@ private final class DeliveryAnnounceHandler: AnnounceHandler {
     }
 }
 
-/// Listens for announces from the configured outbound propagation node.
-/// When the configured PN announces, triggers outbound processing for any
-/// pending propagated messages so they are sent without waiting for the
-/// next retry timer. Mirrors Python `Handlers.PropagationNodeAnnounceHandler`
-/// (outbound processing trigger added in LXMF 0.9.9 / a8505ea).
+/// Listens for propagation-node announces: triggers outbound processing when the configured
+/// outbound PN announces, and peers when the router is itself a propagation node.
+///
+/// Mirrors Python `Handlers.LXMFPropagationAnnounceHandler`. Both behaviours live in
+/// `LXMRouter.handlePropagationNodeAnnounce`, which the public handler in `Handlers.swift` also
+/// calls — see `swift_devel/bugs/046` for what having two copies of it cost.
 private final class PropagationNodeAnnounceHandler: AnnounceHandler {
     let aspectFilter: String? = APP_NAME + ".propagation"
+    /// `Handlers.py:38`. The peering branch needs to *see* path responses in order to distinguish
+    /// them — a static peer takes its terms from one, and autopeering must refuse one.
+    let receivePathResponses: Bool = true
     weak var router: LXMRouter?
 
     init(router: LXMRouter) { self.router = router }
 
-    func receivedAnnounce(destinationHash: Data, identity: Identity, appData: Data?) {
-        guard let router else { return }
-        // Only act if this announce is from our configured outbound PN.
-        guard router.outboundPropagationNode == destinationHash else { return }
-        guard propagationNodeAnnounceDataIsValid(appData) else { return }
-        router.triggerPropagatedOutbound()
+    func receivedAnnounce(destinationHash: Data, identity: Identity, appData: Data?,
+                          announcePacketHash: Data, isPathResponse: Bool) {
+        router?.handlePropagationNodeAnnounce(destinationHash: destinationHash,
+                                              appData: appData,
+                                              isPathResponse: isPathResponse)
     }
 }
 

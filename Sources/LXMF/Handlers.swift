@@ -93,17 +93,21 @@ public final class LXMFPropagationAnnounceHandler: AnnounceHandler {
 
     /// Called when a propagation node announces.
     ///
-    /// Mirrors `LXMFPropagationAnnounceHandler.received_announce()` in Python:
-    /// if the announce is from the configured outbound PN and the announce data
-    /// is valid, resets delivery timers for pending propagated messages and
-    /// triggers outbound processing.
+    /// Mirrors `LXMFPropagationAnnounceHandler.received_announce()` in Python whole
+    /// (`Handlers.py:41-99`): the outbound-PN trigger, and — when this router is itself a
+    /// propagation node — peering with the node that announced.
+    ///
+    /// The work is `LXMRouter.handlePropagationNodeAnnounce`, not this method. The router
+    /// registers its own handler for the same aspect, so anything implemented here rather than
+    /// behind that call would apply to consumers who register this type and to nobody else. That
+    /// asymmetry is `swift_devel/bugs/046`.
     public func receivedAnnounce(destinationHash: Data,
-                                  identity: Identity,
-                                  appData: Data?) {
-        guard let router else { return }
-        // Only act when this announce is from our configured outbound PN.
-        guard router.outboundPropagationNode == destinationHash else { return }
-        guard propagationNodeAnnounceDataIsValid(appData) else { return }
-        router.triggerPropagatedOutbound()
+                                 identity: Identity,
+                                 appData: Data?,
+                                 announcePacketHash: Data,
+                                 isPathResponse: Bool) {
+        router?.handlePropagationNodeAnnounce(destinationHash: destinationHash,
+                                              appData: appData,
+                                              isPathResponse: isPathResponse)
     }
 }

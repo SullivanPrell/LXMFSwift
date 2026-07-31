@@ -60,6 +60,25 @@ public enum LXMPeerError: UInt8, Equatable {
     case timeout      = 0xFE
 }
 
+extension MsgPack.Value {
+    /// This value as an LXMF peer error code, or nil if it is not a single number in that range.
+    ///
+    /// Read numerically because the wire form varies by magnitude and by encoder: every LXMF error
+    /// code is above 127, so it travels as a msgpack `uint8` and decodes to `.uint`
+    /// (`MsgPack.swift:212`), while a hand-built `.int` stays `.int`. Matching on the case alone
+    /// reads one and misses the other.
+    var asErrorCode: UInt8? {
+        let value: UInt64
+        switch self {
+        case .uint(let n): value = n
+        case .int(let n):  guard n >= 0 else { return nil }; value = UInt64(n)
+        default:           return nil
+        }
+        guard value <= UInt64(UInt8.max) else { return nil }
+        return UInt8(value)
+    }
+}
+
 /// Peer sync strategy — lazy (on-demand) or persistent (continuous).
 /// Mirrors Python's `LXMPeer.STRATEGY_*` constants.
 public enum LXMSyncStrategy: Int, Equatable {
@@ -684,13 +703,17 @@ public final class LXMPeer {
         let offerSnapshot = lastOffer
         peerLock.unlock()
 
+        // Matched numerically, not by msgpack case. Every error code is > 127, so an encoder
+        // writes it as a `uint8` (`0xCC`) and `MsgPack.decode` hands back `.uint`
+        // (`MsgPack.swift:212`) — a `switch` on `.int` matches none of them and falls through to
+        // `default`. That silently turned every refusal a peer sent, including ERROR_THROTTLED and
+        // ERROR_NO_IDENTITY, into "the peer wants nothing": no back-off, no re-identify, no retry.
+        // See `swift_devel/bugs/053`.
+        if let code = response.asErrorCode, let error = LXMPeerError(rawValue: code) {
+            return .error(error)
+        }
+
         switch response {
-        case .int(let code) where code == Int64(LXMPeerError.noIdentity.rawValue):
-            return .error(.noIdentity)
-        case .int(let code) where code == Int64(LXMPeerError.noAccess.rawValue):
-            return .error(.noAccess)
-        case .int(let code) where code == Int64(LXMPeerError.throttled.rawValue):
-            return .error(.throttled)
         case .bool(false):
             // Peer has all our offered messages
             for tid in offerSnapshot {
