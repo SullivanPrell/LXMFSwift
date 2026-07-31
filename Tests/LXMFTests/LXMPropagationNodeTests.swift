@@ -839,6 +839,10 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         let router = LXMRouter(transport: serverTransport)
         try router.register(identity: serverId, transport: serverTransport)
+        // Accept stamps of any cost: this test uploads a cost-0 stamp and is about ingest, not
+        // stamp validation. Legal in the reference — PROPAGATION_COST_MIN clamps the constructor
+        // argument, not later assignment (`LXMRouter.py:136` vs `:147`).
+        router.propagationStampCost = 0
         try router.enablePropagation(storagePath: tempDir)
 
         // Inject a fake propagation entry destined for the client.
@@ -914,6 +918,10 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         let router = LXMRouter(transport: serverTransport)
         try router.register(identity: serverId, transport: serverTransport)
+        // Accept stamps of any cost: this test uploads a cost-0 stamp and is about ingest, not
+        // stamp validation. Legal in the reference — PROPAGATION_COST_MIN clamps the constructor
+        // argument, not later assignment (`LXMRouter.py:136` vs `:147`).
+        router.propagationStampCost = 0
         try router.enablePropagation(storagePath: tempDir)
 
         let serverIface = LoopIface(name: "S2"); let clientIface = LoopIface(name: "C2")

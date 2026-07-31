@@ -377,6 +377,11 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
         try router.register(identity: identity, transport: transport)
         transport.ownerIdentity = identity
         router.peeringCost = 0
+        // Nodes here demand no stamp: `testTheConfiguredOutboundNodeAnnouncingRetriesPropagatedMessagesNow`
+        // queues a real PROPAGATED message, and `send` generates its PN stamp at the *remote's*
+        // advertised cost before queueing (`LXMRouter.swift:1105-1115`). At the default 16 that is
+        // 2^16 hashes of a 256 KB workblock on every run of this file.
+        router.propagationStampCost = 0
         try router.enablePropagation(storagePath: dir)
         retained.append(router)
         return router

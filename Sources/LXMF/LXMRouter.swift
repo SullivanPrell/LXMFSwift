@@ -68,6 +68,18 @@ public final class LXMRouter {
     /// Default ceiling on a remote's peering cost.
     /// Python: `LXMRouter.MAX_PEERING_COST = 26` (`:51`).
     public static let defaultMaxPeeringCost = 26
+
+    /// Default proof-of-work cost this node charges to peer with it.
+    /// Python: `LXMRouter.PEERING_COST = 18` (`:50`).
+    public static let defaultPeeringCost = 18
+    /// Default stamp cost this node demands of messages offered to it.
+    /// Python: `LXMRouter.PROPAGATION_COST = 16` (`:54`).
+    public static let defaultPropagationStampCost = 16
+    /// Default tolerance on that demand. Python: `LXMRouter.PROPAGATION_COST_FLEX = 3` (`:53`).
+    public static let defaultPropagationStampCostFlexibility = 3
+    /// Floor under the demanded stamp cost, applied on assignment.
+    /// Python: `LXMRouter.PROPAGATION_COST_MIN = 13` (`:52`), enforced at `:136`.
+    public static let propagationStampCostMin = 13
     /// Fraction of `maxPeers` rotation tries to keep free.
     /// Python: `LXMRouter.ROTATION_HEADROOM_PCT = 10` (`:47`).
     public static let rotationHeadroomPct = 10
@@ -301,13 +313,24 @@ public final class LXMRouter {
     public var propagationPerSyncLimit: Int? = nil
 
     /// Minimum proof-of-work stamp cost required for messages accepted by this node.
-    public var propagationStampCost: Int = 0
+    ///
+    /// The floor is applied to the **initialiser argument**, not to this property — the reference
+    /// clamps `propagation_cost` in `__init__` (`LXMRouter.py:136`) and leaves later attribute
+    /// assignment alone. A node cheaper to flood than the network assumes any node is undermines
+    /// every other node's spam control, not just its own, so the configured value is clamped;
+    /// a caller that reaches past the initialiser has, as in Python, taken responsibility.
+    public var propagationStampCost: Int = LXMRouter.defaultPropagationStampCost
 
     /// Flexibility (±) on the stamp cost requirement.
-    public var propagationStampCostFlexibility: Int = 0
+    /// Python: `LXMRouter.PROPAGATION_COST_FLEX = 3` (`:53`).
+    public var propagationStampCostFlexibility: Int = LXMRouter.defaultPropagationStampCostFlexibility
 
     /// PoW cost for peering with this node.
-    public var peeringCost: Int = 0
+    ///
+    /// **Not zero.** Python's `peering_key_ready` opens with `if not self.peering_cost: return
+    /// False` (`LXMPeer.py:228`), so a node advertising 0 is one no Python peer can ever finish
+    /// peering with — it postpones every sync pass, silently, with no error on either side.
+    public var peeringCost: Int = LXMRouter.defaultPeeringCost
 
     /// Whether to peer automatically with propagation nodes discovered through incoming syncs.
     /// Python: `LXMRouter.AUTOPEER = True` (`LXMRouter.py:44`), consulted at `:2365`.
@@ -394,7 +417,20 @@ public final class LXMRouter {
 
     // MARK: - Init
 
-    public init(transport: Transport) {
+    /// - Parameters:
+    ///   - propagationStampCost: what this node demands of messages offered to it. Clamped up to
+    ///     `propagationStampCostMin`, mirroring `LXMRouter.py:136`.
+    ///   - peeringCost: what this node charges to peer with it. **Never pass 0**: Python's
+    ///     `peering_key_ready` treats a falsy peering cost as permanently unsatisfiable
+    ///     (`LXMPeer.py:228`), so a node advertising 0 is one no Python peer can finish peering
+    ///     with — it postpones every sync pass forever, with no error on either side.
+    public init(transport: Transport,
+                propagationStampCost: Int = LXMRouter.defaultPropagationStampCost,
+                propagationStampCostFlexibility: Int = LXMRouter.defaultPropagationStampCostFlexibility,
+                peeringCost: Int = LXMRouter.defaultPeeringCost) {
+        self.propagationStampCost = max(propagationStampCost, LXMRouter.propagationStampCostMin)
+        self.propagationStampCostFlexibility = propagationStampCostFlexibility
+        self.peeringCost = peeringCost
         self.transport = transport
         deliveryAnnounceHandler = DeliveryAnnounceHandler(router: self)
         propagationNodeAnnounceHandler = PropagationNodeAnnounceHandler(router: self)

@@ -295,6 +295,12 @@ final class PropagationPeeringTests: XCTestCase {
 
         let router = LXMRouter(transport: nodeTransport)
         try router.register(identity: nodeIdentity, transport: nodeTransport)
+        // The node accepts stamps of any cost: these tests upload a message with a cost-0 stamp,
+        // and the point under test is peering / ingest, not stamp validation. The reference allows
+        // this — the PROPAGATION_COST_MIN floor applies to the constructor argument, not to later
+        // assignment (`LXMRouter.py:136` vs `:147`). Without it the node demands the default 16
+        // and the upload is rejected before it ever reaches the path being tested.
+        router.propagationStampCost = 0
         try router.enablePropagation(storagePath: tempDir)
         retained.append(router)
 
