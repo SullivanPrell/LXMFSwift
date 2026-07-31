@@ -589,10 +589,33 @@ final class LXMPropagationNodeTests: XCTestCase {
     }
 
     // MARK: - syncPeers
+    //
+    // Selection, the unreachability cull and the pool live in `PeerSyncSelectionTests`. What is
+    // left here is the one thing that is about *this* suite's subject: a router that is not a
+    // propagation node does nothing at all. That used to be the whole of `syncPeers`' behavioural
+    // coverage, and because it returns at the routine's first guard it could not observe anything
+    // the routine did — `swift_devel/bugs/045` sat behind it.
 
-    func testSyncPeersNoopsWhenNotEnabled() {
+    func testSyncPeersDoesNothingWhenNotAPropagationNode() {
         let router = makeRouter()
-        router.syncPeers()  // must not crash
+        let hash = fakeHash(0xD1)
+        router.peer(destinationHash: hash, timestamp: 1_000, transferLimit: 256, syncLimit: 256,
+                    stampCost: 0, stampCostFlexibility: 0, peeringCost: 0, metadata: nil)
+        let peer = router.peers[hash]!
+        peer.alive     = true
+        peer.state     = .idle
+        peer.lastHeard = 0        // old enough to be culled, were the cull to run
+
+        router.syncPeers()
+
+        XCTAssertEqual(peer.lastSyncAttempt, 0,
+                       "a router that is not a propagation node must not sync its peers")
+        XCTAssertNotNil(router.peers[hash],
+                        """
+                        it must not cull them either — the guard is on the whole routine \
+                        (LXMRouter.py:2131 is only reached from a propagation node's job loop), \
+                        not on the sync half of it.
+                        """)
     }
 
     // MARK: - Persistence round-trip
