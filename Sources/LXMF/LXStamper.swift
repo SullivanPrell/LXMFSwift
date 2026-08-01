@@ -59,26 +59,96 @@ public enum LXStamper {
     }
 
     /// Generate a random 32-byte stamp whose SHA256(workblock + stamp) has `targetCost` leading zeros.
-    /// Returns nil if cancelled (future: cancellation support). Runs on the calling thread.
-    public static func generateStamp(messageID: Data, stampCost: Int, expandRounds: Int = defaultExpandRounds) -> Data? {
-        let workblock = stampWorkblock(material: messageID, expandRounds: expandRounds)
-        // Use incremental SHA-256 to avoid allocating workblock+stamp (up to 256KB) each iteration.
-        // Pre-feed the workblock once and clone the hasher state for each stamp candidate.
-        // CryptoKit's SHA256 does not expose copy(), so we hash workblock+stamp incrementally
-        // using two update() calls — avoids the large Data concatenation.
-        while true {
-            var stamp = Data(count: stampSize)
-            _ = stamp.withUnsafeMutableBytes {
-                SecRandomCopyBytes(kSecRandomDefault, stampSize, $0.baseAddress!)
+    /// Returns nil if cancelled. Runs on the calling thread.
+    ///
+    /// Thin wrapper over `generateStamp(material:targetCost:expandRounds:isCancelled:)`, which is
+    /// the form the peering path needs — Python's `generate_stamp` returns `(stamp, value)` and the
+    /// peer stores both (`LXStamper.py:123-144`, `LXMPeer.py:259-261`).
+    public static func generateStamp(messageID: Data, stampCost: Int,
+                                     expandRounds: Int = defaultExpandRounds) -> Data? {
+        generateStamp(material: messageID, targetCost: stampCost,
+                      expandRounds: expandRounds)?.stamp
+    }
+
+    /// Generate a stamp over `material` and report the value it actually reached.
+    ///
+    /// Mirrors Python's `generate_stamp(message_id, stamp_cost, expand_rounds)`
+    /// (`LXStamper.py:123-144`), which returns the pair. The value is **not** simply `targetCost`:
+    /// a random preimage that clears the bar usually clears it by more, and the peering protocol
+    /// stores the real value so `peering_key_ready` can compare it against a cost the peer may
+    /// later raise (`LXMPeer.py:229-234`).
+    ///
+    /// Both halves of the returned pair derive from one workblock, so the value can never be
+    /// measured against different material than the stamp was found against.
+    ///
+    /// - Parameter isCancelled: polled between candidate batches. Returns nil when it goes true.
+    ///   No production canceller is wired today; single-flight generation is what bounds the cost.
+    public static func generateStamp(material: Data,
+                                     targetCost: Int,
+                                     expandRounds: Int = defaultExpandRounds,
+                                     isCancelled: (() -> Bool)? = nil) -> (stamp: Data, value: Int)? {
+        let workblock = stampWorkblock(material: material, expandRounds: expandRounds)
+
+        // Parallel search, a deliberate deviation from the reference. Python picks its
+        // single-threaded `job_simple` on Darwin (`LXStamper.py:132-136`) because its multi-process
+        // path relies on `fork`, not because the algorithm demands one core. The output is a random
+        // preimage: which thread found it is wire-invisible, and any found stamp is as good as any
+        // other. At the default peering cost of 18 the difference is minutes.
+        let cores = max(1, min(ProcessInfo.processInfo.activeProcessorCount, 8))
+        let found = FoundStamp()
+
+        while found.take() == nil {
+            if isCancelled?() == true { return nil }
+
+            DispatchQueue.concurrentPerform(iterations: cores) { _ in
+                // A batch, so the found-flag is checked often enough to stop promptly but not so
+                // often that the atomic dominates the hashing.
+                for _ in 0 ..< 256 {
+                    if found.isSet { return }
+
+                    var stamp = Data(count: stampSize)
+                    _ = stamp.withUnsafeMutableBytes {
+                        SecRandomCopyBytes(kSecRandomDefault, stampSize, $0.baseAddress!)
+                    }
+                    // Incremental hash: SHA256(workblock || stamp) without allocating the
+                    // concatenation — the workblock is up to 750 KB for message stamps.
+                    var hasher = SHA256()
+                    hasher.update(data: workblock)
+                    hasher.update(data: stamp)
+                    let digest = Data(hasher.finalize())
+
+                    let value = countLeadingZeroBits(digest)
+                    if value >= targetCost {
+                        found.set(stamp: stamp, value: value)
+                        return
+                    }
+                }
             }
-            // Incremental hash: SHA256(workblock || stamp) without allocating workblock+stamp.
-            var hasher = SHA256()
-            hasher.update(data: workblock)
-            hasher.update(data: stamp)
-            let digest = Data(hasher.finalize())
-            if countLeadingZeroBits(digest) >= stampCost {
-                return stamp
-            }
+        }
+
+        return found.take()
+    }
+
+    /// First stamp to clear the bar, published to the other search threads.
+    private final class FoundStamp {
+        private let lock = NSLock()
+        private var result: (stamp: Data, value: Int)?
+        private var flag = false
+
+        /// Read without the lock so the hot loop's early-out costs nothing. A stale `false` only
+        /// means one more candidate is hashed before the batch notices.
+        var isSet: Bool { lock.lock(); defer { lock.unlock() }; return flag }
+
+        func set(stamp: Data, value: Int) {
+            lock.lock(); defer { lock.unlock() }
+            guard result == nil else { return }   // first writer wins; the rest are equally valid
+            result = (stamp, value)
+            flag = true
+        }
+
+        func take() -> (stamp: Data, value: Int)? {
+            lock.lock(); defer { lock.unlock() }
+            return result
         }
     }
 
@@ -111,6 +181,25 @@ public enum LXStamper {
     /// Expand rounds for peering-key validation.
     /// Python: `WORKBLOCK_EXPAND_ROUNDS_PEERING = 25`.
     public static let peeringExpandRounds: Int = 25
+
+    /// The material a peering key is computed over: **receiver ‖ sender**, 16 + 16 = 32 bytes.
+    ///
+    /// Both Python sites agree on that order even though they name the halves differently:
+    ///
+    /// - the generator (`LXMPeer.py:258`) builds `self.identity.hash + self.router.identity.hash`
+    ///   — the *remote peer it is dialling* first, itself second;
+    /// - the validator (`LXMRouter.py:2300`) builds `self.identity.hash + remote_identity.hash`
+    ///   — *itself* first, the sender second.
+    ///
+    /// Both are receiver-then-sender. The argument labels here state which is which so the two
+    /// call sites cannot silently disagree.
+    ///
+    /// These are **Identity** hashes — `Identity.truncated_hash(public_key)`, 16 bytes
+    /// (`RNS/Identity.py:784`) — not destination hashes. An `LXMPeer` is keyed by its *propagation
+    /// destination* hash, so the identity must be recalled from the transport first.
+    public static func peeringID(receiverIdentityHash: Data, senderIdentityHash: Data) -> Data {
+        receiverIdentityHash + senderIdentityHash
+    }
 
     /// Validate a peering key for peer-to-peer sync.
     ///

@@ -3,6 +3,101 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
+## [1.5.0] — a propagation node that pushes
+
+The other half of `1.4.0`. That release filled the peer table; this one drains it. **Between two
+Swift nodes, messages now move.**
+
+**BREAKING.** The outbound sync machine is no longer public API. `LXMPeer.OfferResponse`,
+`processOfferResponse`, `linkEstablished`, `linkClosed`, `buildOffer` and
+`resourceConcluded(success:dataSizeBytes:)` are gone, and `link`, `lastOffer` and
+`currentlyTransferringMessages` are `private`. They were public, complete, and called only by
+tests — which is exactly how the defect below survived a year of green suites. `sync()` is the
+only entry point; `generatePeeringKey()` and `reapStalledSyncLink(maxInactivity:)` are the only
+other non-private symbols on the path, and a test asserts that.
+
+`peeringKey` is `private(set)`; `linkEstablishmentRate` is `public private(set)`;
+`syncTransferRate` keeps an internal setter. `LXMRouter.getWeight` returns `Double`, not
+`TimeInterval`.
+
+### Fixed
+
+- **A propagation node could never initiate a sync** (`bugs/054`). `LXMPeer.sync()` opened no
+  link — the code said so in a comment — and `peeringKey` had **no writer anywhere in `Sources/`**,
+  so `peering_key_ready` was false forever and `sync()` returned at its first guard. A node
+  accepted syncs, served clients and answered offers, but never pushed its store; between two
+  Swift nodes nothing moved at all. Ported from `LXMPeer.py:227-546`: the peering-key generator,
+  the re-entrant `sync()` pump, a real `Link`, the offer request, every offer-response branch with
+  its side effects, and the resource transfer.
+
+- **Every peer error code was misread on the client path too** (extends `bugs/053`). `isPeerError`
+  carried its own copy of the wire decoding. Both paths now go through one `LXMPeerError(msgPack:)`.
+
+- **`getWeight` returned the receive timestamp**, not `priorityWeight * ageWeight * size`
+  (`LXMRouter.py:1056-1067`). Offers went out oldest-first regardless of size, and `prioritise()`
+  had no effect on peer sync at all.
+
+- **A stalled sync link was never collected.** A peer's own link is in neither `directLinks` nor
+  `activePropagationLinks`, and `syncPeers` selects only `state == .idle` — so a peer stalled
+  mid-sync was out of the rotation for the life of the process. `cleanLinks` now reaps it.
+
+- **The peering key was not persisted**, so every restart redid a full proof of work for every
+  peer — minutes each at the default cost of 18 — and the node could sync to nobody until it
+  finished. `propagation_sync_limit` now also falls back to `propagation_transfer_limit` on
+  restore, as the announce path already did.
+
+- **A peer answering `ERROR_NO_IDENTITY` to everything could overflow the stack.** The recovery
+  branch re-identified and re-synced unconditionally. Python has the same shape and only looks
+  bounded because CPython cannot deliver a response from inside `link.request`; over a synchronous
+  transport it is a crash. Re-identify once per link, then give up.
+
+- **Two data races TSan found while every assertion passed.** `peeringKey` and
+  `peeringKeyGenerationsStarted` were written under `peerLock` from the proof-of-work queue and
+  read unguarded through their public getters.
+
+### Deliberate deviations from the reference
+
+Both documented at the code:
+
+- **No blocking path grace.** Python sleeps 7.5 s inside `sync()` and re-checks
+  (`LXMPeer.py:298`). That would stall the whole LXMF job loop, whose tick is 4 s, and the 24 s
+  `syncPeers` cadence already exceeds the grace it buys. Strictly slower to notice a new path,
+  never wrong.
+- **`ERROR_INVALID_KEY` gets a branch.** Python has none: the integer falls into
+  `for transient_id in response`, raises, and lands in the except at `:482-490`, which resets
+  without touching the messages — so the refused key is re-offered unchanged forever. Here the key
+  is discarded and rebuilt, and the offered messages stay unhandled.
+- **Single-flight key generation.** Python starts a daemon thread per postponed pass, all
+  serialising through a multi-second proof of work.
+- **Parallel stamp search.** Python picks single-threaded on Darwin because its multi-process path
+  needs `fork`, not because the algorithm does. A random preimage is wire-invisible.
+
+### What still does not work
+
+- **`bugs/055`** (new, open): `LXMRouter.propagationEntries` is a `public var` over state the
+  router only ever touches under its lock, so an external reader on another thread races its
+  writes. TSan-proven. Reading through `peerEntry` / `peerEntryExists` is safe; the fix needs 41
+  source uses and 33 test sites moved and is its own change.
+- The propagation-throttle interop cell is still deferred: exercising `ERROR_THROTTLED` end to end
+  needs the tri-test node contract to expose per-node stamp costs on both the Python and Swift
+  sides, which neither does today.
+
+### Testing
+
+571 tests, 0 failures (from 531). `swift test --sanitize=thread --filter PeerOutboundSync`: 0
+races. Every step was verified red first by a named mutation — deleting the `Link.initiate` call
+fails 14 tests; writing `state` after the callouts fails 4; stripping the propagation stamp before
+sending fails 6.
+
+The first **captured Python vectors** in this package (`PythonPeeringVectors`): the peering
+workblock is built identically by this package's generator and its validator, so a divergence from
+the reference is invisible to every Swift-only test and surfaces only as `ERROR_INVALID_KEY` from
+a Python peer, with nothing the sender can log.
+
+tri-test gains `test_a_message_uploaded_to_the_swift_node_reaches_the_python_one` — a real Python
+propagation node validating a peering key a Swift node generated, then receiving the resource it
+ships. It XFAILs strictly against 1.4.0.
+
 ## [1.4.0] — a propagation node that actually peers
 
 **Requires ReticulumSwift 1.9.0.** A propagation node peers off the announces it hears, and before

@@ -61,11 +61,13 @@ final class PeerSyncSelectionTests: XCTestCase {
         peer.lastHeard        = Date().timeIntervalSince1970
         peer.nextSyncAttempt  = 0
         peer.syncTransferRate = transferRate
-        // Stamp costs and a peering key, or `LXMPeer.sync()` postpones before it decides anything.
+        // Stamp costs, so `sync()` gets past its first guard. No peering key is assigned: this
+        // suite's observable is `lastSyncAttempt`, which `sync()` stamps unconditionally before
+        // every gate (`LXMPeer.py:269`), so the key was never load-bearing here. Assigning one by
+        // hand is also no longer possible, which is the point — see `swift_devel/bugs/054`.
         peer.propagationStampCost            = 0
         peer.propagationStampCostFlexibility = 0
         peer.peeringCost                     = 0
-        peer.peeringKey                      = (stamp: Data(repeating: 0, count: 32), value: 0)
         peer.addUnhandledMessage(outstandingID)
         return peer
     }

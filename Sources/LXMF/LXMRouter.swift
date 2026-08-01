@@ -1767,18 +1767,15 @@ public final class LXMRouter {
         propagationTransferSize = nil
     }
 
-    /// Returns true if the msgpack value represents a propagation-node error code
-    /// (0xF0 = noIdentity, 0xF1 = noAccess). Python encodes these as uint, so
-    /// we must match both .int and .uint variants.
-    private func isPeerError(_ value: MsgPack.Value) -> Bool {
-        let errors: Set<UInt64> = [
-            UInt64(LXMPeerError.noIdentity.rawValue),
-            UInt64(LXMPeerError.noAccess.rawValue),
-        ]
-        switch value {
-        case .int(let code) where code >= 0: return errors.contains(UInt64(code))
-        case .uint(let code):                return errors.contains(code)
-        default: return false
+    /// Whether a propagation node answered this client request with a refusal it can act on.
+    ///
+    /// The two codes a *client* can receive from `/get`: it was not identified, or it is not
+    /// allowed. Decoding goes through `LXMPeerError(msgPack:)` so this path and the peer sync path
+    /// cannot disagree about what a code looks like on the wire again (`bugs/053`).
+    func isPeerError(_ value: MsgPack.Value) -> Bool {
+        switch LXMPeerError(msgPack: value) {
+        case .noIdentity, .noAccess: return true
+        default:                     return false
         }
     }
 
@@ -2496,6 +2493,57 @@ public final class LXMRouter {
         return true
     }
 
+    // MARK: - Outbound sync seam
+
+    /// Build the context an outbound sync to `peer` needs — the **only** place the outbound path
+    /// touches the outside world (`swift_devel/bugs/054`).
+    ///
+    /// It lives here, beside the peer accessors, because it is the one method that has to read
+    /// `private let transport` and `identity` on the peer's behalf. `LXMPeer` gets a value with no
+    /// router in it, so nothing on the outbound path can reach back for a dependency that was not
+    /// declared on `PeerSyncContext`.
+    ///
+    /// Returns `nil` — and the caller postpones — when the router has no identity, when the peer's
+    /// identity cannot be recalled from the transport, or when its propagation destination cannot
+    /// be built. Python logs the same three conditions and returns (`LXMPeer.py:392-393`,
+    /// `:248-256`).
+    func makePeerSyncContext(for peer: LXMPeer) -> PeerSyncContext? {
+        lock.lock()
+        let routerIdentity = identity
+        lock.unlock()
+        guard let routerIdentity else { return nil }
+
+        // Always from the peer's own destination hash. `Identity.recall(destinationHash:)` is the
+        // wrong call here — it routes through `Reticulum.shared`, and LXMF is constructed with an
+        // explicit transport.
+        guard let peerIdentity = transport.recall(identity: peer.destinationHash) else {
+            return nil
+        }
+        guard let destination = try? Destination(identity: peerIdentity, direction: .out,
+                                                 kind: .single, appName: APP_NAME,
+                                                 aspects: ["propagation"]) else {
+            return nil
+        }
+
+        return PeerSyncContext(
+            routerIdentity: routerIdentity,
+            peerIdentity:   peerIdentity,
+            destination:    destination,
+            transport:      transport,
+            now:            { Date().timeIntervalSince1970 },
+            messageBytes: { [weak self] transientID in
+                guard let path = self?.peerEntry(transientID)?.filePath else { return nil }
+                return try? Data(contentsOf: URL(fileURLWithPath: path))
+            },
+            entryExists: { [weak self] in self?.peerEntryExists($0) ?? false },
+            weight:      { [weak self] in self?.getWeight(transientID: $0) ?? 0 },
+            size:        { [weak self] in self?.getSize(transientID: $0) ?? 0 },
+            stampValue:  { [weak self] in self?.getStampValue(transientID: $0) ?? 0 },
+            unpeer:      { [weak self] in self?.unpeer(destinationHash: $0) },
+            throttleWait: LXMRouter.pnStampThrottle
+        )
+    }
+
     // MARK: - Peer management
 
     /// Peer with a propagation node, or update an existing peering.
@@ -2842,10 +2890,15 @@ public final class LXMRouter {
     /// The reference's `clean_links` also maps outbound-propagation link closure onto the sync
     /// state machine (`:991-1000`); that is `swift_devel/bugs/020` and belongs with the sync
     /// terminality work, not here.
-    public func cleanLinks() {
+    /// - Parameter peerSyncMaxInactivity: how long an outbound peer-sync link may go quiet before
+    ///   it is torn down. An argument only so a test can reap without waiting out the real budget;
+    ///   production always takes the default.
+    public func cleanLinks(peerSyncMaxInactivity: TimeInterval =
+                                LXMRouter.propagationLinkMaxInactivity) {
         lock.lock()
         let direct = directLinks
         let propagation = activePropagationLinks
+        let peerList = Array(peers.values)
         lock.unlock()
 
         for (destinationHash, link) in direct where link.noDataFor() > LXMRouter.linkMaxInactivity {
@@ -2861,6 +2914,17 @@ public final class LXMRouter {
             lock.lock(); activePropagationLinks.removeValue(forKey: key); lock.unlock()
             try? link.teardown()
         }
+
+        // A peer's own outbound sync link is in neither collection above — `directLinks` is for
+        // delivery and `activePropagationLinks` is for links *other* nodes opened to us — so
+        // before this nothing collected it. Python leaves these to the RNS watchdog
+        // (`LXMRouter.py:991-1000`, the wider mapping that `bugs/020` tracks).
+        //
+        // It matters because `syncPeers` selects only `state == .idle`: a peer stalled mid-sync is
+        // out of the rotation permanently. Four stalls reach here — a `.linkReady` peer whose
+        // offer had nothing left in it, a `.responseReceived` peer that was denied or throttled,
+        // and a `.requestSent` peer whose send failed.
+        for peer in peerList { peer.reapStalledSyncLink(maxInactivity: peerSyncMaxInactivity) }
     }
 
     /// Map newly stored messages onto the peers that have not seen them.
@@ -3157,7 +3221,15 @@ public final class LXMRouter {
 
         // Validate peering key if we have a peering cost.
         if peeringCost > 0 {
-            let peeringID = (identity?.hash ?? Data()) + remoteHash
+            // Without an identity there is no receiver half, and `?? Data()` — what this used to
+            // do — validates the sender's key against 16 bytes of material instead of 32. That
+            // does not fail; it accepts a *different* proof of work than the one the peer was
+            // asked for. A router with no identity cannot peer at all, so say so.
+            guard let myHash = identity?.hash else {
+                return .int(Int64(LXMPeerError.noAccess.rawValue))
+            }
+            let peeringID = LXStamper.peeringID(receiverIdentityHash: myHash,
+                                                senderIdentityHash: remoteHash)
             guard LXStamper.validatePeeringKey(
                 peeringID: peeringID, peeringKey: peeringKeyData, targetCost: peeringCost
             ) else {
@@ -3535,10 +3607,23 @@ public final class LXMRouter {
         return propagationEntries[transientID]?.stampValue ?? 0
     }
 
-    /// Receive timestamp (weight) of a stored message.
-    public func getWeight(transientID: Data) -> TimeInterval {
+    /// Ordering weight of a stored message — offers go out ascending.
+    ///
+    /// Port of `LXMRouter.get_weight` (`LXMRouter.py:1056-1067`):
+    /// `priorityWeight * ageWeight * size`, where `ageWeight` is the message's age in four-day
+    /// units floored at 1, and a prioritised destination scores 0.1 so its messages sort first.
+    ///
+    /// This used to return `received`, which sorts oldest-first and ignores both size and
+    /// priority. It matters because the per-sync limit spends a fixed budget in this order: with
+    /// the wrong one, a large old message crowds out several small ones and a prioritised
+    /// destination gets no priority at all.
+    public func getWeight(transientID: Data) -> Double {
         lock.lock(); defer { lock.unlock() }
-        return propagationEntries[transientID]?.received ?? 0
+        guard let entry = propagationEntries[transientID] else { return 0 }
+
+        let ageWeight = max(1.0, (Date().timeIntervalSince1970 - entry.received) / 60 / 60 / 24 / 4)
+        let priorityWeight = prioritisedList.contains(entry.destinationHash) ? 0.1 : 1.0
+        return priorityWeight * ageWeight * Double(entry.msgSize)
     }
 
     /// File size of a stored message.

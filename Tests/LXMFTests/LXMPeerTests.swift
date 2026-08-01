@@ -64,14 +64,12 @@ final class LXMPeerTests: XCTestCase {
         XCTAssertEqual(peer.incoming,    0)
         XCTAssertEqual(peer.rxBytes,     0)
         XCTAssertEqual(peer.txBytes,     0)
-        XCTAssertNil(peer.link)
+        XCTAssertNil(peer.linkForTesting)
         XCTAssertNil(peer.propagationStampCost)
         XCTAssertNil(peer.propagationTransferLimit)
         XCTAssertNil(peer.peeringCost)
         XCTAssertNil(peer.peeringKey)
         XCTAssertNil(peer.metadata)
-        XCTAssertEqual(peer.lastOffer, [])
-        XCTAssertNil(peer.currentlyTransferringMessages)
         XCTAssertEqual(peer.syncStrategy, .persistent)
     }
 
@@ -275,107 +273,7 @@ final class LXMPeerTests: XCTestCase {
         XCTAssertTrue(peer2!.unhandledMessages.contains(tid2))
     }
 
-    // MARK: - processOfferResponse
-
-    func testOfferResponseNoIdentity() {
-        let peer   = LXMPeer(router: makeRouter(), destinationHash: fakeHash())
-        let result = peer.processOfferResponse(.int(Int64(LXMPeerError.noIdentity.rawValue)))
-        if case .error(let e) = result { XCTAssertEqual(e, .noIdentity) }
-        else { XCTFail("Expected error(.noIdentity)") }
-    }
-
-    func testOfferResponseFalseNoneWanted() {
-        let router = makeRouter()
-        let tid    = Data(repeating: 0x01, count: 16)
-        addFakeEntry(router: router, tid: tid)
-        let peer   = LXMPeer(router: router, destinationHash: fakeHash())
-        peer.addUnhandledMessage(tid)
-        peer.lastOffer = [tid]
-
-        let result = peer.processOfferResponse(.bool(false))
-        if case .noneWanted = result {
-            XCTAssertTrue(peer.handledMessages.contains(tid))
-        } else { XCTFail("Expected noneWanted") }
-    }
-
-    func testOfferResponseTrueAllWanted() {
-        let peer   = LXMPeer(router: makeRouter(), destinationHash: fakeHash())
-        peer.lastOffer = [Data(repeating: 0x01, count: 16)]
-        let result = peer.processOfferResponse(.bool(true))
-        if case .allWanted = result { } else { XCTFail("Expected allWanted") }
-    }
-
-    func testOfferResponsePartialWanted() {
-        let router = makeRouter()
-        let tid1   = Data(repeating: 0x01, count: 16)
-        let tid2   = Data(repeating: 0x02, count: 16)
-        addFakeEntry(router: router, tid: tid1)
-        addFakeEntry(router: router, tid: tid2)
-        let peer   = LXMPeer(router: router, destinationHash: fakeHash())
-        peer.addUnhandledMessage(tid1)
-        peer.addUnhandledMessage(tid2)
-        peer.lastOffer = [tid1, tid2]
-
-        // Peer only wants tid2
-        let response = MsgPack.Value.array([.bytes(tid2)])
-        let result   = peer.processOfferResponse(response)
-        if case .partialWanted(let ids) = result {
-            XCTAssertEqual(ids, [tid2])
-            // tid1 should now be marked as handled
-            XCTAssertTrue(peer.handledMessages.contains(tid1))
-        } else { XCTFail("Expected partialWanted") }
-    }
-
-    // MARK: - resourceConcluded
-
-    func testResourceConcludedSuccess() {
-        let router = makeRouter()
-        let tid    = Data(repeating: 0x01, count: 16)
-        addFakeEntry(router: router, tid: tid)
-        let peer   = LXMPeer(router: router, destinationHash: fakeHash())
-        peer.addUnhandledMessage(tid)
-        peer.lastOffer = [tid]
-        peer.currentlyTransferringMessages = [tid]
-        peer.state = .resourceTransferring
-
-        peer.resourceConcluded(success: true, dataSizeBytes: 512)
-        XCTAssertTrue(peer.handledMessages.contains(tid))
-        XCTAssertFalse(peer.unhandledMessages.contains(tid))
-        XCTAssertEqual(peer.state,    .idle)
-        XCTAssertNil(peer.link)
-        XCTAssertNil(peer.currentlyTransferringMessages)
-        XCTAssertTrue(peer.alive)
-        XCTAssertEqual(peer.txBytes, 512)
-    }
-
-    func testResourceConcludedFailure() {
-        let router = makeRouter()
-        let tid    = Data(repeating: 0x01, count: 16)
-        addFakeEntry(router: router, tid: tid)
-        let peer   = LXMPeer(router: router, destinationHash: fakeHash())
-        peer.addUnhandledMessage(tid)
-        peer.currentlyTransferringMessages = [tid]
-        peer.state  = .resourceTransferring
-        peer.alive  = true
-
-        peer.resourceConcluded(success: false, dataSizeBytes: 0)
-        // Messages remain unhandled on failure
-        XCTAssertTrue(peer.unhandledMessages.contains(tid))
-        XCTAssertEqual(peer.state, .idle)
-    }
-
     // MARK: - sync() guard paths
-
-    func testSyncNoopsWhenNothingToSend() {
-        let peer   = LXMPeer(router: makeRouter(), destinationHash: fakeHash())
-        peer.propagationStampCost = 0
-        peer.propagationStampCostFlexibility = 0
-        peer.peeringCost = 0
-        peer.peeringKey  = (stamp: Data(repeating: 0x00, count: 32), value: 0)
-        // unhandledMessageCount == 0 → no state change
-        peer.sync()
-        XCTAssertEqual(peer.state, .idle)
-    }
 
     func testSyncNoopsWhenStampCostsUnknown() {
         let peer   = LXMPeer(router: makeRouter(), destinationHash: fakeHash())
