@@ -688,6 +688,9 @@ public final class LXMPeer {
         let sStampCost       = _propagationStampCost
         let sStampFlex       = _propagationStampCostFlexibility
         let sPeeringCost     = _peeringCost
+        // `linkEstablishmentRate` too: `syncLinkEstablished` writes it under `peerLock`, so
+        // reading it below the release would be the one guarded scalar left racing.
+        let sLinkRate        = linkEstablishmentRate
         peerLock.unlock()
 
         kv("destination_hash",       .bytes(destinationHash))
@@ -701,7 +704,7 @@ public final class LXMPeer {
         kv("incoming",               .int(Int64(sIncoming)))
         kv("rx_bytes",               .int(Int64(sRxBytes)))
         kv("tx_bytes",               .int(Int64(sTxBytes)))
-        kv("link_establishment_rate",.double(linkEstablishmentRate))
+        kv("link_establishment_rate",.double(sLinkRate))
         kv("sync_transfer_rate",     .double(syncTransferRate))
 
         if let v = sTransferLimit { kv("propagation_transfer_limit", .double(v)) }

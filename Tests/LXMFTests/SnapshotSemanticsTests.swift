@@ -6,9 +6,17 @@ import ReticulumSwift
 ///
 /// Encapsulation removed the unsynchronized write path. These pin the other half: that what comes
 /// back is a coherent snapshot rather than a live view, and that holding it cannot reach back into
-/// the router. Python gets the first property by iterating `self.propagation_entries.copy()`
-/// rather than the dictionary itself (`LXMRouter.py:1149`, `:1189`); the Swift accessor takes the
-/// copy for the caller, because callers cannot be relied upon to do it.
+/// the router.
+///
+/// **Only one of these five is evidence for the lock** —
+/// `testIteratingAMessageStoreSnapshotDuringConcurrentMutationCompletes`, which segfaults without
+/// it. The other four are true of any value-typed property and would pass against the code this
+/// change replaced; each says so on itself. They are regression guards for the *shape*, not proof
+/// of the fix, and an earlier version of this file's header implied otherwise.
+///
+/// Python gets the iteration property by iterating `self.propagation_entries.copy()` rather than
+/// the dictionary itself (`LXMRouter.py:1149`, `:1189`); the Swift accessor takes the copy for the
+/// caller, because callers cannot be relied upon to do it.
 final class SnapshotSemanticsTests: XCTestCase {
 
     private var tempDir: String!
@@ -81,6 +89,15 @@ final class SnapshotSemanticsTests: XCTestCase {
         wait(for: [done], timeout: 180)
     }
 
+    /// **This would pass against the pre-fix stored `public var` too**, and saying otherwise would
+    /// be claiming a proof this does not give. Swift's copy-on-write makes it true of any
+    /// `Dictionary`-valued property, locked or not.
+    ///
+    /// It is here for a different regression: someone deciding the accessor should hand back the
+    /// live storage — via `inout`, an `UnsafeMutablePointer`, or by making the store a class — at
+    /// which point every other guarantee in this file collapses. The lock is proved by
+    /// `testIteratingAMessageStoreSnapshotDuringConcurrentMutationCompletes`, which does segfault
+    /// without it.
     func testMutatingAMessageStoreSnapshotDoesNotReachTheRouter() throws {
         let (router, ids) = try makeStore()
         let before = router.propagationEntries.count
@@ -98,6 +115,7 @@ final class SnapshotSemanticsTests: XCTestCase {
                         "an entry the caller removed from its own copy disappeared from the router")
     }
 
+    /// As above: true of any `Dictionary` property, and not evidence for the lock.
     func testMutatingAPeerTableSnapshotDoesNotReachTheRouter() throws {
         let router = LXMRouter(transport: Transport())
         try router.enablePropagation(storagePath: tempDir)

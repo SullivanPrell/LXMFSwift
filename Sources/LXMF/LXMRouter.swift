@@ -369,7 +369,11 @@ public final class LXMRouter {
 
     /// The greatest number of peers this node will hold.
     /// Python: `LXMRouter.MAX_PEERS = 20` (`LXMRouter.py:43`), per-node at `:206`.
-    public var maxPeers: Int = LXMRouter.defaultMaxPeers
+    public var maxPeers: Int {
+        lock.lock(); defer { lock.unlock() }
+        return _maxPeers
+    }
+    private var _maxPeers: Int = LXMRouter.defaultMaxPeers
 
     /// The highest peering cost this node is willing to pay to peer with a remote.
     /// Python: `LXMRouter.max_peering_cost` (`:150`), applied at `:2005`.
@@ -2318,21 +2322,25 @@ public final class LXMRouter {
         let minCost = max(0, propagationStampCost - propagationStampCostFlexibility)
         let validated = LXStamper.validatePNStamps(transientList: transientList, targetCost: minCost)
         for entry in validated {
-            lock.lock()
+            // `LXMRouter.py:2434-2436` — a sync from a peer counts against that peer, not against
+            // the client tally.
+            //
+            // The peer credit happens OUTSIDE `lock`. `creditInbound` takes `peerLock`, and taking
+            // it while holding `lock` would be the `lock` → `peerLock` nesting this change forbids
+            // (`swift_devel/bugs/055`); both are non-reentrant `NSLock`s and `LXMPeer` reaches the
+            // router's own accessors from paths that take `peerLock`, so the reverse order exists.
             if let senderPeer {
-                // `LXMRouter.py:2434-2436` — a sync from a peer counts against that peer, not
-                // against the client tally.
-                // One `peerLock` acquisition inside the peer; `lock` is not held here
-                // (`swift_devel/bugs/055`). These two used to be bare `+=` on a link-callback
-                // thread, against a doc comment claiming they had no runtime writer.
                 senderPeer.creditInbound(bytes: entry.lxmfData.count)
-            } else if sender != nil {
-                _unpeeredPropagationIncoming += 1
-                _unpeeredPropagationRxBytes  += entry.lxmfData.count
             } else {
-                _clientPropagationMessagesReceived += 1
+                lock.lock()
+                if sender != nil {
+                    _unpeeredPropagationIncoming += 1
+                    _unpeeredPropagationRxBytes  += entry.lxmfData.count
+                } else {
+                    _clientPropagationMessagesReceived += 1
+                }
+                lock.unlock()
             }
-            lock.unlock()
             _ = ingestPropagatedLXM(lxmfData: entry.lxmfData,
                                     stampValue: entry.stampValue,
                                     stamp:      entry.stamp,
@@ -2623,6 +2631,17 @@ public final class LXMRouter {
         _staticPeers.insert(destinationHash)
     }
 
+    /// Set the maximum number of peers this node will hold.
+    ///
+    /// Configuration, like `staticPeers` — but the router reads it under `lock` on both of its use
+    /// sites (the peering admission check and the rotation bound), so a consumer assigning to it
+    /// raced those reads. Found by the `bugs/055` audit, which noticed it had been exempted from
+    /// the guard as "configuration the owner never locks" when the owner does lock it.
+    public func setMaxPeers(_ count: Int) {
+        lock.lock(); defer { lock.unlock() }
+        _maxPeers = count
+    }
+
     /// Stop treating `destinationHash` as static. Does not unpeer it.
     public func removeStaticPeer(_ destinationHash: Data) {
         lock.lock(); defer { lock.unlock() }
@@ -2701,7 +2720,7 @@ public final class LXMRouter {
                      metadata: [String: String]?) {
         lock.lock()
         let existing   = _peers[destinationHash]
-        let tableIsFull = _peers.count >= maxPeers
+        let tableIsFull = _peers.count >= _maxPeers
         lock.unlock()
 
         // The ceiling is about what the remote *demands*, so it is checked before anything else
@@ -2820,9 +2839,12 @@ public final class LXMRouter {
         guard let announce = PropagationNodeAnnounce(appData: appData) else { return }
 
         lock.lock()
-        let isStatic  = _staticPeers.contains(destinationHash)
-        let lastHeard = _peers[destinationHash]?.lastHeard
+        let isStatic     = _staticPeers.contains(destinationHash)
+        let existingPeer = _peers[destinationHash]
         lock.unlock()
+        // `lastHeard` became a `peerLock`-taking accessor in `swift_devel/bugs/055`, so it is read
+        // after `lock` is released — reading it inside would nest `lock` → `peerLock`.
+        let lastHeard = existingPeer?.lastHeard
 
         func adoptTerms() {
             peer(destinationHash: destinationHash,
@@ -3001,8 +3023,17 @@ public final class LXMRouter {
     /// `public final`, so there is no subclass to spy with.
     @discardableResult
     public func jobs() -> [String] {
+        // The tick counter is shared: `startJobLoop` dispatches this onto a queue, and a tick that
+        // outruns its interval leaves two GCD workers inside `jobs()` on the same router. The
+        // increment and the read must be one atomic step or two ticks can be handed the same
+        // number — which silently skips a scheduled routine, since dispatch is `tick % interval`.
+        //
+        // Leaf operation, no callout: the lock is released before any `job.run(self)`, every one
+        // of which takes it (`swift_devel/bugs/055`).
+        lock.lock()
         processingCount &+= 1
         let tick = processingCount
+        lock.unlock()
 
         var ran: [String] = []
         for job in LXMRouter.jobSchedule {
@@ -3094,7 +3125,7 @@ public final class LXMRouter {
         lock.lock()
         let all = Array(_peers.values)
         let staticHashes = _staticPeers
-        let bound = maxPeers
+        let bound = _maxPeers
         lock.unlock()
 
         // Headroom, and whether the table is far enough over it to be worth rotating. The second
@@ -3161,8 +3192,10 @@ public final class LXMRouter {
         let stamp = timestamp ?? Date().timeIntervalSince1970
 
         lock.lock()
-        let peeringTimebase = _peers[destinationHash]?.peeringTimebase
+        let existingPeer = _peers[destinationHash]
         lock.unlock()
+        // Read outside `lock`: `peeringTimebase` is a `peerLock`-taking accessor.
+        let peeringTimebase = existingPeer?.peeringTimebase
 
         guard let peeringTimebase else { return }
         guard stamp >= peeringTimebase else { return }

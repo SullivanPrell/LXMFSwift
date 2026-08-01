@@ -50,6 +50,7 @@ enum SharedStateInventory {
         Entry("clientPropagationMessagesServed",   "counter; incremented when serving a get-request"),
         Entry("unpeeredPropagationIncoming",       "counter; unpeered inbound messages"),
         Entry("unpeeredPropagationRxBytes",        "counter; unpeered inbound bytes"),
+        Entry("maxPeers",                          "peer-table bound; configuration, but read under the lock at both use sites"),
     ]
 
     /// Properties of `LXMPeer` that the peer accesses under `LXMPeer.peerLock`.
@@ -100,9 +101,14 @@ enum SharedStateInventory {
     /// **Empty, and that is the result.** Task 4.3 replaced all thirteen cross-object writes with
     /// three `peerLock`-taking mutators — `adoptAnnouncedTerms`, `clearSyncBackoff`,
     /// `creditInbound` — so the router no longer names any peer property on the left of an
-    /// assignment. The list is kept rather than deleted because it is what a future regression
-    /// would have to be added to, and `testTheRouterMakesNoUnsynchronizedPeerWrites` below now
-    /// enforces emptiness directly against the source.
+    /// assignment.
+    ///
+    /// The list is kept rather than deleted because it is where a future regression would be
+    /// recorded. It is **not** enforced against the source: the compiler enforces it, because every
+    /// peer property is now a get-only accessor and a direct router write does not build. An
+    /// earlier revision of this comment claimed the test below scanned the source, which
+    /// contradicted the test's own docstring — the scan was tried, produced five false positives on
+    /// `LXMessage.state` and `LXMRouter.peeringCost`, and was removed.
     static let peerCrossObjectWrites: [CrossObjectWrite] = []
 }
 

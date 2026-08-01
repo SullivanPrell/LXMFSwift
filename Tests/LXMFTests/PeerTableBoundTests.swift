@@ -67,7 +67,7 @@ final class PeerTableBoundTests: XCTestCase {
 
     func testTheBoundIsConfigurable() {
         let router = makeRouter()
-        router.maxPeers = 3
+        router.setMaxPeers(3)
         for index in 0..<10 { peer(router, index) }
 
         XCTAssertEqual(router.peers.count, 3,

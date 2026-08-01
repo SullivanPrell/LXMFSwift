@@ -3,6 +3,58 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
+## [1.6.0] — shared state stops being public
+
+`bugs/055`. Thirty properties across `LXMRouter` and `LXMPeer` were `public var` over state their
+owner only ever touches under its own lock. Each is now private storage behind a **read-only
+accessor that takes the lock and returns a snapshot**.
+
+**BREAKING, source-level.** Every existing *read* still compiles. Every external *write* is now a
+compile error. There are no consumers of these setters in this repository — verified across
+`RetiOS/`, `NomadNetSwift/` and `LXSTSwift/` — which is what made this the moment to do it.
+
+### Why it mattered
+
+A Swift `Dictionary` write is not atomic. A consumer reading `router.propagationEntries` while the
+router writes does not get a stale value, it gets **SIGSEGV** — reproducibly, without
+ThreadSanitizer, on a partially rehashed table. Python needs none of this: `propagation_entries` is
+a plain public attribute (`LXMRouter.py:222`) and the GIL makes a `dict` get/set atomic. The Swift
+lock is a mechanism divergence, and a `public var` was a hole straight through it.
+
+On `LXMPeer` it was not a hazard awaiting an external consumer — **`LXMRouter` was the consumer.**
+It wrote thirteen peer fields from announce and inbound-propagation callback threads with
+`peerLock` not held, while that peer's own `sync()` read seven of them under it. Those are now
+three mutators — `adoptAnnouncedTerms`, `clearSyncBackoff`, `creditInbound` — each taking the lock
+once for the whole set, because nine separate locked setters would leave a peer observable
+half-updated.
+
+`staticPeers` keeps a write path, since it is operator configuration Python takes as a constructor
+argument (`LXMRouter.py:211-219`). What it lost is the unsynchronized one:
+`setStaticPeers` / `addStaticPeer` / `removeStaticPeer`.
+
+### Also fixed, found while fixing the above
+
+- **`LXMPeer.toBytes()` serialized nine fields outside `peerLock`**, four of them under a comment
+  asserting they had no runtime writer. The comment was load-bearing — it was the reason the reads
+  were unguarded. The router has always been that writer.
+- **`LXMPeer.sync()` read the three announced-term fields outside the lock**, under the same false
+  comment.
+- **The re-peering path cleared `syncBackoff` and `nextSyncAttempt` cross-object.** Those are the
+  sync machine's own — `sync()` computes `nextSyncAttempt = now + syncBackoff` under `peerLock` —
+  so clearing them from the announce thread could tear that deadline.
+- Two doc comments on `LXMRouter` were swapped: `propagationEntries` was documented as the peer
+  table and `peers` as the message store.
+
+### Enforcement, not discipline
+
+The router already documented this rule in prose, and was breached anyway on the very property the
+comment names. `SharedStateEncapsulationGuardTests` checks it instead, over **both** files under
+one rule: no inventoried property is publicly settable; every `public var` is inventoried or
+exempt with a stated reason; every computed accessor that reads guarded storage takes the lock; and
+every backing-store access is under the lock or on a named construction path.
+
+589 tests, 0 failures. ThreadSanitizer clean on the propagation-concurrency and snapshot suites.
+
 ## [1.5.0] — a propagation node that pushes
 
 The other half of `1.4.0`. That release filled the peer table; this one drains it. **Between two

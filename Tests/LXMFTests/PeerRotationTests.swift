@@ -23,7 +23,7 @@ final class PeerRotationTests: XCTestCase {
 
     private func makeRouter() -> LXMRouter {
         let router = LXMRouter(transport: Transport())
-        router.maxPeers = Self.bound
+        router.setMaxPeers(Self.bound)
         return router
     }
 
