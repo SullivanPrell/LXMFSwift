@@ -161,11 +161,24 @@ public final class LXMPeer {
 
     // MARK: - Rate tracking
 
-    /// Most recent measured link establishment rate (bits/s).
-    public var linkEstablishmentRate: Double = 0
+    /// Most recent measured link establishment rate (bits/s). Written by `syncLinkEstablished`.
+    public private(set) var linkEstablishmentRate: Double = 0
 
     /// Most recent measured sync transfer rate (bits/s).
-    public var syncTransferRate: Double = 0
+    ///
+    /// Lock-guarded on read as well as write: `syncPeers` ranks its candidate pool by this from
+    /// the job thread (`LXMRouter.swift:3060`) while `resourceConcluded` writes it from a
+    /// resource-callback thread.
+    /// The setter is `internal`, unlike the machine's own state, and the distinction is
+    /// deliberate: seeding a measured *rate* does not fake having driven a sync. `syncPeers`
+    /// ranks its candidate pool by this, and testing that ranking needs peers with different
+    /// rates. Faking a peering key, a link or an in-flight offer would fake the machine — those
+    /// are `private`.
+    public internal(set) var syncTransferRate: Double {
+        get { peerLock.lock(); defer { peerLock.unlock() }; return _syncTransferRate }
+        set { peerLock.lock(); _syncTransferRate = newValue; peerLock.unlock() }
+    }
+    private var _syncTransferRate: Double = 0
 
     // MARK: - Negotiated limits (learned from peer announces)
 
@@ -192,18 +205,31 @@ public final class LXMPeer {
     /// While this was settable from outside, tests assigned `(stamp, 0)` by hand and asserted the
     /// method they had just fed — which is how "no writer exists anywhere in `Sources/`" stayed
     /// invisible from 2026-06-23 to 2026-07-31 (`swift_devel/bugs/054`).
-    public private(set) var peeringKey: (stamp: Data, value: Int)? = nil
+    /// Lock-guarded on **read** as well as write. The proof of work runs on a background queue
+    /// and commits here under `peerLock`; a plain `private(set)` stored property would still let
+    /// any reader on another thread tear the tuple mid-write. TSan caught exactly that — the
+    /// assertions all passed.
+    public private(set) var peeringKey: (stamp: Data, value: Int)? {
+        get { peerLock.lock(); defer { peerLock.unlock() }; return _peeringKey }
+        set { peerLock.lock(); _peeringKey = newValue; peerLock.unlock() }
+    }
+    private var _peeringKey: (stamp: Data, value: Int)? = nil
 
     /// The value of the peering key we hold, or nil if we hold none.
     /// Python: `LXMPeer.peering_key_value()` (`LXMPeer.py:238-240`).
     public var peeringKeyValue: Int? {
         peerLock.lock(); defer { peerLock.unlock() }
-        return peeringKey?.value
+        return _peeringKey?.value
     }
 
     /// How many key generations this peer has started. Single-flight is otherwise unobservable:
-    /// eight redundant generations and one produce the same key.
-    public private(set) var peeringKeyGenerationsStarted: Int = 0
+    /// eight redundant generations and one produce the same key. Lock-guarded for the same reason
+    /// as `peeringKey` — it is incremented from whichever thread got through the gate.
+    public private(set) var peeringKeyGenerationsStarted: Int {
+        get { peerLock.lock(); defer { peerLock.unlock() }; return _peeringKeyGenerationsStarted }
+        set { peerLock.lock(); _peeringKeyGenerationsStarted = newValue; peerLock.unlock() }
+    }
+    private var _peeringKeyGenerationsStarted: Int = 0
 
     /// Set while a generation is in flight, so concurrent sync passes do not each start one.
     private var peeringKeyGenerating = false
@@ -236,13 +262,16 @@ public final class LXMPeer {
     // MARK: - Sync state
 
     /// Active link to this peer (nil when not syncing).
-    public var link: Link? = nil
+    /// `private`: a settable link is a way to fake having established one.
+    private var link: Link? = nil
 
     /// The transient IDs included in the most recent sync offer we sent.
-    public var lastOffer: [Data] = []
+    /// `private`: assigning this is how the deleted tests faked having sent an offer.
+    private var lastOffer: [Data] = []
 
     /// Transient IDs currently being transferred (non-nil during active resource transfer).
-    public var currentlyTransferringMessages: [Data]? = nil
+    /// `private`: assigning this is how the deleted tests faked a transfer in flight.
+    private var currentlyTransferringMessages: [Data]? = nil
 
     /// Whether this sync link has already been re-identified after an `ERROR_NO_IDENTITY`.
     /// Reset when a link is created; see the `.noIdentity` branch of `offerResponse`.
@@ -363,7 +392,7 @@ public final class LXMPeer {
         if let v = intVal("rx_bytes")                 { peer.rxBytes = v }
         if let v = intVal("tx_bytes")                 { peer.txBytes = v }
         if let v = dblVal("link_establishment_rate")  { peer.linkEstablishmentRate = v }
-        if let v = dblVal("sync_transfer_rate")       { peer.syncTransferRate = v }
+        if let v = dblVal("sync_transfer_rate")       { peer._syncTransferRate = v }
 
         // Nullable doubles
         if let v = dblVal("propagation_transfer_limit") { peer.propagationTransferLimit = v }
@@ -385,7 +414,7 @@ public final class LXMPeer {
                 default:           return nil
                 }
             }()
-            if let keyValue { peer.peeringKey = (stamp: Data(stampBytes), value: keyValue) }
+            if let keyValue { peer._peeringKey = (stamp: Data(stampBytes), value: keyValue) }
         }
 
         // Nullable ints
@@ -474,7 +503,7 @@ public final class LXMPeer {
         // `[String: String]`, which cannot express that. A Swift-shaped map would load on a Python
         // node and leave `peer.name` nil — worse than absent, because it looks like data.
         peerLock.lock()
-        let key = peeringKey
+        let key = _peeringKey
         peerLock.unlock()
         if let key { kv("peering_key", .array([.bytes(key.stamp), .int(Int64(key.value))])) }
         else { kv("peering_key", .nil) }
@@ -653,9 +682,9 @@ public final class LXMPeer {
     private func peeringKeyReady() -> Bool {
         peerLock.lock(); defer { peerLock.unlock() }
         guard let cost = peeringCost, cost > 0 else { return false }
-        guard let key = peeringKey else { return false }
+        guard let key = _peeringKey else { return false }
         if key.value >= cost { return true }
-        peeringKey = nil
+        _peeringKey = nil
         return false
     }
 
@@ -681,10 +710,10 @@ public final class LXMPeer {
         // `key.value >= cost`. Deciding a key's sufficiency is `peeringKeyReady()`'s job, and it
         // discards one that has fallen short. Re-deciding it here would make that discard dead
         // code, and dead code is how the reset stops being tested.
-        if peeringKey != nil { peerLock.unlock(); return true }
+        if _peeringKey != nil { peerLock.unlock(); return true }
         guard !peeringKeyGenerating else { peerLock.unlock(); return false }
         peeringKeyGenerating = true
-        peeringKeyGenerationsStarted += 1
+        _peeringKeyGenerationsStarted += 1
         peerLock.unlock()
 
         defer { peerLock.lock(); peeringKeyGenerating = false; peerLock.unlock() }
@@ -700,7 +729,7 @@ public final class LXMPeer {
 
         guard generated.value >= cost else { return false }   // `:260-261`
         peerLock.lock()
-        peeringKey = generated
+        _peeringKey = generated
         peerLock.unlock()
         return true
     }
@@ -943,7 +972,7 @@ public final class LXMPeer {
         // cannot deliver a response synchronously from inside it. This transport can. Committing
         // first is identical over a real network and correct over a synchronous one.
         peerLock.lock()
-        guard let key = peeringKey else { peerLock.unlock(); return }
+        guard let key = _peeringKey else { peerLock.unlock(); return }
         lastOffer = offerIDs
         state = .requestSent
         let link = self.link
@@ -1053,7 +1082,7 @@ public final class LXMPeer {
                 //
                 // Do not "restore parity" by routing this into the wants-nothing path. That marks
                 // every offered message as delivered to a node that never received it.
-                peerLock.lock(); peeringKey = nil; peerLock.unlock()
+                peerLock.lock(); _peeringKey = nil; peerLock.unlock()
                 return abandonSync()
 
             default:
@@ -1242,7 +1271,7 @@ public final class LXMPeer {
             if elapsed > 0 {
                 // Compressed size: this is a measure of the link, and `syncPeers` ranks its
                 // candidate pool by it (`LXMRouter.swift:3060`).
-                syncTransferRate = Double(transfer.transferSize * 8) / elapsed
+                _syncTransferRate = Double(transfer.transferSize * 8) / elapsed
             }
         }
         alive     = true

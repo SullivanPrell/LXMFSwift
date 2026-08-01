@@ -192,7 +192,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         net.routerA.syncPeers()
 
         XCTAssertTrue(net.waitUntil("the message reaches B") {
-            net.routerB.propagationEntries[tid] != nil
+            net.routerB.peerEntryExists(tid)
         }, """
         the message never arrived. `LXMPeer.sync()` set `state = .linkEstablishing` and returned \
         without opening a Link — a node built on this port could accept syncs and serve clients, \
@@ -217,7 +217,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         let first = try net.storeMessage(in: net.routerA, size: 400)
         net.routerA.syncPeers()
         XCTAssertTrue(net.waitUntil("first message lands") {
-            net.routerB.propagationEntries[first] != nil
+            net.routerB.peerEntryExists(first)
         }, "precondition: the first sync works")
 
         XCTAssertEqual(peer.state, .idle,
@@ -232,7 +232,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         let second = try net.storeMessage(in: net.routerA, size: 400)
         net.routerA.syncPeers()
         XCTAssertTrue(net.waitUntil("second message lands") {
-            net.routerB.propagationEntries[second] != nil
+            net.routerB.peerEntryExists(second)
         }, "the peer was left wedged after the first sync — one message, then silence forever")
     }
 
@@ -481,8 +481,8 @@ final class PeerOutboundSyncTests: XCTestCase {
 
         net.routerA.syncPeers()
         XCTAssertTrue(net.waitUntil("both missing messages land") {
-            net.routerB.propagationEntries[onlyA1] != nil
-                && net.routerB.propagationEntries[onlyA2] != nil
+            net.routerB.peerEntryExists(onlyA1)
+                && net.routerB.peerEntryExists(onlyA2)
         }, "the two messages B lacked must arrive")
 
         XCTAssertEqual(peer.outgoing, 2, "only the two it wanted were transferred")
@@ -553,7 +553,7 @@ final class PeerOutboundSyncTests: XCTestCase {
 
         net.routerA.syncPeers()
         XCTAssertTrue(net.waitUntil("the message lands", timeout: 15) {
-            net.routerB.propagationEntries[tid] != nil
+            net.routerB.peerEntryExists(tid)
         })
 
         let onDisk = try net.storedBytes(in: net.routerA, transientID: tid)
@@ -590,8 +590,8 @@ final class PeerOutboundSyncTests: XCTestCase {
         net.routerA.syncPeers()
 
         XCTAssertTrue(net.waitUntil("both messages land", timeout: 10) {
-            net.routerB.propagationEntries[first] != nil
-                && net.routerB.propagationEntries[second] != nil
+            net.routerB.peerEntryExists(first)
+                && net.routerB.peerEntryExists(second)
         }, """
         one syncPeers pass delivered only part of the store. A persistent peer re-syncs itself \
         while work remains (LXMPeer.py:523-524); without it the rest waits for the next scheduled \
@@ -753,6 +753,68 @@ final class PeerOutboundSyncTests: XCTestCase {
 
         let restored = try XCTUnwrap(LXMPeer.from(bytes: peer.toBytes(), router: net.routerA))
         XCTAssertEqual(restored.propagationSyncLimit, 64)
+    }
+
+    // MARK: - The surface (design STEP 12)
+
+    /// T21 — a structural guard, not a behavioural one.
+    ///
+    /// Every defect this change closes had the same shape: a public method with no production
+    /// caller, kept green by tests that assigned the state they then asserted. Access control is
+    /// what makes that impossible to reintroduce — a test physically cannot reach the phases, so a
+    /// dead one accumulates no coverage and shows up in review as an unreferenced `private` method.
+    ///
+    /// This test fails the moment a new non-private symbol appears on the outbound path.
+    func testTheOutboundSyncMachineExposesOnlyItsEntryPoints() throws {
+        let source = try String(contentsOfFile: Self.lxmPeerSourcePath, encoding: .utf8)
+        guard let syncRegion = source.range(of: "// MARK: - Peering key generation") else {
+            return XCTFail("the outbound machine's region marker moved; update this guard")
+        }
+
+        // Declarations in the machine's region that are not private.
+        let pattern = #"^    (?!private )(?:@discardableResult\n    )?(?:public )?func ([a-zA-Z]+)"#
+        let regex = try NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])
+        let tail = String(source[syncRegion.lowerBound...])
+        let matches = regex.matches(in: tail, range: NSRange(tail.startIndex..., in: tail))
+        let exposed = Set(matches.compactMap { match -> String? in
+            guard let r = Range(match.range(at: 1), in: tail) else { return nil }
+            return String(tail[r])
+        })
+
+        XCTAssertEqual(exposed, ["sync", "generatePeeringKey", "reapStalledSyncLink"],
+                       """
+                       the outbound sync machine must expose exactly three entry points: `sync()` \
+                       (the pump, called by `syncPeers`), `generatePeeringKey()` (the proof of \
+                       work, dispatched from the postpone branch) and `reapStalledSyncLink` \
+                       (called by `cleanLinks`). Everything else is a phase of the machine, and a \
+                       reachable phase is one a test can drive without the phases before it — \
+                       which is exactly how `buildOffer`, `processOfferResponse`, \
+                       `linkEstablished` and `resourceConcluded` stayed green for a year with no \
+                       production caller at all. Found: \(exposed.sorted()).
+                       """)
+    }
+
+    /// The path an offer takes to the wire has exactly one of each call, so there is nowhere to
+    /// add "the real one" beside a stub.
+    func testTheOutboundPathDialsAndSendsInExactlyOnePlace() throws {
+        let source = try String(contentsOfFile: Self.lxmPeerSourcePath, encoding: .utf8)
+
+        XCTAssertEqual(source.components(separatedBy: "Link.initiate(").count - 1, 1,
+                       "one dial site")
+        XCTAssertEqual(source.components(separatedBy: "link.request(").count - 1, 1,
+                       "one offer-request site")
+        XCTAssertEqual(source.components(separatedBy: "ResourceTransfer(link:").count - 1, 1,
+                       "one transfer site")
+    }
+
+    private static var lxmPeerSourcePath: String {
+        // From Tests/LXMFTests/… to Sources/LXMF/…
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()      // LXMFTests
+            .deletingLastPathComponent()      // Tests
+            .deletingLastPathComponent()      // package root
+            .appendingPathComponent("Sources/LXMF/LXMPeer.swift")
+            .path
     }
 
     // MARK: - Helpers

@@ -64,14 +64,12 @@ final class LXMPeerTests: XCTestCase {
         XCTAssertEqual(peer.incoming,    0)
         XCTAssertEqual(peer.rxBytes,     0)
         XCTAssertEqual(peer.txBytes,     0)
-        XCTAssertNil(peer.link)
+        XCTAssertNil(peer.linkForTesting)
         XCTAssertNil(peer.propagationStampCost)
         XCTAssertNil(peer.propagationTransferLimit)
         XCTAssertNil(peer.peeringCost)
         XCTAssertNil(peer.peeringKey)
         XCTAssertNil(peer.metadata)
-        XCTAssertEqual(peer.lastOffer, [])
-        XCTAssertNil(peer.currentlyTransferringMessages)
         XCTAssertEqual(peer.syncStrategy, .persistent)
     }
 
