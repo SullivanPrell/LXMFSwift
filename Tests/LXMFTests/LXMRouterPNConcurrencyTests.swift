@@ -205,4 +205,66 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
         }
         wait(for: [done], timeout: 180)
     }
+
+    /// `bugs/055`, one level down: the same defect on `LXMPeer`.
+    ///
+    /// The peer guards its own sync state with `peerLock` — `sync()` writes `state`,
+    /// `nextSyncAttempt` and `syncBackoff` under it across the COMMIT-BEFORE-CALLOUT boundaries
+    /// established by `bugs/054` — and then publishes every one of those as a plain `public var`.
+    /// A caller reading `peer.state` to render a peer list is racing the sync machine.
+    ///
+    /// Under ThreadSanitizer this reports a race naming `LXMPeer`. These are scalars and an enum,
+    /// so unlike the message-store read it does not segfault; it silently returns a value that was
+    /// never coherently published.
+    func testDirectPeerPropertyReadsRaceTheSyncMachine() throws {
+        let router = LXMRouter(transport: Transport())
+        try router.enablePropagation(storagePath: tempDir)
+
+        let peerHashes = (0..<6).map { p in
+            Data([UInt8(p)] + Data(repeating: 0xEE, count: LXMessage.destinationLength - 1))
+        }
+        // Resolved once, up front. Looking peers up inside the loop would touch `router.peers`
+        // concurrently with the router's own writes, and TSan reports only the first race it
+        // finds — the router-table one would mask the peer-property one this test is for.
+        let peerObjects: [LXMPeer] = peerHashes.map { router.addPeer(destinationHash: $0) }
+
+        let done = expectation(description: "peer-property stress")
+        let iterations = 1500
+
+        DispatchQueue.global().async {
+            DispatchQueue.concurrentPerform(iterations: 4) { w in
+                for i in 0..<iterations {
+                    let peer = peerObjects[(w &+ i) % peerObjects.count]
+
+                    if w == 0 {
+                        // The reader: a peer-list screen. No lock is reachable from here.
+                        var acc = 0
+                        // `lastSyncAttempt` first: `sync()` writes it under `peerLock` on every
+                        // call, before any guard (`LXMPeer.swift:753`), so it races whatever the
+                        // sync machine does or does not go on to do. The other reads depend on
+                        // the machine getting further than its entry guards.
+                        acc &+= Int(peer.lastSyncAttempt)
+                        acc &+= peer.state == .idle ? 1 : 0
+                        acc &+= peer.alive ? 1 : 0
+                        acc &+= Int(peer.nextSyncAttempt)
+                        acc &+= peer.offered
+                        acc &+= peer.txBytes
+                        acc &+= peer.outgoing
+                        acc &+= Int(peer.lastHeard)
+                        acc &+= Int(peer.syncBackoff)
+                        XCTAssertGreaterThanOrEqual(acc, Int.min)
+                    } else {
+                        // The writers: the sync machine, correctly taking `peerLock`.
+                        switch (w &+ i) % 3 {
+                        case 0:  router.syncPeers()
+                        case 1:  peer.processQueues()
+                        default: peer.sync()
+                        }
+                    }
+                }
+            }
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 180)
+    }
 }
