@@ -2493,6 +2493,57 @@ public final class LXMRouter {
         return true
     }
 
+    // MARK: - Outbound sync seam
+
+    /// Build the context an outbound sync to `peer` needs — the **only** place the outbound path
+    /// touches the outside world (`swift_devel/bugs/054`).
+    ///
+    /// It lives here, beside the peer accessors, because it is the one method that has to read
+    /// `private let transport` and `identity` on the peer's behalf. `LXMPeer` gets a value with no
+    /// router in it, so nothing on the outbound path can reach back for a dependency that was not
+    /// declared on `PeerSyncContext`.
+    ///
+    /// Returns `nil` — and the caller postpones — when the router has no identity, when the peer's
+    /// identity cannot be recalled from the transport, or when its propagation destination cannot
+    /// be built. Python logs the same three conditions and returns (`LXMPeer.py:392-393`,
+    /// `:248-256`).
+    func makePeerSyncContext(for peer: LXMPeer) -> PeerSyncContext? {
+        lock.lock()
+        let routerIdentity = identity
+        lock.unlock()
+        guard let routerIdentity else { return nil }
+
+        // Always from the peer's own destination hash. `Identity.recall(destinationHash:)` is the
+        // wrong call here — it routes through `Reticulum.shared`, and LXMF is constructed with an
+        // explicit transport.
+        guard let peerIdentity = transport.recall(identity: peer.destinationHash) else {
+            return nil
+        }
+        guard let destination = try? Destination(identity: peerIdentity, direction: .out,
+                                                 kind: .single, appName: APP_NAME,
+                                                 aspects: ["propagation"]) else {
+            return nil
+        }
+
+        return PeerSyncContext(
+            routerIdentity: routerIdentity,
+            peerIdentity:   peerIdentity,
+            destination:    destination,
+            transport:      transport,
+            now:            { Date().timeIntervalSince1970 },
+            messageBytes: { [weak self] transientID in
+                guard let path = self?.peerEntry(transientID)?.filePath else { return nil }
+                return try? Data(contentsOf: URL(fileURLWithPath: path))
+            },
+            entryExists: { [weak self] in self?.peerEntryExists($0) ?? false },
+            weight:      { [weak self] in self?.getWeight(transientID: $0) ?? 0 },
+            size:        { [weak self] in self?.getSize(transientID: $0) ?? 0 },
+            stampValue:  { [weak self] in self?.getStampValue(transientID: $0) ?? 0 },
+            unpeer:      { [weak self] in self?.unpeer(destinationHash: $0) },
+            throttleWait: LXMRouter.pnStampThrottle
+        )
+    }
+
     // MARK: - Peer management
 
     /// Peer with a propagation node, or update an existing peering.
