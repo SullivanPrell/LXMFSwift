@@ -244,6 +244,10 @@ public final class LXMPeer {
     /// Transient IDs currently being transferred (non-nil during active resource transfer).
     public var currentlyTransferringMessages: [Data]? = nil
 
+    /// Whether this sync link has already been re-identified after an `ERROR_NO_IDENTITY`.
+    /// Reset when a link is created; see the `.noIdentity` branch of `offerResponse`.
+    private var hasReIdentifiedOnThisLink = false
+
     /// When the in-flight resource transfer started, for the rate measurement.
     /// Python never initialises this attribute; it appears first at `LXMPeer.py:470` and is read
     /// under a `!= None` guard at `:509`.
@@ -749,7 +753,10 @@ public final class LXMPeer {
                 return
             }
 
-            peerLock.lock(); self.link = link; peerLock.unlock()
+            peerLock.lock()
+            self.link = link
+            hasReIdentifiedOnThisLink = false
+            peerLock.unlock()
 
             // `onClosed` first: `onEstablished` has a replaying `didSet` (`Link.swift:326-329`)
             // and can drive straight through to a teardown, and an `onClosed` not yet installed
@@ -968,8 +975,22 @@ public final class LXMPeer {
             case .noIdentity:
                 // The peer saw no identification. Identify again and re-run the pump with the
                 // same offer (`:408-414`).
-                peerLock.lock(); let link = self.link; peerLock.unlock()
+                peerLock.lock()
+                let link = self.link
+                let alreadyRetried = hasReIdentifiedOnThisLink
+                hasReIdentifiedOnThisLink = true
+                peerLock.unlock()
+
                 guard let link else { break }     // no link: fall through to the empty-wanted path
+
+                // Once per link. Python re-identifies unconditionally and would loop forever
+                // against a peer that keeps answering 0xF0; it merely *looks* bounded there
+                // because CPython cannot deliver a response from inside `link.request`, so each
+                // retry starts a fresh stack. This transport can, and unbounded re-entry here is
+                // a stack overflow rather than a slow loop. Identifying twice on one link
+                // achieves nothing anyway.
+                guard !alreadyRetried else { return abandonSync() }
+
                 try? link.identify(as: ctx.routerIdentity)
                 peerLock.lock(); state = .linkReady; peerLock.unlock()
                 sync()                            // re-entry 2

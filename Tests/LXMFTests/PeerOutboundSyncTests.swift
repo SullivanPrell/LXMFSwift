@@ -429,6 +429,40 @@ final class PeerOutboundSyncTests: XCTestCase {
         XCTAssertEqual(payloads.first, payloads.last, "the retry offers the same messages")
     }
 
+    /// A peer that answers `ERROR_NO_IDENTITY` to *everything* must not be retried forever.
+    ///
+    /// Python re-identifies unconditionally and would loop against such a peer; it merely looks
+    /// bounded there because CPython cannot deliver a response from inside `link.request`, so
+    /// each retry starts a fresh stack. Over a synchronous transport — a loopback interface, or
+    /// two routers in one process — the same code recurses until the stack overflows, which is
+    /// a crash rather than a slow loop.
+    func testAPeerThatAlwaysRefusesIdentificationIsGivenUpOn() throws {
+        net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
+        let peer = try net.announceBToA()
+        XCTAssertTrue(peer.generatePeeringKey())
+        _ = try net.storeMessage(in: net.routerA, size: 400)
+
+        var requests = 0
+        net.routerB.propagationDestination?.registerNativeRequestHandler(
+            path: LXMPeer.offerRequestPath, allow: .all
+        ) { _, _, _, _, _ in
+            requests += 1
+            return .uint(UInt64(LXMPeerError.noIdentity.rawValue))
+        }
+
+        net.routerA.syncPeers()
+        net.settle(0.5)
+
+        XCTAssertLessThanOrEqual(requests, 2,
+                                 """
+                                 the offer was re-sent \(requests) times to a peer refusing every \
+                                 one. Re-identifying twice on the same link achieves nothing, and \
+                                 unbounded re-entry over a synchronous transport is a stack \
+                                 overflow.
+                                 """)
+        XCTAssertEqual(peer.state, .idle, "and the peer must be released, not left mid-sync")
+    }
+
     /// T12 — the peer receives only what it lacks, and everything it already had is marked handled.
     func testThePeerReceivesOnlyTheMessagesItLacks() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
