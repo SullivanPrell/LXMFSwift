@@ -664,9 +664,13 @@ public final class LXMPeer {
             pairs.append((.string(key), val))
         }
 
-        // Snapshot the lock-guarded scalars (concurrent sync()/resourceConcluded() may
-        // write them). `incoming`/`rxBytes` have no runtime writer, so they are read
-        // directly; `handledMessages`/`unhandledMessages` self-lock, so they run below.
+        // Snapshot the lock-guarded scalars (concurrent sync()/resourceConcluded() may write
+        // them); `handledMessages`/`unhandledMessages` self-lock, so they run below.
+        //
+        // This used to claim `incoming`/`rxBytes` had no runtime writer and read them outside the
+        // lock. The router has always been one — it credits the sending peer on every inbound
+        // propagated message (`swift_devel/bugs/055`) — so that read raced serialization against
+        // the inbound path. They are snapshotted with the rest now.
         peerLock.lock()
         let sAlive           = _alive
         let sLastHeard       = _lastHeard
@@ -674,32 +678,42 @@ public final class LXMPeer {
         let sOffered         = _offered
         let sOutgoing        = _outgoing
         let sTxBytes         = _txBytes
+        let sIncoming        = _incoming
+        let sRxBytes         = _rxBytes
+        let sPeeringTimebase = _peeringTimebase
+        let sSyncStrategy    = _syncStrategy
+        // The announced terms too: `adoptAnnouncedTerms` writes all five from the announce thread.
+        let sTransferLimit   = _propagationTransferLimit
+        let sSyncLimit       = _propagationSyncLimit
+        let sStampCost       = _propagationStampCost
+        let sStampFlex       = _propagationStampCostFlexibility
+        let sPeeringCost     = _peeringCost
         peerLock.unlock()
 
         kv("destination_hash",       .bytes(destinationHash))
-        kv("peering_timebase",       .double(_peeringTimebase))
+        kv("peering_timebase",       .double(sPeeringTimebase))
         kv("alive",                  .bool(sAlive))
         kv("last_heard",             .double(sLastHeard))
-        kv("sync_strategy",          .int(Int64(_syncStrategy.rawValue)))
+        kv("sync_strategy",          .int(Int64(sSyncStrategy.rawValue)))
         kv("last_sync_attempt",      .double(sLastSyncAttempt))
         kv("offered",                .int(Int64(sOffered)))
         kv("outgoing",               .int(Int64(sOutgoing)))
-        kv("incoming",               .int(Int64(_incoming)))
-        kv("rx_bytes",               .int(Int64(_rxBytes)))
+        kv("incoming",               .int(Int64(sIncoming)))
+        kv("rx_bytes",               .int(Int64(sRxBytes)))
         kv("tx_bytes",               .int(Int64(sTxBytes)))
         kv("link_establishment_rate",.double(linkEstablishmentRate))
         kv("sync_transfer_rate",     .double(syncTransferRate))
 
-        if let v = _propagationTransferLimit { kv("propagation_transfer_limit", .double(v)) }
+        if let v = sTransferLimit { kv("propagation_transfer_limit", .double(v)) }
         else { kv("propagation_transfer_limit", .nil) }
-        if let v = _propagationSyncLimit     { kv("propagation_sync_limit", .double(v)) }
+        if let v = sSyncLimit     { kv("propagation_sync_limit", .double(v)) }
         else { kv("propagation_sync_limit", .nil) }
-        if let v = _propagationStampCost     { kv("propagation_stamp_cost", .int(Int64(v))) }
+        if let v = sStampCost     { kv("propagation_stamp_cost", .int(Int64(v))) }
         else { kv("propagation_stamp_cost", .nil) }
-        if let v = _propagationStampCostFlexibility {
+        if let v = sStampFlex {
             kv("propagation_stamp_cost_flexibility", .int(Int64(v)))
         } else { kv("propagation_stamp_cost_flexibility", .nil) }
-        if let v = _peeringCost { kv("peering_cost", .int(Int64(v))) }
+        if let v = sPeeringCost { kv("peering_cost", .int(Int64(v))) }
         else { kv("peering_cost", .nil) }
 
         // Python's shape exactly — `[stamp, value]` (`LXMPeer.py:145`, written from the list built
@@ -951,10 +965,19 @@ public final class LXMPeer {
     public func sync() {
         let now = Date().timeIntervalSince1970
 
-        // Announce-negotiated fields have no concurrent writer — read them outside the lock.
+        // The announce-negotiated fields DO have a concurrent writer: the router applies them from
+        // the announce-callback thread via `adoptAnnouncedTerms`, under `peerLock`
+        // (`swift_devel/bugs/055`). This comment used to say they had none, which was only ever
+        // true in the sense that the router's write was unsynchronized too.
+        //
+        // Read under the lock, then release it before `peeringKeyReady()` — that self-locks, and
+        // `peerLock` is a non-reentrant `NSLock`.
+        peerLock.lock()
         let stampCostsKnown = _propagationStampCost != nil
                            && _propagationStampCostFlexibility != nil
                            && _peeringCost != nil
+        peerLock.unlock()
+
         let keyReady = peeringKeyReady()   // self-locks; may discard a now-too-cheap key
 
         peerLock.lock()
@@ -1233,7 +1256,7 @@ public final class LXMPeer {
     private func offerResponse(_ data: Data, _ ctx: PeerSyncContext) {
         peerLock.lock()
         _state = .responseReceived
-        let _offered = lastOffer
+        let offeredIDs = lastOffer
         peerLock.unlock()
 
         guard let response = try? MsgPack.decode(data) else {
@@ -1304,7 +1327,7 @@ public final class LXMPeer {
         case .bool(false):
             // The peer already holds everything offered (`:427-432`).
             let stillUnhandled = Set(unhandledMessages)
-            for tid in _offered where stillUnhandled.contains(tid) {
+            for tid in offeredIDs where stillUnhandled.contains(tid) {
                 addHandledMessage(tid)
                 removeUnhandledMessage(tid)
             }
@@ -1313,7 +1336,7 @@ public final class LXMPeer {
             // It wants everything offered (`:435-439`). Entries that vanished from the store in
             // the meantime are dropped: Python indexes `propagation_entries[tid]` directly at
             // `:438` and would raise.
-            wantedIDs = _offered.filter { ctx.entryExists($0) }
+            wantedIDs = offeredIDs.filter { ctx.entryExists($0) }
 
         case .array(let wanted):
             let requested = wanted.compactMap { value -> Data? in
@@ -1323,7 +1346,7 @@ public final class LXMPeer {
             // it handled first, so a store that changes under us cannot lose the bookkeeping
             // (`:443-448`).
             let requestedSet = Set(requested)
-            for tid in _offered where !requestedSet.contains(tid) {
+            for tid in offeredIDs where !requestedSet.contains(tid) {
                 addHandledMessage(tid)
                 removeUnhandledMessage(tid)
             }
@@ -1337,7 +1360,7 @@ public final class LXMPeer {
             // Nothing to send. Note `offered` accrues here but the persistent re-sync does not —
             // that belongs only to a completed transfer (`:475-480`).
             peerLock.lock()
-            self._offered += _offered.count
+            self._offered += offeredIDs.count
             let link = self.link
             peerLock.unlock()
 

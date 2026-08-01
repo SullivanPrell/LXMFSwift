@@ -255,6 +255,75 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
         }
     }
 
+    /// Every access to a `_`-prefixed backing store must hold the owner's lock, or be on a
+    /// construction path where the object is not yet reachable from another thread.
+    ///
+    /// This is the broadest of the guards and the one that found the most. Hand-running it during
+    /// task 8 turned up four real defects that everything else had passed over, because none of
+    /// them is a *setter* and none is a computed *property*:
+    ///
+    /// - `toBytes()` read nine fields outside the lock, four of them under a comment asserting
+    ///   they had no runtime writer.
+    /// - `sync()` read the three announced-term fields outside the lock, under the same
+    ///   now-false comment.
+    /// - a local named `offered` had been renamed to `_offered` by the conversion and was
+    ///   shadowing the property — behaviour unchanged, but one deletion away from silently
+    ///   binding to the wrong thing.
+    ///
+    /// `isUnderLock` is brace-depth aware, so it is not fooled by same-line `lock(); x; unlock()`
+    /// or by an `unlock()` inside a branch that returns.
+    func testEveryBackingStoreAccessIsUnderTheLockOrOnAConstructionPath() throws {
+        // Members that run before the object is reachable from any other thread. `enablePropagation`
+        // is the router's setup: it loads persisted peers and stats before the job loop starts.
+        let constructionPaths = ["init(", "from(bytes:", "enablePropagation("]
+
+        for o in owners {
+            let lines = try SharedStateInventory.sourceLines(o.file)
+            var offenders: [String] = []
+
+            for (i, raw) in lines.enumerated() {
+                let l = SharedStateInventory.stripComment(raw)
+                for name in o.names {
+                    guard let r = l.range(of: #"(?<![\w])_\#(name)\b"#, options: .regularExpression)
+                    else { continue }
+                    // The declaration of the backing store itself.
+                    if l.range(of: #"^\s*private\s+var\s+_\#(name)\b"#, options: .regularExpression) != nil { continue }
+
+                    let col = l.distance(from: l.startIndex, to: r.lowerBound)
+                    if SharedStateInventory.isUnderLock(lines, line: i + 1, column: col, lockName: o.lock) { continue }
+
+                    // Which member is it in?
+                    var enclosing = "<file scope>"
+                    var k = i
+                    while k > 0 {
+                        if lines[k].range(of: #"^    (@discardableResult\s+)?(public |internal |private |fileprivate )?(static )?(func |init\(|deinit)"#,
+                                          options: .regularExpression) != nil {
+                            enclosing = lines[k].trimmingCharacters(in: .whitespaces)
+                            break
+                        }
+                        k -= 1
+                    }
+                    if constructionPaths.contains(where: { enclosing.contains($0) }) { continue }
+
+                    offenders.append("\(o.file):\(i + 1) in `\(enclosing.prefix(60))`: \(l.trimmingCharacters(in: .whitespaces).prefix(70))")
+                }
+            }
+
+            XCTAssertTrue(offenders.isEmpty,
+                          """
+                          these read or write `\(o.label)` backing storage without holding \
+                          `\(o.lock)`, outside any construction path:
+
+                          \(offenders.joined(separator: "\n"))
+
+                          Encapsulation moves the storage behind the lock; a `_x` reached without \
+                          it is the same race the encapsulation removed. If the site genuinely \
+                          runs before the object is shared, add its member to `constructionPaths` \
+                          and say why.
+                          """)
+        }
+    }
+
     /// The exemption list must not outlive the properties it excuses.
     func testNoExemptionNamesAPropertyThatIsGone() throws {
         for (file, entries) in Self.exemptions {
