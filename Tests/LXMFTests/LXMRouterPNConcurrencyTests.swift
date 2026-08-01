@@ -123,4 +123,86 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
         wait(for: [done], timeout: 120)
         _ = router.messageStorageSize()
     }
+
+    // MARK: - bugs/055 — the property surface, not the methods
+
+    /// The test above cannot fail on `bugs/055`, by construction.
+    ///
+    /// Every one of its ~13 operations is a call to a *router method*, and every one of those
+    /// takes `lock` on the way in. It therefore proves the router is internally consistent —
+    /// which `bugs/055` already concedes — while never once touching `router.propagationEntries`,
+    /// `router.peers` or a counter directly. It is a test of the inside of the seam, presented as
+    /// a test of the seam.
+    ///
+    /// This one reads the properties the way an application does: straight off the object, on a
+    /// different thread from the router's own writes. Under ThreadSanitizer
+    /// (`swift test -Xswiftc -sanitize=thread --filter LXMRouterPNConcurrencyTests`) it reports a
+    /// Swift access race against the unfixed code. A `Dictionary` write is not atomic, so the
+    /// reader can observe a partially rehashed table rather than a merely stale value.
+    ///
+    /// After the fix these reads go through lock-taking accessors and still compile unchanged —
+    /// that source compatibility is the point of the read-only-accessor shape.
+    func testDirectPropertyReadsRaceTheRoutersOwnWrites() throws {
+        let router = LXMRouter(transport: Transport())
+        try router.enablePropagation(storagePath: tempDir)
+        router.setMessageStorageLimit(megabytes: 100)
+
+        let destHash = Data(repeating: 0x11, count: LXMessage.destinationLength)
+        struct Msg { let lxmf: Data; let tid: Data; let stamp: Data }
+        let pool: [Msg] = (0..<60).map { i in
+            let lxmf = destHash + Data((0..<40).map { UInt8(($0 &+ i) & 0xFF) }) + Data([UInt8(i & 0xFF)])
+            return Msg(lxmf: lxmf, tid: Hashes.fullHash(lxmf), stamp: Data(repeating: UInt8(i & 0xFF),
+                                                                          count: LXStamper.stampSize))
+        }
+        for p in 0..<6 {
+            router.addPeer(destinationHash: Data([UInt8(p)] + Data(repeating: 0xEE,
+                                                                   count: LXMessage.destinationLength - 1)))
+        }
+
+        let done = expectation(description: "direct-read stress")
+        let iterations = 1200
+
+        DispatchQueue.global().async {
+            DispatchQueue.concurrentPerform(iterations: 4) { w in
+                for i in 0..<iterations {
+                    let m = pool[(w &* 7 &+ i) % pool.count]
+
+                    if w == 0 {
+                        // The reader: an application rendering a node screen. No lock is
+                        // available to it, because the properties are plain stored `var`s.
+                        var bytes = 0
+                        for (_, e) in router.propagationEntries { bytes &+= e.msgSize }
+                        XCTAssertGreaterThanOrEqual(bytes, 0)
+
+                        var peerCount = 0
+                        for (_, p) in router.peers { peerCount &+= p.destinationHash.count }
+                        XCTAssertGreaterThanOrEqual(peerCount, 0)
+
+                        let stats = router.clientPropagationMessagesReceived
+                                  &+ router.clientPropagationMessagesServed
+                                  &+ router.unpeeredPropagationIncoming
+                                  &+ router.unpeeredPropagationRxBytes
+                        XCTAssertGreaterThanOrEqual(stats, 0)
+
+                        XCTAssertGreaterThanOrEqual(router.peerDistributionQueue.count, 0)
+                        XCTAssertGreaterThanOrEqual(router.throttledPeers.count, 0)
+                        XCTAssertGreaterThanOrEqual(router.activePropagationLinks.count, 0)
+                        XCTAssertGreaterThanOrEqual(router.validatedPeerLinks.count, 0)
+                        XCTAssertGreaterThanOrEqual(router.staticPeers.count, 0)
+                    } else {
+                        // The writers: the router's own paths, each correctly taking `lock`.
+                        switch (w &+ i) % 4 {
+                        case 0: router.addToMessageStore(lxmfData: m.lxmf, transientID: m.tid,
+                                                         stampValue: 5, stamp: m.stamp)
+                        case 1: _ = router.ingestPropagatedLXM(lxmfData: m.lxmf, stampValue: 5, stamp: m.stamp)
+                        case 2: router.enqueueForPeerDistribution(transientID: m.tid)
+                        default: router.flushPeerDistributionQueue()
+                        }
+                    }
+                }
+            }
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 180)
+    }
 }
