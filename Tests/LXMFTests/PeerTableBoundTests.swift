@@ -144,9 +144,9 @@ final class PeerTableBoundTests: XCTestCase {
         router.peer(destinationHash: hash(1), timestamp: 2_000, transferLimit: 256, syncLimit: 256,
                     stampCost: 0, stampCostFlexibility: 0, peeringCost: 0, metadata: nil)
         let transientID = Hashes.fullHash(Data("held".utf8))
-        router.propagationEntries[transientID] = PropagationEntry(
+        router.seedPropagationEntry(transientID, PropagationEntry(
             destinationHash: hash(9), filePath: "/tmp/none", received: 0, msgSize: 1,
-            unhandledPeers: [hash(1)], stampValue: 0)
+            unhandledPeers: [hash(1)], stampValue: 0))
 
         router.unpeer(destinationHash: hash(1), timestamp: 3_000)
 

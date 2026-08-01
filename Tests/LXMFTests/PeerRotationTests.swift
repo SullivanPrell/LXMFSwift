@@ -206,9 +206,9 @@ final class PeerRotationTests: XCTestCase {
         // router and is a no-op for a transient ID it does not hold, so calling it alone leaves
         // the peer looking fully synced and this test asserting nothing.
         let outstanding = Hashes.fullHash(Data("outstanding".utf8))
-        router.propagationEntries[outstanding] = PropagationEntry(
+        router.seedPropagationEntry(outstanding, PropagationEntry(
             destinationHash: hash(200), filePath: "/tmp/none", received: 0, msgSize: 1,
-            stampValue: 0)
+            stampValue: 0))
         stillSyncing.addUnhandledMessage(outstanding)
         XCTAssertEqual(stillSyncing.unhandledMessageCount, 1,
                        "precondition: the peer must actually have something outstanding")

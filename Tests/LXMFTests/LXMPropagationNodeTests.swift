@@ -135,12 +135,12 @@ final class LXMPropagationNodeTests: XCTestCase {
         // Inject fake entries directly
         let tid1 = fakeHash(0x01)
         let tid2 = fakeHash(0x02)
-        router.propagationEntries[tid1] = PropagationEntry(
+        router.seedPropagationEntry(tid1, PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/a",
-            received: 0, msgSize: 100, stampValue: 0)
-        router.propagationEntries[tid2] = PropagationEntry(
+            received: 0, msgSize: 100, stampValue: 0))
+        router.seedPropagationEntry(tid2, PropagationEntry(
             destinationHash: fakeHash(0xA1), filePath: "/tmp/b",
-            received: 0, msgSize: 200, stampValue: 0)
+            received: 0, msgSize: 200, stampValue: 0))
 
         XCTAssertEqual(router.messageStorageSize(), 300)
     }
@@ -249,9 +249,9 @@ final class LXMPropagationNodeTests: XCTestCase {
         // Inject two 100-byte entries
         for byte: UInt8 in [0x01, 0x02] {
             let tid = fakeHash(byte)
-            router.propagationEntries[tid] = PropagationEntry(
+            router.seedPropagationEntry(tid, PropagationEntry(
                 destinationHash: fakeHash(byte ^ 0xF0), filePath: "/tmp/\(byte)",
-                received: Double(byte), msgSize: 100, stampValue: 0)
+                received: Double(byte), msgSize: 100, stampValue: 0))
         }
         router.cleanMessageStore()
         XCTAssertEqual(router.propagationEntries.count, 2, "Nothing should be removed under the limit")
@@ -264,15 +264,15 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         // Old message (received=1)
         let oldTID = fakeHash(0x01)
-        router.propagationEntries[oldTID] = PropagationEntry(
+        router.seedPropagationEntry(oldTID, PropagationEntry(
             destinationHash: fakeHash(0xA1), filePath: tempDir + "/old",
-            received: 1.0, msgSize: 600, stampValue: 0)
+            received: 1.0, msgSize: 600, stampValue: 0))
 
         // Newer message (received=2)
         let newTID = fakeHash(0x02)
-        router.propagationEntries[newTID] = PropagationEntry(
+        router.seedPropagationEntry(newTID, PropagationEntry(
             destinationHash: fakeHash(0xA2), filePath: tempDir + "/new",
-            received: 2.0, msgSize: 600, stampValue: 0)
+            received: 2.0, msgSize: 600, stampValue: 0))
 
         // Total = 1200 bytes > 1000 limit → old message should be dropped
         router.cleanMessageStore()
@@ -311,9 +311,9 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         // Pre-populate a message entry
         let tid = fakeHash(0x01)
-        router.propagationEntries[tid] = PropagationEntry(
+        router.seedPropagationEntry(tid, PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/x",
-            received: 0, msgSize: 100, stampValue: 0)
+            received: 0, msgSize: 100, stampValue: 0))
 
         let hash = fakeHash(0xBB)
         let peer = router.addPeer(destinationHash: hash)
@@ -352,9 +352,9 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         let tid  = fakeHash(0x01)
         let hash = fakeHash(0xBB)
-        router.propagationEntries[tid] = PropagationEntry(
+        router.seedPropagationEntry(tid, PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/x",
-            received: 0, msgSize: 100, stampValue: 0)
+            received: 0, msgSize: 100, stampValue: 0))
 
         let peer = router.addPeer(destinationHash: hash)
         // Reset unhandled (was set by addPeer) to simulate a fresh message
@@ -428,9 +428,9 @@ final class LXMPropagationNodeTests: XCTestCase {
         try router.enablePropagation(storagePath: tempDir)
 
         let tid = fakeHash(0x01)
-        router.propagationEntries[tid] = PropagationEntry(
+        router.seedPropagationEntry(tid, PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/x",
-            received: 0, msgSize: 100, stampValue: 0)
+            received: 0, msgSize: 100, stampValue: 0))
 
         let data = MsgPack.Value.array([
             .bytes(Data(repeating: 0x00, count: 32)),
@@ -453,9 +453,9 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         let existingTID = fakeHash(0x01)
         let newTID      = fakeHash(0x02)
-        router.propagationEntries[existingTID] = PropagationEntry(
+        router.seedPropagationEntry(existingTID, PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/x",
-            received: 0, msgSize: 100, stampValue: 0)
+            received: 0, msgSize: 100, stampValue: 0))
         // newTID is not stored → we want it
 
         let data = MsgPack.Value.array([
@@ -493,9 +493,9 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         let destHash = fakeHash(0x44)
         let tid      = fakeHash(0x01)
-        router.propagationEntries[tid] = PropagationEntry(
+        router.seedPropagationEntry(tid, PropagationEntry(
             destinationHash: destHash, filePath: "/tmp/x",
-            received: 0, msgSize: 100, stampValue: 0)
+            received: 0, msgSize: 100, stampValue: 0))
 
         // want=nil, have=nil → return list
         let result = router.handleMessageGetRequest(
@@ -517,12 +517,12 @@ final class LXMPropagationNodeTests: XCTestCase {
         let myTID     = fakeHash(0x01)
         let otherTID  = fakeHash(0x02)
 
-        router.propagationEntries[myTID] = PropagationEntry(
+        router.seedPropagationEntry(myTID, PropagationEntry(
             destinationHash: myDest, filePath: "/tmp/x",
-            received: 0, msgSize: 100, stampValue: 0)
-        router.propagationEntries[otherTID] = PropagationEntry(
+            received: 0, msgSize: 100, stampValue: 0))
+        router.seedPropagationEntry(otherTID, PropagationEntry(
             destinationHash: otherDest, filePath: "/tmp/y",
-            received: 0, msgSize: 100, stampValue: 0)
+            received: 0, msgSize: 100, stampValue: 0))
 
         let result = router.handleMessageGetRequest(
             data: .array([.nil, .nil]),
@@ -665,9 +665,9 @@ final class LXMPropagationNodeTests: XCTestCase {
     func testGetStampValue() {
         let router = makeRouter()
         let tid    = fakeHash(0x01)
-        router.propagationEntries[tid] = PropagationEntry(
+        router.seedPropagationEntry(tid, PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/x",
-            received: 9999.0, msgSize: 200, stampValue: 13)
+            received: 9999.0, msgSize: 200, stampValue: 13))
         XCTAssertEqual(router.getStampValue(transientID: tid), 13)
     }
 
@@ -679,16 +679,16 @@ final class LXMPropagationNodeTests: XCTestCase {
         let tid    = fakeHash(0x01)
 
         // Just received, so `ageWeight` is at its floor of 1 and the weight is the size.
-        router.propagationEntries[tid] = PropagationEntry(
+        router.seedPropagationEntry(tid, PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/x",
-            received: now, msgSize: 200, stampValue: 0)
+            received: now, msgSize: 200, stampValue: 0))
         XCTAssertEqual(router.getWeight(transientID: tid), 200.0, accuracy: 1.0)
 
         // Eight days old — two four-day units.
         let old = fakeHash(0x02)
-        router.propagationEntries[old] = PropagationEntry(
+        router.seedPropagationEntry(old, PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/y",
-            received: now - 8 * 24 * 60 * 60, msgSize: 200, stampValue: 0)
+            received: now - 8 * 24 * 60 * 60, msgSize: 200, stampValue: 0))
         XCTAssertEqual(router.getWeight(transientID: old), 400.0, accuracy: 1.0,
                        "age is measured in four-day units and multiplies the size")
     }
@@ -698,9 +698,9 @@ final class LXMPropagationNodeTests: XCTestCase {
         let now      = Date().timeIntervalSince1970
         let destHash = fakeHash(0xA0)
         let tid      = fakeHash(0x01)
-        router.propagationEntries[tid] = PropagationEntry(
+        router.seedPropagationEntry(tid, PropagationEntry(
             destinationHash: destHash, filePath: "/tmp/x",
-            received: now, msgSize: 200, stampValue: 0)
+            received: now, msgSize: 200, stampValue: 0))
 
         let ordinary = router.getWeight(transientID: tid)
         router.prioritise(destinationHash: destHash)
@@ -716,9 +716,9 @@ final class LXMPropagationNodeTests: XCTestCase {
     func testGetSize() {
         let router = makeRouter()
         let tid    = fakeHash(0x01)
-        router.propagationEntries[tid] = PropagationEntry(
+        router.seedPropagationEntry(tid, PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/x",
-            received: 0, msgSize: 512, stampValue: 0)
+            received: 0, msgSize: 512, stampValue: 0))
         XCTAssertEqual(router.getSize(transientID: tid), 512)
     }
 
@@ -889,10 +889,10 @@ final class LXMPropagationNodeTests: XCTestCase {
             appName: "lxmf", aspects: ["delivery"]
         )
         let fakeTransientID = Hashes.fullHash(Data("fake_msg".utf8))
-        router.propagationEntries[fakeTransientID] = PropagationEntry(
+        router.seedPropagationEntry(fakeTransientID, PropagationEntry(
             destinationHash: clientDeliveryDest.hash, filePath: "/tmp/fake",
             received: 0, msgSize: 64, stampValue: 0
-        )
+        ))
 
         // Wire up loopback interfaces.
         let serverIface = LoopIface(name: "S"); let clientIface = LoopIface(name: "C")

@@ -202,22 +202,31 @@ extension SharedStateInventory {
         return String(line[line.startIndex..<r.lowerBound])
     }
 
-    /// The first access to `name` in `lines` at `line`, as a column, or `nil` if it is not there.
+    /// The first access to `name` — or to its private backing store `_name` — in `lines` at
+    /// `line`, as a column, or `nil` if neither is there.
+    ///
+    /// Both spellings count as the same state. Encapsulating a property renames the storage to
+    /// `_name` and leaves `name` as a lock-taking computed accessor, so a check that looked only
+    /// for the public spelling would report the state as unguarded the moment it became guarded.
     static func accessColumn(_ lines: [String], line: Int, property name: String) -> Int? {
         guard line - 1 >= 0, line - 1 < lines.count else { return nil }
         let l = stripComment(lines[line - 1])
-        guard let r = l.range(of: #"\b\#(name)\b"#, options: .regularExpression) else { return nil }
+        guard let r = l.range(of: #"(?<![\w])_?\#(name)\b"#, options: .regularExpression) else { return nil }
         return l.distance(from: l.startIndex, to: r.lowerBound)
     }
 
-    /// The 1-based line declaring `name` as a stored or computed property, or `nil`.
+    /// The 1-based lines declaring `name` and, if it exists, its backing store `_name`.
+    static func declarationLines(_ lines: [String], property name: String) -> [Int] {
+        lines.indices.filter {
+            stripComment(lines[$0]).range(
+                of: #"^\s*(public |internal |private |fileprivate )?(private\(set\) |internal\(set\) )?var _?\#(name)\b"#,
+                options: .regularExpression) != nil
+        }.map { $0 + 1 }
+    }
+
+    /// The 1-based line declaring `name` (public spelling preferred), or `nil`.
     static func declarationLine(_ lines: [String], property name: String) -> Int? {
-        for (i, l) in lines.enumerated()
-        where stripComment(l).range(of: #"^\s*(public |internal |private |fileprivate )?(private\(set\) |internal\(set\) )?var \#(name)\b"#,
-                                    options: .regularExpression) != nil {
-            return i + 1
-        }
-        return nil
+        declarationLines(lines, property: name).first
     }
 
     /// Every 1-based line where `name` is touched under `lockName`, ignoring its own declaration.
@@ -225,9 +234,9 @@ extension SharedStateInventory {
     /// The whole-file search is the point: the invariant is that the owner treats this as
     /// lock-protected state *somewhere*, not that it does so at one blessed coordinate.
     static func lockedAccessLines(_ lines: [String], property name: String, lockName: String) -> [Int] {
-        let decl = declarationLine(lines, property: name)
+        let decls = Set(declarationLines(lines, property: name))
         var hits: [Int] = []
-        for i in lines.indices where i + 1 != decl {
+        for i in lines.indices where !decls.contains(i + 1) {
             guard let col = accessColumn(lines, line: i + 1, property: name) else { continue }
             if isUnderLock(lines, line: i + 1, column: col, lockName: lockName) { hits.append(i + 1) }
         }

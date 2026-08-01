@@ -77,13 +77,13 @@ final class LXMPeerTests: XCTestCase {
 
     private func addFakeEntry(router: LXMRouter, tid: Data = Data(repeating: 0x01, count: 16)) {
         let destHash = Data(repeating: 0x02, count: 16)
-        router.propagationEntries[tid] = PropagationEntry(
+        router.seedPropagationEntry(tid, PropagationEntry(
             destinationHash: destHash,
             filePath:        "/tmp/fake",
             received:        Date().timeIntervalSince1970,
             msgSize:         100,
             stampValue:      0
-        )
+        ))
     }
 
     func testAddHandledMessage() {

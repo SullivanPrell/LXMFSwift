@@ -76,9 +76,9 @@ final class PeerSyncSelectionTests: XCTestCase {
     private lazy var outstandingID = Hashes.fullHash(Data("outstanding".utf8))
 
     private func seedStore(_ router: LXMRouter) {
-        router.propagationEntries[outstandingID] = PropagationEntry(
+        router.seedPropagationEntry(outstandingID, PropagationEntry(
             destinationHash: hash(250), filePath: "/tmp/none", received: 0, msgSize: 1,
-            stampValue: 0)
+            stampValue: 0))
     }
 
     /// Peers this pass **selected**, read from `lastSyncAttempt`, which `LXMPeer.sync()` stamps
