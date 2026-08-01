@@ -671,13 +671,46 @@ final class LXMPropagationNodeTests: XCTestCase {
         XCTAssertEqual(router.getStampValue(transientID: tid), 13)
     }
 
-    func testGetWeight() {
+    /// `priorityWeight * ageWeight * size` (`LXMRouter.py:1056-1067`) — not `received`, which is
+    /// what this returned and what this test used to assert.
+    func testGetWeightIsPriorityTimesAgeTimesSize() {
         let router = makeRouter()
+        let now    = Date().timeIntervalSince1970
         let tid    = fakeHash(0x01)
+
+        // Just received, so `ageWeight` is at its floor of 1 and the weight is the size.
         router.propagationEntries[tid] = PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/x",
-            received: 9999.0, msgSize: 200, stampValue: 0)
-        XCTAssertEqual(router.getWeight(transientID: tid), 9999.0, accuracy: 0.001)
+            received: now, msgSize: 200, stampValue: 0)
+        XCTAssertEqual(router.getWeight(transientID: tid), 200.0, accuracy: 1.0)
+
+        // Eight days old — two four-day units.
+        let old = fakeHash(0x02)
+        router.propagationEntries[old] = PropagationEntry(
+            destinationHash: fakeHash(0xA0), filePath: "/tmp/y",
+            received: now - 8 * 24 * 60 * 60, msgSize: 200, stampValue: 0)
+        XCTAssertEqual(router.getWeight(transientID: old), 400.0, accuracy: 1.0,
+                       "age is measured in four-day units and multiplies the size")
+    }
+
+    func testAPrioritisedDestinationSortsFirst() {
+        let router   = makeRouter()
+        let now      = Date().timeIntervalSince1970
+        let destHash = fakeHash(0xA0)
+        let tid      = fakeHash(0x01)
+        router.propagationEntries[tid] = PropagationEntry(
+            destinationHash: destHash, filePath: "/tmp/x",
+            received: now, msgSize: 200, stampValue: 0)
+
+        let ordinary = router.getWeight(transientID: tid)
+        router.prioritise(destinationHash: destHash)
+
+        XCTAssertEqual(router.getWeight(transientID: tid), ordinary * 0.1, accuracy: 1.0,
+                       """
+                       a prioritised destination scores 0.1 (LXMRouter.py:1064) so its messages \
+                       sort to the front of an offer. Returning `received` ignored the \
+                       prioritised list entirely, making `prioritise()` a no-op for peer sync.
+                       """)
     }
 
     func testGetSize() {

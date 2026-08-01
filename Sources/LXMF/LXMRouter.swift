@@ -3591,10 +3591,23 @@ public final class LXMRouter {
         return propagationEntries[transientID]?.stampValue ?? 0
     }
 
-    /// Receive timestamp (weight) of a stored message.
-    public func getWeight(transientID: Data) -> TimeInterval {
+    /// Ordering weight of a stored message — offers go out ascending.
+    ///
+    /// Port of `LXMRouter.get_weight` (`LXMRouter.py:1056-1067`):
+    /// `priorityWeight * ageWeight * size`, where `ageWeight` is the message's age in four-day
+    /// units floored at 1, and a prioritised destination scores 0.1 so its messages sort first.
+    ///
+    /// This used to return `received`, which sorts oldest-first and ignores both size and
+    /// priority. It matters because the per-sync limit spends a fixed budget in this order: with
+    /// the wrong one, a large old message crowds out several small ones and a prioritised
+    /// destination gets no priority at all.
+    public func getWeight(transientID: Data) -> Double {
         lock.lock(); defer { lock.unlock() }
-        return propagationEntries[transientID]?.received ?? 0
+        guard let entry = propagationEntries[transientID] else { return 0 }
+
+        let ageWeight = max(1.0, (Date().timeIntervalSince1970 - entry.received) / 60 / 60 / 24 / 4)
+        let priorityWeight = prioritisedList.contains(entry.destinationHash) ? 0.1 : 1.0
+        return priorityWeight * ageWeight * Double(entry.msgSize)
     }
 
     /// File size of a stored message.

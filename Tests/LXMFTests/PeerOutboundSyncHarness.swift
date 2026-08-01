@@ -215,9 +215,10 @@ final class PeerSyncLoopInterface: Interface {
         paired?.inboundHandler?(copy, paired!)
     }
 
-    func sentPackets(ofType type: Packet.PacketType) -> [Packet] {
+    /// Path requests are plain packets addressed to the well-known path-request destination.
+    func sentPathRequests() -> [Packet] {
         lock.lock(); defer { lock.unlock() }
-        return sent.filter { $0.packetType == type }
+        return sent.filter { $0.destinationHash == Transport.pathRequestDestinationHash }
     }
 
     func clearSent() {
