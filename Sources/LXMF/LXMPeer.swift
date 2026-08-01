@@ -186,8 +186,30 @@ public final class LXMPeer {
 
     // MARK: - Peering key
 
-    /// Proof-of-work peering key for this peer: [stampData, value] or nil.
-    public var peeringKey: (stamp: Data, value: Int)? = nil
+    /// Proof-of-work peering key for this peer: the 32-byte stamp and the value it reached.
+    ///
+    /// `private(set)`: `generatePeeringKey()` and `peeringKeyReady()` are the only writers.
+    /// While this was settable from outside, tests assigned `(stamp, 0)` by hand and asserted the
+    /// method they had just fed — which is how "no writer exists anywhere in `Sources/`" stayed
+    /// invisible from 2026-06-23 to 2026-07-31 (`swift_devel/bugs/054`).
+    public private(set) var peeringKey: (stamp: Data, value: Int)? = nil
+
+    /// The value of the peering key we hold, or nil if we hold none.
+    /// Python: `LXMPeer.peering_key_value()` (`LXMPeer.py:238-240`).
+    public var peeringKeyValue: Int? {
+        peerLock.lock(); defer { peerLock.unlock() }
+        return peeringKey?.value
+    }
+
+    /// How many key generations this peer has started. Single-flight is otherwise unobservable:
+    /// eight redundant generations and one produce the same key.
+    public private(set) var peeringKeyGenerationsStarted: Int = 0
+
+    /// Set while a generation is in flight, so concurrent sync passes do not each start one.
+    private var peeringKeyGenerating = false
+
+    /// Proof of work runs here, never on the job thread.
+    private let peeringKeyQueue = DispatchQueue(label: "lxmf.peer.peeringkey", qos: .utility)
 
     // MARK: - Metadata
 
@@ -559,6 +581,78 @@ public final class LXMPeer {
         return !handledMessagesQueue.isEmpty || !unhandledMessagesQueue.isEmpty
     }
 
+    // MARK: - Peering key generation
+
+    /// Whether the key we hold satisfies the cost this peer currently demands.
+    ///
+    /// Exact port of `LXMPeer.peering_key_ready()` (`LXMPeer.py:227-236`), including two things
+    /// the inline check this replaces got wrong:
+    ///
+    /// - **A cost of 0 is never ready.** Python's `if not self.peering_cost: return False` is a
+    ///   falsy test and `0` is falsy, so a peer advertising cost 0 can never be synced to. That
+    ///   reads as a bug and is not one: it is Python-to-Python behaviour, already documented at
+    ///   `LXMRouter.swift:423-426`, and a Swift node that treated 0 as "free" would sync to peers
+    ///   a Python node in the same mesh silently skips.
+    /// - **A key worth less than the cost is discarded, not merely rejected** (`:233-234`). A peer
+    ///   may raise its cost at any announce; without the reset we would re-offer the same
+    ///   too-cheap key on every pass and be refused with `ERROR_INVALID_KEY` forever.
+    ///
+    /// Takes `peerLock` — never call it with the lock held.
+    private func peeringKeyReady() -> Bool {
+        peerLock.lock(); defer { peerLock.unlock() }
+        guard let cost = peeringCost, cost > 0 else { return false }
+        guard let key = peeringKey else { return false }
+        if key.value >= cost { return true }
+        peeringKey = nil
+        return false
+    }
+
+    /// Generate this peer's peering key, if it does not already have a satisfying one.
+    ///
+    /// Port of `LXMPeer.generate_peering_key()` (`LXMPeer.py:242-265`). Returns whether a usable
+    /// key is in place when it returns.
+    ///
+    /// **Single-flight**, a deliberate deviation from the reference: Python starts a fresh daemon
+    /// thread from every postponed sync pass (`:285-286`), all of which serialise on
+    /// `_peering_key_lock` through a proof of work that takes seconds at the default cost of 18 —
+    /// the job loop can queue them faster than they retire. Here the second and later callers see
+    /// the in-flight flag and return immediately.
+    ///
+    /// The proof of work runs with `peerLock` **released**. Identities come from the context, so
+    /// this is also the point at which an unrecallable peer identity stops the attempt — Python
+    /// re-recalls here and logs (`:252-256`).
+    @discardableResult
+    func generatePeeringKey() -> Bool {
+        peerLock.lock()
+        guard let cost = peeringCost, cost > 0 else { peerLock.unlock(); return false }
+        // Any existing key is accepted here, exactly as Python does (`:245`) — **not**
+        // `key.value >= cost`. Deciding a key's sufficiency is `peeringKeyReady()`'s job, and it
+        // discards one that has fallen short. Re-deciding it here would make that discard dead
+        // code, and dead code is how the reset stops being tested.
+        if peeringKey != nil { peerLock.unlock(); return true }
+        guard !peeringKeyGenerating else { peerLock.unlock(); return false }
+        peeringKeyGenerating = true
+        peeringKeyGenerationsStarted += 1
+        peerLock.unlock()
+
+        defer { peerLock.lock(); peeringKeyGenerating = false; peerLock.unlock() }
+
+        guard let ctx = router?.makePeerSyncContext(for: self) else { return false }
+
+        // receiver ‖ sender — the peer we are dialling first, ourselves second (`:258`).
+        let material = LXStamper.peeringID(receiverIdentityHash: ctx.peerIdentity.hash,
+                                           senderIdentityHash: ctx.routerIdentity.hash)
+        guard let generated = LXStamper.generateStamp(material: material, targetCost: cost,
+                                                      expandRounds: LXStamper.peeringExpandRounds)
+        else { return false }
+
+        guard generated.value >= cost else { return false }   // `:260-261`
+        peerLock.lock()
+        peeringKey = generated
+        peerLock.unlock()
+        return true
+    }
+
     // MARK: - Sync
 
     /// Attempt a sync with this peer.
@@ -572,19 +666,22 @@ public final class LXMPeer {
         let stampCostsKnown = propagationStampCost != nil
                            && propagationStampCostFlexibility != nil
                            && peeringCost != nil
-        let peeringKeyReady: Bool = {
-            guard let pk = peeringKey, let cost = peeringCost else { return false }
-            return pk.value >= cost
-        }()
+        let keyReady = peeringKeyReady()   // self-locks; may discard a now-too-cheap key
 
         peerLock.lock()
         lastSyncAttempt = now
         let syncTimeReached = now > nextSyncAttempt
-        let syncChecks = syncTimeReached && stampCostsKnown && peeringKeyReady
+        let syncChecks = syncTimeReached && stampCostsKnown && keyReady
         guard syncChecks else {
             // Postpone; if time has passed but last attempt > last_heard, mark not alive
             if !syncTimeReached && now > lastHeard { alive = false }
             peerLock.unlock()
+
+            // The branch that was missing entirely: without a key nothing downstream can ever
+            // run, so the postponement has to be the thing that starts making one (`:283-286`).
+            if syncTimeReached && stampCostsKnown && !keyReady {
+                peeringKeyQueue.async { [weak self] in self?.generatePeeringKey() }
+            }
             return
         }
         peerLock.unlock()

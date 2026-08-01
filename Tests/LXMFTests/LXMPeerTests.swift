@@ -366,17 +366,6 @@ final class LXMPeerTests: XCTestCase {
 
     // MARK: - sync() guard paths
 
-    func testSyncNoopsWhenNothingToSend() {
-        let peer   = LXMPeer(router: makeRouter(), destinationHash: fakeHash())
-        peer.propagationStampCost = 0
-        peer.propagationStampCostFlexibility = 0
-        peer.peeringCost = 0
-        peer.peeringKey  = (stamp: Data(repeating: 0x00, count: 32), value: 0)
-        // unhandledMessageCount == 0 → no state change
-        peer.sync()
-        XCTAssertEqual(peer.state, .idle)
-    }
-
     func testSyncNoopsWhenStampCostsUnknown() {
         let peer   = LXMPeer(router: makeRouter(), destinationHash: fakeHash())
         // stamp costs nil → skip
