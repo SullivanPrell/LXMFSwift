@@ -300,9 +300,20 @@ public final class LXMRouter {
     }
     private var _propagationEntries: [Data: PropagationEntry] = [:]
 
-    /// All stored messages, keyed by transient ID.
-    /// Python: `LXMRouter.propagation_entries`.
-    public var peers: [Data: LXMPeer] = [:]
+    /// All known propagation peers, keyed by destination hash.
+    /// Python: `LXMRouter.peers`.
+    ///
+    /// Read-only in public, for the reasons on `propagationEntries` (`swift_devel/bugs/055`).
+    ///
+    /// The snapshot is of the *dictionary*, not of the peers. Its elements are class references to
+    /// objects whose own state is guarded by `LXMPeer.peerLock`, so a synchronized read of this
+    /// table followed by an unsynchronized read of a peer would be a false reassurance — which is
+    /// why `LXMPeer`'s own properties are in scope for the same change.
+    public var peers: [Data: LXMPeer] {
+        lock.lock(); defer { lock.unlock() }
+        return _peers
+    }
+    private var _peers: [Data: LXMPeer] = [:]
 
     /// Whether to enforce ratchet usage on registered delivery destinations.
     /// When true, register() calls enforceRatchets() on the delivery destination
@@ -2107,7 +2118,7 @@ public final class LXMRouter {
             for item in peerList {
                 if case .bytes(let peerBytes) = item,
                    let peer = LXMPeer.from(bytes: Data(peerBytes), router: self) {
-                    lock.lock(); peers[peer.destinationHash] = peer; lock.unlock()
+                    lock.lock(); _peers[peer.destinationHash] = peer; lock.unlock()
                 }
             }
         }
@@ -2265,7 +2276,7 @@ public final class LXMRouter {
         if let sender { considerAutopeering(with: sender) }
 
         lock.lock()
-        let senderPeer = sender.flatMap { peers[$0] }
+        let senderPeer = sender.flatMap { _peers[$0] }
         lock.unlock()
 
         let minCost = max(0, propagationStampCost - propagationStampCostFlexibility)
@@ -2533,7 +2544,7 @@ public final class LXMRouter {
     /// it is the production path and applies the peering conditions this bypasses.
     func seedPeer(_ destinationHash: Data, _ peer: LXMPeer?) {
         lock.lock(); defer { lock.unlock() }
-        peers[destinationHash] = peer
+        _peers[destinationHash] = peer
     }
 
     /// Throttle a remote until `until`, or clear it with `nil`.
@@ -2651,8 +2662,8 @@ public final class LXMRouter {
                      peeringCost: Int,
                      metadata: [String: String]?) {
         lock.lock()
-        let existing   = peers[destinationHash]
-        let tableIsFull = peers.count >= maxPeers
+        let existing   = _peers[destinationHash]
+        let tableIsFull = _peers.count >= maxPeers
         lock.unlock()
 
         // The ceiling is about what the remote *demands*, so it is checked before anything else
@@ -2720,7 +2731,7 @@ public final class LXMRouter {
         guard autopeer else { return }
 
         lock.lock()
-        let alreadyPeered = peers[propagationHash] != nil
+        let alreadyPeered = _peers[propagationHash] != nil
         lock.unlock()
         guard !alreadyPeered else { return }
 
@@ -2774,7 +2785,7 @@ public final class LXMRouter {
 
         lock.lock()
         let isStatic  = staticPeers.contains(destinationHash)
-        let lastHeard = peers[destinationHash]?.lastHeard
+        let lastHeard = _peers[destinationHash]?.lastHeard
         lock.unlock()
 
         func adoptTerms() {
@@ -2830,10 +2841,10 @@ public final class LXMRouter {
     func addPeer(destinationHash: Data,
                  syncStrategy: LXMSyncStrategy = LXMPeer.defaultSyncStrategy) -> LXMPeer {
         lock.lock()
-        if let existing = peers[destinationHash] { lock.unlock(); return existing }
+        if let existing = _peers[destinationHash] { lock.unlock(); return existing }
         let peer = LXMPeer(router: self, destinationHash: destinationHash,
                            syncStrategy: syncStrategy)
-        peers[destinationHash] = peer
+        _peers[destinationHash] = peer
         lock.unlock()
         // Deliberately NOT seeded with the existing store. Python's `peer()` constructs the peer,
         // sets its advertised terms, and stops (`LXMRouter.py:2032-2045`); `unhandled_messages` is
@@ -2985,7 +2996,7 @@ public final class LXMRouter {
         lock.lock()
         let direct = directLinks
         let propagation = activePropagationLinks
-        let peerList = Array(peers.values)
+        let peerList = Array(_peers.values)
         lock.unlock()
 
         for (destinationHash, link) in direct where link.noDataFor() > LXMRouter.linkMaxInactivity {
@@ -3019,12 +3030,12 @@ public final class LXMRouter {
     /// Mirrors Python's `flush_queues()` (`LXMRouter.py:923-933`): drain the distribution queue,
     /// then let each peer fold its own queued items into its handled/unhandled sets.
     public func flushQueues() {
-        lock.lock(); let hasPeers = !peers.isEmpty; lock.unlock()
+        lock.lock(); let hasPeers = !_peers.isEmpty; lock.unlock()
         guard hasPeers else { return }
 
         flushPeerDistributionQueue()
 
-        lock.lock(); let peerList = Array(peers.values); lock.unlock()
+        lock.lock(); let peerList = Array(_peers.values); lock.unlock()
         for peer in peerList { peer.processQueues() }
     }
 
@@ -3045,7 +3056,7 @@ public final class LXMRouter {
     /// `prioritiseRotatingUnreachablePeers` (design D4).
     public func rotatePeers() {
         lock.lock()
-        let all = Array(peers.values)
+        let all = Array(_peers.values)
         let staticHashes = staticPeers
         let bound = maxPeers
         lock.unlock()
@@ -3114,7 +3125,7 @@ public final class LXMRouter {
         let stamp = timestamp ?? Date().timeIntervalSince1970
 
         lock.lock()
-        let peeringTimebase = peers[destinationHash]?.peeringTimebase
+        let peeringTimebase = _peers[destinationHash]?.peeringTimebase
         lock.unlock()
 
         guard let peeringTimebase else { return }
@@ -3125,7 +3136,7 @@ public final class LXMRouter {
     /// Remove a peer from the peering table.
     public func removePeer(destinationHash: Data) {
         lock.lock(); defer { lock.unlock() }
-        guard let peer = peers.removeValue(forKey: destinationHash) else { return }
+        guard let peer = _peers.removeValue(forKey: destinationHash) else { return }
         // Clean up that peer's references from all propagation entries (in-place value
         // mutation, no callout — safe to hold the lock). Snapshot the keys first to
         // avoid mutating-during-iteration of the dictionary.
@@ -3156,7 +3167,7 @@ public final class LXMRouter {
         guard !peerDistributionQueue.isEmpty else { lock.unlock(); return }
         let batch = peerDistributionQueue
         peerDistributionQueue.removeAll()
-        let peerList = Array(peers.values)
+        let peerList = Array(_peers.values)
         lock.unlock()
 
         for (tid, origin) in batch {
@@ -3177,7 +3188,7 @@ public final class LXMRouter {
     public func syncPeers<G: RandomNumberGenerator>(using generator: inout G) {
         guard isPropagationNode else { return }
         lock.lock()
-        let all = Array(peers.values)
+        let all = Array(_peers.values)
         let staticHashes = staticPeers
         lock.unlock()
 
@@ -3468,8 +3479,8 @@ public final class LXMRouter {
         guard let sp = storagePath else { return }
         // Snapshot the peer set under the lock; serialize (peer.toBytes self-locks via
         // the propagationEntries accessors) + write OUTSIDE the lock.
-        lock.lock(); let peers = Array(self.peers.values); lock.unlock()
-        let peerList = MsgPack.Value.array(peers.map { .bytes($0.toBytes()) })
+        lock.lock(); let peerObjects = Array(self._peers.values); lock.unlock()
+        let peerList = MsgPack.Value.array(peerObjects.map { .bytes($0.toBytes()) })
         let data     = MsgPack.encode(peerList)
         // Atomic write (temp file + rename) so a crash mid-write can't leave a
         // truncated/corrupt peers file. Python (LXMF 1.0.2): write temp + os.replace.
