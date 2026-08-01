@@ -339,6 +339,66 @@ public final class LXMPeer {
         self.syncStrategy    = syncStrategy
     }
 
+    // MARK: - Seeding, for tests (`swift_devel/bugs/055`)
+
+    /// Put a peer into a chosen state without driving it there through the sync machine.
+    ///
+    /// `internal`, so `@testable import` reaches it and an application does not. One acquisition
+    /// of `peerLock` for the whole set: seeding field-by-field through separate locked setters
+    /// would let another thread observe the peer half-configured, which is a different bug from
+    /// the one this change fixes.
+    ///
+    /// `nil` means "leave unchanged" for every parameter.
+    func seedSyncState(state: LXMPeerState? = nil,
+                       alive: Bool? = nil,
+                       lastHeard: TimeInterval? = nil,
+                       nextSyncAttempt: TimeInterval? = nil,
+                       lastSyncAttempt: TimeInterval? = nil,
+                       syncBackoff: TimeInterval? = nil,
+                       syncStrategy: LXMSyncStrategy? = nil) {
+        peerLock.lock(); defer { peerLock.unlock() }
+        if let v = state           { self.state           = v }
+        if let v = alive           { self.alive           = v }
+        if let v = lastHeard       { self.lastHeard       = v }
+        if let v = nextSyncAttempt { self.nextSyncAttempt = v }
+        if let v = lastSyncAttempt { self.lastSyncAttempt = v }
+        if let v = syncBackoff     { self.syncBackoff     = v }
+        if let v = syncStrategy    { self.syncStrategy    = v }
+    }
+
+    /// Seed the transfer statistics. `nil` means "leave unchanged".
+    func seedStatistics(offered: Int? = nil, outgoing: Int? = nil, incoming: Int? = nil,
+                        rxBytes: Int? = nil, txBytes: Int? = nil) {
+        peerLock.lock(); defer { peerLock.unlock() }
+        if let v = offered  { self.offered  = v }
+        if let v = outgoing { self.outgoing = v }
+        if let v = incoming { self.incoming = v }
+        if let v = rxBytes  { self.rxBytes  = v }
+        if let v = txBytes  { self.txBytes  = v }
+    }
+
+    /// Seed the terms a peer would otherwise learn from an announce. `nil` means "leave unchanged".
+    ///
+    /// Task 4.3 gives the router a production mutator with this shape, for the same reason: the
+    /// announce handler currently writes nine of these fields one at a time with no lock held
+    /// (`LXMRouter.swift:2614-2623`) while `sync()` reads seven of them under `peerLock`.
+    func seedAnnouncedTerms(propagationTransferLimit: Double? = nil,
+                            propagationSyncLimit: Double? = nil,
+                            propagationStampCost: Int? = nil,
+                            propagationStampCostFlexibility: Int? = nil,
+                            peeringCost: Int? = nil,
+                            peeringTimebase: TimeInterval? = nil,
+                            metadata: [String: String]? = nil) {
+        peerLock.lock(); defer { peerLock.unlock() }
+        if let v = propagationTransferLimit        { self.propagationTransferLimit        = v }
+        if let v = propagationSyncLimit            { self.propagationSyncLimit            = v }
+        if let v = propagationStampCost            { self.propagationStampCost            = v }
+        if let v = propagationStampCostFlexibility { self.propagationStampCostFlexibility = v }
+        if let v = peeringCost                     { self.peeringCost                     = v }
+        if let v = peeringTimebase                 { self.peeringTimebase                 = v }
+        if let v = metadata                        { self.metadata                        = v }
+    }
+
     // MARK: - Serialization
 
     /// Deserialize a peer from msgpack bytes.

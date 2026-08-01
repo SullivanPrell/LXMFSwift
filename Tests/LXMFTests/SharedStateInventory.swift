@@ -23,84 +23,85 @@ import XCTest
 /// lock is the owner declaring it lock-protected state, and that is the criterion.
 enum SharedStateInventory {
 
-    /// One inventoried property: where it is declared, and one site where its owner touches it
-    /// while holding the owner's lock.
+    /// One inventoried property, and what it holds.
+    ///
+    /// Deliberately carries **no line numbers**. The first version cited a declaration line and a
+    /// locked-access line per entry, and every edit in this change shifted them — the citations
+    /// were breaking faster than the thing they documented. The invariant is "the owner accesses
+    /// this under its lock *somewhere*", so the check searches for that rather than trusting a
+    /// coordinate. `note` is for the reader and is never asserted.
     struct Entry {
         let name: String
-        /// 1-based line of the `var` declaration.
-        let declLine: Int
-        /// 1-based line of an access to this property that occurs under the owner's lock.
-        let lockedAccessLine: Int
+        let note: String
 
-        init(_ name: String, decl: Int, lockedAccess: Int) {
-            self.name = name; self.declLine = decl; self.lockedAccessLine = lockedAccess
-        }
+        init(_ name: String, _ note: String) { self.name = name; self.note = note }
     }
 
     /// Properties of `LXMRouter` that the router accesses under `LXMRouter.lock`.
-    ///
-    /// Line numbers are as of the start of `bugs/055` and are checked against the source on every
-    /// run, so drift fails loudly rather than rotting.
     static let router: [Entry] = [
-        Entry("propagationEntries",                decl:  285, lockedAccess: 2397),
-        Entry("peers",                             decl:  289, lockedAccess: 2749),
-        Entry("staticPeers",                       decl:  356, lockedAccess: 2689),
-        Entry("throttledPeers",                    decl:  372, lockedAccess: 2285),
-        Entry("activePropagationLinks",            decl:  375, lockedAccess: 2196),
-        Entry("validatedPeerLinks",                decl:  378, lockedAccess: 2195),
-        Entry("peerDistributionQueue",             decl:  386, lockedAccess: 3058),
-        Entry("clientPropagationMessagesReceived", decl:  389, lockedAccess: 2268),
-        Entry("clientPropagationMessagesServed",   decl:  392, lockedAccess: 3341),
-        Entry("unpeeredPropagationIncoming",       decl:  395, lockedAccess: 2265),
-        Entry("unpeeredPropagationRxBytes",        decl:  398, lockedAccess: 2266),
+        Entry("propagationEntries",                "the message store, keyed by transient ID"),
+        Entry("peers",                             "the peer table, keyed by destination hash"),
+        Entry("staticPeers",                       "operator configuration; read under the lock, written by consumers"),
+        Entry("throttledPeers",                    "remotes whose offers are refused until a deadline"),
+        Entry("activePropagationLinks",            "inbound propagation links"),
+        Entry("validatedPeerLinks",                "link IDs authenticated as peers"),
+        Entry("peerDistributionQueue",             "transient IDs awaiting fan-out, with their origin peer"),
+        Entry("clientPropagationMessagesReceived", "counter; incremented on the inbound path"),
+        Entry("clientPropagationMessagesServed",   "counter; incremented when serving a get-request"),
+        Entry("unpeeredPropagationIncoming",       "counter; unpeered inbound messages"),
+        Entry("unpeeredPropagationRxBytes",        "counter; unpeered inbound bytes"),
     ]
 
     /// Properties of `LXMPeer` that the peer accesses under `LXMPeer.peerLock`.
     static let peer: [Entry] = [
-        Entry("state",                           decl: 133, lockedAccess:  809),
-        Entry("syncStrategy",                    decl: 138, lockedAccess: 1286),
-        Entry("alive",                           decl: 143, lockedAccess:  758),
-        Entry("lastHeard",                       decl: 146, lockedAccess:  911),
-        Entry("nextSyncAttempt",                 decl: 151, lockedAccess:  808),
-        Entry("lastSyncAttempt",                 decl: 154, lockedAccess:  753),
-        Entry("syncBackoff",                     decl: 157, lockedAccess:  807),
-        Entry("propagationTransferLimit",        decl: 186, lockedAccess:  915),
-        Entry("propagationSyncLimit",            decl: 189, lockedAccess:  916),
-        Entry("propagationStampCost",            decl: 192, lockedAccess:  913),
-        Entry("propagationStampCostFlexibility", decl: 195, lockedAccess:  914),
-        Entry("peeringCost",                     decl: 198, lockedAccess:  684),
-        Entry("offered",                         decl: 248, lockedAccess: 1028),
-        Entry("outgoing",                        decl: 251, lockedAccess: 1280),
-        Entry("txBytes",                         decl: 260, lockedAccess: 1283),
+        Entry("state",                           "the sync state machine's current state"),
+        Entry("syncStrategy",                    "configuration; read under the lock"),
+        Entry("alive",                           "whether the peer has been heard from"),
+        Entry("lastHeard",                       "when it was last heard from"),
+        Entry("nextSyncAttempt",                 "the backoff deadline"),
+        Entry("lastSyncAttempt",                 "written under the lock before every guard in sync()"),
+        Entry("syncBackoff",                     "the current backoff interval"),
+        Entry("propagationTransferLimit",        "announced term; read under the lock in sync()"),
+        Entry("propagationSyncLimit",            "announced term; read under the lock in sync()"),
+        Entry("propagationStampCost",            "announced term; gates sync()"),
+        Entry("propagationStampCostFlexibility", "announced term; gates sync()"),
+        Entry("peeringCost",                     "announced term; gates peering-key generation"),
+        Entry("offered",                         "count of messages offered"),
+        Entry("outgoing",                        "count of messages sent"),
+        Entry("txBytes",                         "bytes sent"),
+        Entry("incoming",                        "count of messages received; see peerCrossObjectWrites"),
+        Entry("rxBytes",                         "bytes received; see peerCrossObjectWrites"),
+        Entry("metadata",                        "announced metadata; see peerCrossObjectWrites"),
+        Entry("peeringTimebase",                 "announced timebase; see peerCrossObjectWrites"),
     ]
 
-    /// A peer property that **no lock protects today**, because the peer never touches it itself
-    /// and the router writes it cross-object with `peerLock` not held.
+    /// A peer property the **router** writes directly, from a callback thread, without holding
+    /// `peerLock`.
     ///
     /// This is the live defect, not a latent hazard: `LXMRouter.swift:2614-2623` writes nine peer
     /// fields from the announce-callback thread while the peer's own `sync()` reads seven of them
-    /// under `peerLock`. The four listed here are the subset the peer never reads under its lock
-    /// either, so they have no under-lock access anywhere and cannot satisfy the criterion above.
+    /// under `peerLock`, and `:2262-2263` increments two more on the inbound propagation path.
     ///
-    /// Task 4.3 routes the router's writes through `peerLock`-taking mutators, after which these
-    /// move into `peer` and this list is empty. Until then their inventory assertion is inverted:
-    /// the test proves they are unsynchronized rather than pretending they are not.
+    /// The assertion over this list is **inverted** — it proves the router's writes are
+    /// unsynchronized rather than pretending they are not. Task 4.3 replaces them with
+    /// `peerLock`-taking mutators, at which point the router stops naming these properties at all
+    /// and the test says so; emptying this list is 4.3's completion criterion.
+    ///
+    /// These names are also in `peer`: they became `peerLock`-accessed the moment the seeding API
+    /// landed, which is why the check below is about the router's side and not the peer's. The two
+    /// lists overlap by design — this one annotates a subset of `peer` rather than partitioning it.
     struct CrossObjectWrite {
         let name: String
-        let declLine: Int
-        /// 1-based line in `LXMRouter.swift` where the router writes it without holding `peerLock`.
-        let routerWriteLine: Int
+        let note: String
 
-        init(_ name: String, decl: Int, routerWrite: Int) {
-            self.name = name; self.declLine = decl; self.routerWriteLine = routerWrite
-        }
+        init(_ name: String, _ note: String) { self.name = name; self.note = note }
     }
 
     static let peerCrossObjectWrites: [CrossObjectWrite] = [
-        CrossObjectWrite("metadata",        decl: 243, routerWrite: 2615),
-        CrossObjectWrite("peeringTimebase", decl: 160, routerWrite: 2616),
-        CrossObjectWrite("incoming",        decl: 254, routerWrite: 2262),
-        CrossObjectWrite("rxBytes",         decl: 257, routerWrite: 2263),
+        CrossObjectWrite("metadata",        "written by the router's announce handler"),
+        CrossObjectWrite("peeringTimebase", "written by the router's announce handler"),
+        CrossObjectWrite("incoming",        "incremented by the router's inbound propagation path"),
+        CrossObjectWrite("rxBytes",         "incremented by the router's inbound propagation path"),
     ]
 }
 
@@ -209,9 +210,28 @@ extension SharedStateInventory {
         return l.distance(from: l.startIndex, to: r.lowerBound)
     }
 
-    static func declares(_ lines: [String], line: Int, property name: String) -> Bool {
-        guard line - 1 >= 0, line - 1 < lines.count else { return false }
-        return lines[line - 1].range(of: #"\bvar \#(name)\b"#, options: .regularExpression) != nil
+    /// The 1-based line declaring `name` as a stored or computed property, or `nil`.
+    static func declarationLine(_ lines: [String], property name: String) -> Int? {
+        for (i, l) in lines.enumerated()
+        where stripComment(l).range(of: #"^\s*(public |internal |private |fileprivate )?(private\(set\) |internal\(set\) )?var \#(name)\b"#,
+                                    options: .regularExpression) != nil {
+            return i + 1
+        }
+        return nil
+    }
+
+    /// Every 1-based line where `name` is touched under `lockName`, ignoring its own declaration.
+    ///
+    /// The whole-file search is the point: the invariant is that the owner treats this as
+    /// lock-protected state *somewhere*, not that it does so at one blessed coordinate.
+    static func lockedAccessLines(_ lines: [String], property name: String, lockName: String) -> [Int] {
+        let decl = declarationLine(lines, property: name)
+        var hits: [Int] = []
+        for i in lines.indices where i + 1 != decl {
+            guard let col = accessColumn(lines, line: i + 1, property: name) else { continue }
+            if isUnderLock(lines, line: i + 1, column: col, lockName: lockName) { hits.append(i + 1) }
+        }
+        return hits
     }
 }
 
@@ -238,62 +258,46 @@ final class SharedStateInventoryTests: XCTestCase {
             let lines = try SharedStateInventory.sourceLines(o.file)
 
             for e in o.entries {
-                XCTAssertTrue(
-                    SharedStateInventory.declares(lines, line: e.declLine, property: e.name),
-                    "\(o.label).\(e.name): line \(e.declLine) does not declare it — the inventory has drifted from the source")
+                XCTAssertNotNil(
+                    SharedStateInventory.declarationLine(lines, property: e.name),
+                    "\(o.label).\(e.name) is inventoried but no longer declared — it was renamed or removed")
 
-                guard let col = SharedStateInventory.accessColumn(lines, line: e.lockedAccessLine,
-                                                                  property: e.name) else {
-                    return XCTFail("\(o.label).\(e.name): line \(e.lockedAccessLine) does not mention it")
-                }
-
-                XCTAssertTrue(
-                    SharedStateInventory.isUnderLock(lines, line: e.lockedAccessLine,
-                                                     column: col, lockName: o.lock),
+                let sites = SharedStateInventory.lockedAccessLines(lines, property: e.name,
+                                                                   lockName: o.lock)
+                XCTAssertFalse(sites.isEmpty,
                     """
-                    \(o.label).\(e.name): the cited access at line \(e.lockedAccessLine) is NOT \
-                    under `\(o.lock)`. Either the citation is wrong, or this property is not \
-                    lock-protected and does not belong in the inventory — encapsulating it would \
-                    impose a cost with no race to prevent.
+                    \(o.label).\(e.name) (\(e.note)) is never accessed under `\(o.lock)`. Either \
+                    it is not lock-protected and does not belong in the inventory — encapsulating \
+                    it would impose a cost with no race to prevent — or the last edit removed the \
+                    synchronization that made it safe.
                     """)
             }
         }
     }
 
-    /// The inverted assertion. These four are in the inventory *because* nothing guards them.
+    /// The inverted assertion. These four are listed *because* the router writes them unguarded.
     func testTheCrossObjectWritesAreProvablyUnsynchronized() throws {
         let peerLines   = try SharedStateInventory.sourceLines("LXMPeer.swift")
         let routerLines = try SharedStateInventory.sourceLines("LXMRouter.swift")
 
         for w in SharedStateInventory.peerCrossObjectWrites {
-            XCTAssertTrue(
-                SharedStateInventory.declares(peerLines, line: w.declLine, property: w.name),
-                "LXMPeer.\(w.name): line \(w.declLine) does not declare it")
+            XCTAssertNotNil(SharedStateInventory.declarationLine(peerLines, property: w.name),
+                            "LXMPeer.\(w.name) is inventoried but no longer declared")
 
-            // The peer never touches it under its own lock...
-            let selfGuarded = peerLines.indices.contains {
-                guard let col = SharedStateInventory.accessColumn(peerLines, line: $0 + 1,
-                                                                  property: w.name) else { return false }
-                return $0 + 1 != w.declLine
-                    && SharedStateInventory.isUnderLock(peerLines, line: $0 + 1, column: col,
-                                                        lockName: "peerLock")
+            let mentioned = routerLines.indices.contains {
+                SharedStateInventory.accessColumn(routerLines, line: $0 + 1, property: w.name) != nil
             }
-            XCTAssertFalse(selfGuarded,
-                           """
-                           LXMPeer.\(w.name) is now accessed under `peerLock` somewhere. If task \
-                           4.3 has landed, move it out of `peerCrossObjectWrites` and into `peer` \
-                           — that migration is 4.3's completion criterion.
-                           """)
+            XCTAssertTrue(mentioned,
+                          """
+                          LXMRouter no longer mentions \(w.name) (\(w.note)). If task 4.3 has \
+                          landed, the direct write is gone — remove this entry from \
+                          `peerCrossObjectWrites`. Emptying that list is 4.3's completion criterion.
+                          """)
 
-            // ...and the router writes it without holding the peer's lock.
-            guard let col = SharedStateInventory.accessColumn(routerLines, line: w.routerWriteLine,
-                                                              property: w.name) else {
-                return XCTFail("LXMRouter.swift:\(w.routerWriteLine) does not mention \(w.name)")
-            }
-            XCTAssertFalse(
-                SharedStateInventory.isUnderLock(routerLines, line: w.routerWriteLine,
-                                                 column: col, lockName: "peerLock"),
-                "LXMRouter.swift:\(w.routerWriteLine) now holds peerLock — move \(w.name) into the `peer` inventory")
+            let guarded = SharedStateInventory.lockedAccessLines(routerLines, property: w.name,
+                                                                 lockName: "peerLock")
+            XCTAssertTrue(guarded.isEmpty,
+                          "LXMRouter now holds peerLock at \(guarded) for \(w.name) — remove this entry")
         }
     }
 
@@ -308,8 +312,13 @@ final class SharedStateInventoryTests: XCTestCase {
                       inventories. The two owners have different locks; a name in both means the \
                       guard cannot tell which lock a violation is about.
                       """)
-        XCTAssertTrue(peerNames.intersection(crossNames).isEmpty,
-                      "\(peerNames.intersection(crossNames).sorted()) is both guarded and unguarded")
+        XCTAssertTrue(crossNames.isSubset(of: peerNames),
+                      """
+                      \(crossNames.subtracting(peerNames).sorted()) is listed as a cross-object \
+                      write but is not in the peer inventory. The cross-object list annotates a \
+                      subset of `peer`; a name in one and not the other means the guard test will \
+                      not cover it.
+                      """)
 
         XCTAssertEqual(SharedStateInventory.router.count, routerNames.count, "duplicate in router inventory")
         XCTAssertEqual(SharedStateInventory.peer.count, peerNames.count, "duplicate in peer inventory")

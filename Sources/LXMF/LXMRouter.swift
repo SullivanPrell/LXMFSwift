@@ -2493,6 +2493,77 @@ public final class LXMRouter {
         return true
     }
 
+    // MARK: - Seeding, for tests (`swift_devel/bugs/055`)
+    //
+    // Tests used to build a message store by assigning straight into `propagationEntries`. Those
+    // assignments were the largest population of unsynchronized writes in the package and, worse,
+    // a worked example: every one of them showed the next contributor that reaching into the
+    // router's state was normal. They are unsynchronized in the same way the application-side
+    // reads were, and there were 24 of them.
+    //
+    // These are `internal`, not `public` — a test can reach them through `@testable import`, an
+    // application cannot reach them at all. Each takes `lock` exactly like the production path it
+    // stands in for, so a seeded store is built the same way a received one is.
+
+    /// Insert or remove a message-store entry. Passing `nil` removes it.
+    func seedPropagationEntry(_ transientID: Data, _ entry: PropagationEntry?) {
+        lock.lock(); defer { lock.unlock() }
+        propagationEntries[transientID] = entry
+    }
+
+    /// Insert or remove a peer-table entry. Passing `nil` removes it.
+    ///
+    /// Prefer `addPeer(destinationHash:)` where the test does not need a pre-built peer object —
+    /// it is the production path and applies the peering conditions this bypasses.
+    func seedPeer(_ destinationHash: Data, _ peer: LXMPeer?) {
+        lock.lock(); defer { lock.unlock() }
+        peers[destinationHash] = peer
+    }
+
+    /// Throttle a remote until `until`, or clear it with `nil`.
+    func seedThrottledPeer(_ destinationHash: Data, until: TimeInterval?) {
+        lock.lock(); defer { lock.unlock() }
+        throttledPeers[destinationHash] = until
+    }
+
+    /// Set any of the four propagation counters; `nil` leaves one unchanged.
+    func seedPropagationCounters(clientReceived: Int? = nil,
+                                 clientServed: Int? = nil,
+                                 unpeeredIncoming: Int? = nil,
+                                 unpeeredRxBytes: Int? = nil) {
+        lock.lock(); defer { lock.unlock() }
+        if let v = clientReceived    { clientPropagationMessagesReceived = v }
+        if let v = clientServed      { clientPropagationMessagesServed   = v }
+        if let v = unpeeredIncoming  { unpeeredPropagationIncoming       = v }
+        if let v = unpeeredRxBytes   { unpeeredPropagationRxBytes        = v }
+    }
+
+    // MARK: - Static peers
+
+    /// Declare the propagation destinations this node is always peered with.
+    ///
+    /// The operator's configuration, not discovered state — Python takes it as a constructor
+    /// argument (`LXMRouter.py:211-219`). It is the one entry in the lock-guarded set that a
+    /// consumer legitimately writes, so unlike the rest it keeps a write path; what it loses is
+    /// the *unsynchronized* one. The router reads it under `lock` on every use (`:2689`, `:2962`,
+    /// `:3094`), so a bare `staticPeers = […]` from an application thread raced those reads.
+    public func setStaticPeers(_ hashes: Set<Data>) {
+        lock.lock(); defer { lock.unlock() }
+        staticPeers = hashes
+    }
+
+    /// Add one static peer, leaving the rest in place.
+    public func addStaticPeer(_ destinationHash: Data) {
+        lock.lock(); defer { lock.unlock() }
+        staticPeers.insert(destinationHash)
+    }
+
+    /// Stop treating `destinationHash` as static. Does not unpeer it.
+    public func removeStaticPeer(_ destinationHash: Data) {
+        lock.lock(); defer { lock.unlock() }
+        staticPeers.remove(destinationHash)
+    }
+
     // MARK: - Outbound sync seam
 
     /// Build the context an outbound sync to `peer` needs — the **only** place the outbound path
