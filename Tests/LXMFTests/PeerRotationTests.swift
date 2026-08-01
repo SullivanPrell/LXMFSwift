@@ -143,7 +143,7 @@ final class PeerRotationTests: XCTestCase {
         let router = makeRouter()
         fullTable(router)
         router.peers[hash(0)]!.outgoing = 0            // the worst peer by far
-        router.staticPeers = [hash(0)]
+        router.setStaticPeers([hash(0)])
         router.peers[hash(1)]!.outgoing = 1            // the worst non-static peer
 
         router.rotatePeers()

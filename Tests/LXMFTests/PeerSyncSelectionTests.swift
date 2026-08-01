@@ -137,7 +137,7 @@ final class PeerSyncSelectionTests: XCTestCase {
         seedStore(router)
         let upstream = addSyncablePeer(router, 0)
         upstream.lastHeard = Date().timeIntervalSince1970 - LXMPeer.maxUnreachable - 1
-        router.staticPeers = [hash(0)]
+        router.setStaticPeers([hash(0)])
 
         router.syncPeers()
 

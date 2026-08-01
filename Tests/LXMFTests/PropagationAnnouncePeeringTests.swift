@@ -188,7 +188,7 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
     func testAStaticPeerIsPeeredWithEvenWhenAutopeeringIsOff() throws {
         let net = try makeTwoNodes()
         net.node.autopeer = false
-        net.node.staticPeers = [net.remotePropagationHash]
+        net.node.setStaticPeers([net.remotePropagationHash])
 
         try net.announceRemote()
 
@@ -203,7 +203,7 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
 
     func testAStaticPeerAcceptsAPathResponseWhenItHasNeverBeenHeardFrom() throws {
         let net = try makeTwoNodes()
-        net.node.staticPeers = [net.remotePropagationHash]
+        net.node.setStaticPeers([net.remotePropagationHash])
 
         net.deliverAnnounceDirectly(isPathResponse: true)
 
@@ -218,7 +218,7 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
 
     func testAStaticPeerAlreadyHeardFromIgnoresAPathResponse() throws {
         let net = try makeTwoNodes()
-        net.node.staticPeers = [net.remotePropagationHash]
+        net.node.setStaticPeers([net.remotePropagationHash])
         try net.announceRemote()
         let heard = try XCTUnwrap(net.node.peers[net.remotePropagationHash]?.lastHeard,
                                   "precondition: the static peer was heard from")

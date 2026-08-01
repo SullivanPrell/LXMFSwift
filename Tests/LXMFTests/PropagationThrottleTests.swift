@@ -84,7 +84,7 @@ final class PropagationThrottleTests: XCTestCase {
                        "precondition: the remote is throttled")
 
         // Wind the deadline back rather than waiting out PN_STAMP_THROTTLE's 180 seconds.
-        net.router.throttledPeers[net.remotePropagationHash] = Date().timeIntervalSince1970 - 1
+        net.router.seedThrottledPeer(net.remotePropagationHash, until: Date().timeIntervalSince1970 - 1)
 
         let answer = try net.makeOffer()
 
@@ -97,7 +97,7 @@ final class PropagationThrottleTests: XCTestCase {
     func testAnExpiredRecordIsRemovedWithoutTheRemoteReturning() throws {
         let net = try makeNodeAndRemote()
         try net.upload(stampIsValid: false)
-        net.router.throttledPeers[net.remotePropagationHash] = Date().timeIntervalSince1970 - 1
+        net.router.seedThrottledPeer(net.remotePropagationHash, until: Date().timeIntervalSince1970 - 1)
 
         net.router.cleanThrottledPeers()
 

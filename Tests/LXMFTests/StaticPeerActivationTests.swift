@@ -135,7 +135,7 @@ final class StaticPeerActivationTests: XCTestCase {
         retained.append(transport)
         let router = LXMRouter(transport: transport)
         router.propagationStampCost = 0
-        router.staticPeers = Set(staticPeers)
+        router.setStaticPeers(Set(staticPeers))
         try router.register(identity: Identity(), transport: transport)
         try router.enablePropagation(storagePath: tempDir)
         retained.append(router)
