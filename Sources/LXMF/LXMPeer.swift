@@ -367,7 +367,26 @@ public final class LXMPeer {
 
         // Nullable doubles
         if let v = dblVal("propagation_transfer_limit") { peer.propagationTransferLimit = v }
-        if let v = dblVal("propagation_sync_limit")     { peer.propagationSyncLimit = v }
+        // Absent or unreadable, the per-sync budget falls back to the per-transfer one
+        // (`LXMPeer.py:76-79`). The announce path already does this (`LXMRouter.swift:2572`); the
+        // restore path did not, so a peer reloaded from disk had no per-sync budget at all.
+        if let v = dblVal("propagation_sync_limit") { peer.propagationSyncLimit = v }
+        else { peer.propagationSyncLimit = peer.propagationTransferLimit }
+
+        // The peering key, as Python's two-element list (`:113-114`). Without this every restart
+        // redoes a full proof of work for every peer — minutes each at the default cost of 18 —
+        // and the node cannot sync to anyone until it finishes.
+        if case .array(let parts)? = dict["peering_key"], parts.count == 2,
+           case .bytes(let stampBytes) = parts[0] {
+            let keyValue: Int? = {
+                switch parts[1] {
+                case .int(let n):  return Int(n)
+                case .uint(let n): return Int(n)
+                default:           return nil
+                }
+            }()
+            if let keyValue { peer.peeringKey = (stamp: Data(stampBytes), value: keyValue) }
+        }
 
         // Nullable ints
         if let v = intVal("propagation_stamp_cost")              { peer.propagationStampCost = v }
@@ -445,6 +464,20 @@ public final class LXMPeer {
         } else { kv("propagation_stamp_cost_flexibility", .nil) }
         if let v = peeringCost { kv("peering_cost", .int(Int64(v))) }
         else { kv("peering_cost", .nil) }
+
+        // Python's shape exactly — `[stamp, value]` (`LXMPeer.py:145`, written from the list built
+        // at `:261`). A shape invented here would load as nothing on a Python node reading the
+        // same file, and the peer would silently redo the work.
+        //
+        // `metadata` is deliberately **not** written. Python stores it as a raw dict whose name
+        // key is `PN_META_NAME`, an *integer*, with a bytes value; this port models it as
+        // `[String: String]`, which cannot express that. A Swift-shaped map would load on a Python
+        // node and leave `peer.name` nil — worse than absent, because it looks like data.
+        peerLock.lock()
+        let key = peeringKey
+        peerLock.unlock()
+        if let key { kv("peering_key", .array([.bytes(key.stamp), .int(Int64(key.value))])) }
+        else { kv("peering_key", .nil) }
 
         // Handled IDs = propagation_entries entries where our destinationHash is in handledPeers
         let handledIDs = handledMessages.map { MsgPack.Value.bytes($0) }

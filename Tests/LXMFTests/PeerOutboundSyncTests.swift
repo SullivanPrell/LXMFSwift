@@ -631,6 +631,130 @@ final class PeerOutboundSyncTests: XCTestCase {
         XCTAssertNil(peer.linkForTesting)
     }
 
+    // MARK: - Reaping a stalled sync link (design STEP 11)
+
+    /// A peer's own sync link is in neither `directLinks` nor `activePropagationLinks`, so before
+    /// this nothing collected it. Python leaves these to the RNS watchdog; without an equivalent a
+    /// stalled peer never returns to `.idle` and `syncPeers` never selects it again.
+    func testCleanLinksReapsAStalledOutboundSyncLink() throws {
+        net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
+        let peer = try net.announceBToA()
+        XCTAssertTrue(peer.generatePeeringKey())
+        _ = try net.storeMessage(in: net.routerA, size: 400)
+
+        // Accept the link, never answer — the peer is stuck in `.requestSent` with a live link.
+        net.routerB.propagationDestination?.registerNativeRequestHandler(
+            path: LXMPeer.offerRequestPath, allow: .all
+        ) { _, _, _, _, _ in nil }
+
+        net.routerA.syncPeers()
+        XCTAssertTrue(net.waitUntil("the peer is mid-sync") { peer.linkForTesting != nil },
+                      "precondition: a link is open and going nowhere")
+        XCTAssertNotEqual(peer.state, .idle, "precondition: and the peer is not idle")
+
+        // Reap with a zero inactivity budget rather than waiting out the real 180 s: the budget
+        // is the router's constant in production and an argument here, so the test exercises the
+        // real reap path rather than a shortcut through it.
+        net.routerA.cleanLinks(peerSyncMaxInactivity: 0)
+
+        XCTAssertEqual(peer.state, .idle,
+                       """
+                       a sync link that went quiet was never collected. The peer is in neither \
+                       `directLinks` nor `activePropagationLinks`, so `cleanLinks` did not see it, \
+                       and `syncPeers` selects only `.idle` — this peer would never sync again for \
+                       the life of the process.
+                       """)
+        XCTAssertNil(peer.linkForTesting)
+    }
+
+    func testCleanLinksLeavesAHealthySyncLinkAlone() throws {
+        net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
+        let peer = try net.announceBToA()
+        XCTAssertTrue(peer.generatePeeringKey())
+        _ = try net.storeMessage(in: net.routerA, size: 400)
+
+        net.routerB.propagationDestination?.registerNativeRequestHandler(
+            path: LXMPeer.offerRequestPath, allow: .all
+        ) { _, _, _, _, _ in nil }
+
+        net.routerA.syncPeers()
+        _ = net.waitUntil("the peer is mid-sync") { peer.linkForTesting != nil }
+
+        // The real budget: the link has been quiet for milliseconds, not minutes.
+        net.routerA.cleanLinks()
+
+        XCTAssertNotNil(peer.linkForTesting,
+                        "a reaper that tears down every sync link it sees would break every sync")
+    }
+
+    // MARK: - Persistence (design STEP 10)
+
+    /// T19 — the peering key survives a restart, so a node does not redo the proof of work for
+    /// every peer each time it starts. At the default cost of 18 that is minutes per peer.
+    func testThePeeringKeySurvivesARestart() throws {
+        net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
+        let peer = try net.announceBToA()
+        XCTAssertTrue(peer.generatePeeringKey())
+        let stamp = try XCTUnwrap(peer.peeringKey).stamp
+        let value = try XCTUnwrap(peer.peeringKeyValue)
+
+        let restored = try LXMPeer.from(bytes: peer.toBytes(), router: net.routerA)
+        let reloaded = try XCTUnwrap(restored)
+
+        XCTAssertEqual(reloaded.peeringKey?.stamp, stamp,
+                       """
+                       the peering key was not written to the peer file, so every restart redoes \
+                       a full proof of work for every peer — minutes each at the default cost of \
+                       18 — and until it finishes the node cannot sync to anyone. Python persists \
+                       it at LXMPeer.py:145.
+                       """)
+        XCTAssertEqual(reloaded.peeringKey?.value, value,
+                       "and the value with it, or `peeringKeyReady` cannot judge the restored key")
+    }
+
+    /// Python writes the key as a two-element list, and reads back whatever is there. A shape
+    /// this port invented would load as nothing on a Python node reading the same file.
+    func testThePeeringKeyIsPersistedInThePythonShape() throws {
+        net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
+        let peer = try net.announceBToA()
+        XCTAssertTrue(peer.generatePeeringKey())
+
+        guard case .map(let pairs)? = try? MsgPack.decode(peer.toBytes()) else {
+            return XCTFail("a peer serialises as a msgpack map")
+        }
+        let field = pairs.first { if case .string("peering_key") = $0.0 { return true } else { return false } }?.1
+        guard case .array(let parts)? = field, parts.count == 2 else {
+            return XCTFail("`peering_key` must be a two-element list [stamp, value] (LXMPeer.py:113-114, :261)")
+        }
+        guard case .bytes = parts[0] else { return XCTFail("element 0 is the raw stamp") }
+        switch parts[1] {
+        case .int, .uint: break
+        default: XCTFail("element 1 is the value, an integer — got \(parts[1])")
+        }
+    }
+
+    func testAPeerWithNoKeyPersistsNoKey() throws {
+        net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
+        let peer = try net.announceBToA()
+        XCTAssertNil(peer.peeringKey, "precondition")
+
+        let restored = try XCTUnwrap(LXMPeer.from(bytes: peer.toBytes(), router: net.routerA))
+        XCTAssertNil(restored.peeringKey)
+    }
+
+    /// `propagation_sync_limit` falls back to `propagation_transfer_limit` when absent
+    /// (`LXMPeer.py:76-79`). The announce path already applies this; the restore path did not, so
+    /// a peer reloaded from disk had no per-sync budget at all.
+    func testAMissingSyncLimitFallsBackToTheTransferLimit() throws {
+        net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
+        let peer = try net.announceBToA()
+        peer.propagationTransferLimit = 64
+        peer.propagationSyncLimit     = nil
+
+        let restored = try XCTUnwrap(LXMPeer.from(bytes: peer.toBytes(), router: net.routerA))
+        XCTAssertEqual(restored.propagationSyncLimit, 64)
+    }
+
     // MARK: - Helpers
 
     /// Run one full sync against a peer that answers the offer with `response`, and return A's

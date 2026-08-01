@@ -2890,10 +2890,15 @@ public final class LXMRouter {
     /// The reference's `clean_links` also maps outbound-propagation link closure onto the sync
     /// state machine (`:991-1000`); that is `swift_devel/bugs/020` and belongs with the sync
     /// terminality work, not here.
-    public func cleanLinks() {
+    /// - Parameter peerSyncMaxInactivity: how long an outbound peer-sync link may go quiet before
+    ///   it is torn down. An argument only so a test can reap without waiting out the real budget;
+    ///   production always takes the default.
+    public func cleanLinks(peerSyncMaxInactivity: TimeInterval =
+                                LXMRouter.propagationLinkMaxInactivity) {
         lock.lock()
         let direct = directLinks
         let propagation = activePropagationLinks
+        let peerList = Array(peers.values)
         lock.unlock()
 
         for (destinationHash, link) in direct where link.noDataFor() > LXMRouter.linkMaxInactivity {
@@ -2909,6 +2914,17 @@ public final class LXMRouter {
             lock.lock(); activePropagationLinks.removeValue(forKey: key); lock.unlock()
             try? link.teardown()
         }
+
+        // A peer's own outbound sync link is in neither collection above — `directLinks` is for
+        // delivery and `activePropagationLinks` is for links *other* nodes opened to us — so
+        // before this nothing collected it. Python leaves these to the RNS watchdog
+        // (`LXMRouter.py:991-1000`, the wider mapping that `bugs/020` tracks).
+        //
+        // It matters because `syncPeers` selects only `state == .idle`: a peer stalled mid-sync is
+        // out of the rotation permanently. Four stalls reach here — a `.linkReady` peer whose
+        // offer had nothing left in it, a `.responseReceived` peer that was denied or throttled,
+        // and a `.requestSent` peer whose send failed.
+        for peer in peerList { peer.reapStalledSyncLink(maxInactivity: peerSyncMaxInactivity) }
     }
 
     /// Map newly stored messages onto the peers that have not seen them.
