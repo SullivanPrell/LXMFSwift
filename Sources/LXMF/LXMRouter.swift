@@ -407,10 +407,18 @@ public final class LXMRouter {
     private var _throttledPeers: [Data: TimeInterval] = [:]
 
     /// Active inbound propagation links from peers/clients.
-    public var activePropagationLinks: [ObjectIdentifier: Link] = [:]
+    public var activePropagationLinks: [ObjectIdentifier: Link] {
+        lock.lock(); defer { lock.unlock() }
+        return _activePropagationLinks
+    }
+    private var _activePropagationLinks: [ObjectIdentifier: Link] = [:]
 
     /// Link IDs that have been validated as coming from authenticated peers.
-    public var validatedPeerLinks: [ObjectIdentifier: Bool] = [:]
+    public var validatedPeerLinks: [ObjectIdentifier: Bool] {
+        lock.lock(); defer { lock.unlock() }
+        return _validatedPeerLinks
+    }
+    private var _validatedPeerLinks: [ObjectIdentifier: Bool] = [:]
 
     /// Queue of transient IDs waiting to be distributed to peers.
     /// Transient IDs awaiting fan-out to peers, each with the peer it arrived from.
@@ -425,16 +433,32 @@ public final class LXMRouter {
     private var _peerDistributionQueue: [(transientID: Data, fromPeer: LXMPeer?)] = []
 
     /// Number of messages received from unpeered clients.
-    public var clientPropagationMessagesReceived: Int = 0
+    public var clientPropagationMessagesReceived: Int {
+        lock.lock(); defer { lock.unlock() }
+        return _clientPropagationMessagesReceived
+    }
+    private var _clientPropagationMessagesReceived: Int = 0
 
     /// Number of messages served to clients.
-    public var clientPropagationMessagesServed: Int = 0
+    public var clientPropagationMessagesServed: Int {
+        lock.lock(); defer { lock.unlock() }
+        return _clientPropagationMessagesServed
+    }
+    private var _clientPropagationMessagesServed: Int = 0
 
     /// Number of propagation messages from unpeered nodes.
-    public var unpeeredPropagationIncoming: Int = 0
+    public var unpeeredPropagationIncoming: Int {
+        lock.lock(); defer { lock.unlock() }
+        return _unpeeredPropagationIncoming
+    }
+    private var _unpeeredPropagationIncoming: Int = 0
 
     /// Bytes received from unpeered propagation sources.
-    public var unpeeredPropagationRxBytes: Int = 0
+    public var unpeeredPropagationRxBytes: Int {
+        lock.lock(); defer { lock.unlock() }
+        return _unpeeredPropagationRxBytes
+    }
+    private var _unpeeredPropagationRxBytes: Int = 0
 
     // Announce handlers kept alive so ARC doesn't release them.
     private var deliveryAnnounceHandler: DeliveryAnnounceHandler!
@@ -2167,16 +2191,16 @@ public final class LXMRouter {
                 }
             }
             if let v = statsInt("client_propagation_messages_received") {
-                clientPropagationMessagesReceived = v
+                _clientPropagationMessagesReceived = v
             }
             if let v = statsInt("client_propagation_messages_served") {
-                clientPropagationMessagesServed = v
+                _clientPropagationMessagesServed = v
             }
             if let v = statsInt("unpeered_propagation_incoming") {
-                unpeeredPropagationIncoming = v
+                _unpeeredPropagationIncoming = v
             }
             if let v = statsInt("unpeered_propagation_rx_bytes") {
-                unpeeredPropagationRxBytes = v
+                _unpeeredPropagationRxBytes = v
             }
         }
 
@@ -2231,8 +2255,8 @@ public final class LXMRouter {
                 priorOnClosed?(l)
                 guard let self else { return }
                 self.lock.lock()
-                self.validatedPeerLinks.removeValue(forKey: ObjectIdentifier(l))
-                self.activePropagationLinks.removeValue(forKey: ObjectIdentifier(l))
+                self._validatedPeerLinks.removeValue(forKey: ObjectIdentifier(l))
+                self._activePropagationLinks.removeValue(forKey: ObjectIdentifier(l))
                 self.lock.unlock()
             }
         }
@@ -2301,10 +2325,10 @@ public final class LXMRouter {
                 senderPeer.incoming += 1
                 senderPeer.rxBytes  += entry.lxmfData.count
             } else if sender != nil {
-                unpeeredPropagationIncoming += 1
-                unpeeredPropagationRxBytes  += entry.lxmfData.count
+                _unpeeredPropagationIncoming += 1
+                _unpeeredPropagationRxBytes  += entry.lxmfData.count
             } else {
-                clientPropagationMessagesReceived += 1
+                _clientPropagationMessagesReceived += 1
             }
             lock.unlock()
             _ = ingestPropagatedLXM(lxmfData: entry.lxmfData,
@@ -2571,10 +2595,10 @@ public final class LXMRouter {
                                  unpeeredIncoming: Int? = nil,
                                  unpeeredRxBytes: Int? = nil) {
         lock.lock(); defer { lock.unlock() }
-        if let v = clientReceived    { clientPropagationMessagesReceived = v }
-        if let v = clientServed      { clientPropagationMessagesServed   = v }
-        if let v = unpeeredIncoming  { unpeeredPropagationIncoming       = v }
-        if let v = unpeeredRxBytes   { unpeeredPropagationRxBytes        = v }
+        if let v = clientReceived    { _clientPropagationMessagesReceived = v }
+        if let v = clientServed      { _clientPropagationMessagesServed   = v }
+        if let v = unpeeredIncoming  { _unpeeredPropagationIncoming       = v }
+        if let v = unpeeredRxBytes   { _unpeeredPropagationRxBytes        = v }
     }
 
     // MARK: - Static peers
@@ -3007,7 +3031,7 @@ public final class LXMRouter {
                                 LXMRouter.propagationLinkMaxInactivity) {
         lock.lock()
         let direct = directLinks
-        let propagation = activePropagationLinks
+        let propagation = _activePropagationLinks
         let peerList = Array(_peers.values)
         lock.unlock()
 
@@ -3015,13 +3039,13 @@ public final class LXMRouter {
             try? link.teardown()
             lock.lock()
             directLinks.removeValue(forKey: destinationHash)
-            validatedPeerLinks.removeValue(forKey: ObjectIdentifier(link))
+            _validatedPeerLinks.removeValue(forKey: ObjectIdentifier(link))
             lock.unlock()
         }
 
         for (key, link) in propagation
         where link.noDataFor() > LXMRouter.propagationLinkMaxInactivity {
-            lock.lock(); activePropagationLinks.removeValue(forKey: key); lock.unlock()
+            lock.lock(); _activePropagationLinks.removeValue(forKey: key); lock.unlock()
             try? link.teardown()
         }
 
@@ -3350,7 +3374,7 @@ public final class LXMRouter {
         // Record the validated link + build the wanted-IDs list under the lock
         // (messages the peer offered that we don't have yet).
         lock.lock()
-        validatedPeerLinks[linkID] = true
+        _validatedPeerLinks[linkID] = true
         let wantedIDs = offeredIDs.filter { _propagationEntries[$0] == nil }
         lock.unlock()
 
@@ -3448,7 +3472,7 @@ public final class LXMRouter {
         }
 
         // Fix the counter asymmetry (Received is taken under lock; Served must be too).
-        lock.lock(); clientPropagationMessagesServed += responseMessages.count; lock.unlock()
+        lock.lock(); _clientPropagationMessagesServed += responseMessages.count; lock.unlock()
         return .array(responseMessages)
     }
 
@@ -3503,10 +3527,10 @@ public final class LXMRouter {
     public func saveNodeStats() {
         guard let sp = storagePath else { return }
         lock.lock()
-        let rcv   = clientPropagationMessagesReceived
-        let srv   = clientPropagationMessagesServed
-        let unpIn = unpeeredPropagationIncoming
-        let unpRx = unpeeredPropagationRxBytes
+        let rcv   = _clientPropagationMessagesReceived
+        let srv   = _clientPropagationMessagesServed
+        let unpIn = _unpeeredPropagationIncoming
+        let unpRx = _unpeeredPropagationRxBytes
         lock.unlock()
         let pairs: [(MsgPack.Value, MsgPack.Value)] = [
             (.string("client_propagation_messages_received"), .int(Int64(rcv))),

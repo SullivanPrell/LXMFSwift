@@ -650,8 +650,7 @@ final class LXMPropagationNodeTests: XCTestCase {
     func testSaveNodeStatsAndReloadOnEnable() throws {
         let router1 = makeRouter()
         try router1.enablePropagation(storagePath: tempDir)
-        router1.clientPropagationMessagesReceived = 42
-        router1.clientPropagationMessagesServed   = 17
+        router1.seedPropagationCounters(clientReceived: 42, clientServed: 17)
         router1.saveNodeStats()
 
         let router2 = makeRouter()
