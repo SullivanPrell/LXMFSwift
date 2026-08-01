@@ -94,7 +94,7 @@ final class PeerOutboundSyncTests: XCTestCase {
     func testAPeeringCostOfZeroNeverBecomesReady() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
-        peer.peeringCost = 0
+        peer.seedAnnouncedTerms(peeringCost: 0)
 
         peer.sync()
         net.settle(0.5)
@@ -119,7 +119,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         let firstValue = try XCTUnwrap(peer.peeringKeyValue)
 
         // The peer now demands more than the key we hold is worth.
-        peer.peeringCost = firstValue + 3
+        peer.seedAnnouncedTerms(peeringCost: firstValue + 3)
         peer.sync()
 
         XCTAssertTrue(net.waitUntil("the key is regenerated", timeout: 20) {
@@ -144,7 +144,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
         // High enough that the first generation is still running when the others arrive.
-        peer.peeringCost = 12
+        peer.seedAnnouncedTerms(peeringCost: 12)
 
         let group = DispatchGroup()
         for _ in 0..<8 {
@@ -166,7 +166,7 @@ final class PeerOutboundSyncTests: XCTestCase {
     func testRepeatedSyncPassesDoNotPileUpGenerations() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
-        peer.peeringCost = 10
+        peer.seedAnnouncedTerms(peeringCost: 10)
 
         for _ in 0..<6 { peer.sync() }
         _ = net.waitUntil("generation finishes", timeout: 30) { peer.peeringKey != nil }
@@ -579,13 +579,13 @@ final class PeerOutboundSyncTests: XCTestCase {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
         XCTAssertTrue(peer.generatePeeringKey())
-        peer.syncStrategy = .persistent
+        peer.seedSyncState(syncStrategy: .persistent)
 
         let first  = try net.storeMessage(in: net.routerA, size: 800)
         let second = try net.storeMessage(in: net.routerA, size: 800)
         // A sync limit that admits one message per offer, so a single pass cannot carry both
         // unless the machine re-syncs itself.
-        peer.propagationSyncLimit = 1.0
+        peer.seedAnnouncedTerms(propagationSyncLimit: 1.0)
 
         net.routerA.syncPeers()
 
@@ -748,8 +748,10 @@ final class PeerOutboundSyncTests: XCTestCase {
     func testAMissingSyncLimitFallsBackToTheTransferLimit() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
-        peer.propagationTransferLimit = 64
-        peer.propagationSyncLimit     = nil
+        // `.some(nil)` is "clear it", not `nil` — a bare `nil` against a doubly-optional parameter
+        // binds to the outer `.none`, which means "leave unchanged". That is the whole reason the
+        // parameter is doubly optional; see `seedAnnouncedTerms`.
+        peer.seedAnnouncedTerms(propagationTransferLimit: 64, propagationSyncLimit: .some(nil))
 
         let restored = try XCTUnwrap(LXMPeer.from(bytes: peer.toBytes(), router: net.routerA))
         XCTAssertEqual(restored.propagationSyncLimit, 64)

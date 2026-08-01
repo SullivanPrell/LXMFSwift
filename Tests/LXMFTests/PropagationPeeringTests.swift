@@ -145,9 +145,9 @@ final class PropagationPeeringTests: XCTestCase {
         router.peer(destinationHash: hash, timestamp: 1_000, transferLimit: 128, syncLimit: 512,
                     stampCost: 4, stampCostFlexibility: 1, peeringCost: 2, metadata: nil)
         let first = try XCTUnwrap(router.peers[hash])
-        first.syncBackoff     = 90       // as a run of failed syncs would leave it
-        first.nextSyncAttempt = 1_000_000
-        first.alive           = false
+        first.seedSyncState(syncBackoff: 90)       // as a run of failed syncs would leave it
+        first.seedSyncState(nextSyncAttempt: 1_000_000)
+        first.seedSyncState(alive: false)
 
         router.peer(destinationHash: hash, timestamp: 2_000, transferLimit: 256, syncLimit: nil,
                     stampCost: 8, stampCostFlexibility: 3, peeringCost: 5,

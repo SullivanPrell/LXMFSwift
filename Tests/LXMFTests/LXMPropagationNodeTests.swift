@@ -612,9 +612,9 @@ final class LXMPropagationNodeTests: XCTestCase {
         router.peer(destinationHash: hash, timestamp: 1_000, transferLimit: 256, syncLimit: 256,
                     stampCost: 0, stampCostFlexibility: 0, peeringCost: 0, metadata: nil)
         let peer = router.peers[hash]!
-        peer.alive     = true
-        peer.state     = .idle
-        peer.lastHeard = 0        // old enough to be culled, were the cull to run
+        peer.seedSyncState(alive: true)
+        peer.seedSyncState(state: .idle)
+        peer.seedSyncState(lastHeard: 0)        // old enough to be culled, were the cull to run
 
         router.syncPeers()
 
@@ -635,8 +635,8 @@ final class LXMPropagationNodeTests: XCTestCase {
         try router1.enablePropagation(storagePath: tempDir)
         let peerHash = fakeHash(0xEE)
         let peer     = router1.addPeer(destinationHash: peerHash)
-        peer.offered  = 5
-        peer.lastHeard = 1_234_567.0
+        peer.seedStatistics(offered: 5)
+        peer.seedSyncState(lastHeard: 1_234_567.0)
         router1.savePeers()
 
         // New router, same storage path

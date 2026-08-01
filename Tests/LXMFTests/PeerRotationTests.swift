@@ -42,11 +42,11 @@ final class PeerRotationTests: XCTestCase {
                     transferLimit: 256, syncLimit: 256, stampCost: 0, stampCostFlexibility: 0,
                     peeringCost: 0, metadata: nil)
         let peer = router.peers[hash(index)]!
-        peer.alive           = true
-        peer.state           = .idle
-        peer.lastSyncAttempt = 1_000          // tried, so it does not trigger the postponement
-        peer.offered         = offered
-        peer.outgoing        = outgoing
+        peer.seedSyncState(alive: true)
+        peer.seedSyncState(state: .idle)
+        peer.seedSyncState(lastSyncAttempt: 1_000)          // tried, so it does not trigger the postponement
+        peer.seedStatistics(offered: offered)
+        peer.seedStatistics(outgoing: outgoing)
         return peer
     }
 
@@ -61,7 +61,7 @@ final class PeerRotationTests: XCTestCase {
         let router = makeRouter()
         fullTable(router)
         let refuser = router.peers[hash(0)]!
-        refuser.outgoing = 0                  // offered 10, accepted none
+        refuser.seedStatistics(outgoing: 0)                  // offered 10, accepted none
 
         router.rotatePeers()
 
@@ -83,10 +83,10 @@ final class PeerRotationTests: XCTestCase {
     func testANewlyAddedPeerIsNotJudgedBeforeItHasBeenTried() {
         let router = makeRouter()
         fullTable(router)
-        router.peers[hash(0)]!.outgoing = 0
+        router.peers[hash(0)]!.seedStatistics(outgoing: 0)
         // Headroom is 1, so a single never-synced peer postpones the whole pass
         // (`LXMRouter.py:2072-2075`).
-        router.peers[hash(1)]!.lastSyncAttempt = 0
+        router.peers[hash(1)]!.seedSyncState(lastSyncAttempt: 0)
 
         router.rotatePeers()
 
@@ -104,14 +104,14 @@ final class PeerRotationTests: XCTestCase {
         // Offered nothing: its acceptance rate computes as 0, which would sort it first, but
         // Python excludes it from the candidates outright (`LXMRouter.py:2095-2098`).
         let untried = router.peers[hash(0)]!
-        untried.offered  = 0
-        untried.outgoing = 0
+        untried.seedStatistics(offered: 0)
+        untried.seedStatistics(outgoing: 0)
         // Someone must be droppable, or this passes for the wrong reason — and its acceptance
         // rate must be *above* zero. `acceptanceRate` returns 0.0 for a peer offered nothing, so a
         // droppable peer that also scores 0.0 ties with `untried`, and Swift's sort is not stable:
         // the outcome would depend on which of the two the tie-break happened to pick. Measured:
         // with both at 0.0 this test passed even with the exclusion removed.
-        router.peers[hash(1)]!.outgoing = 1        // 10%, below the floor, and distinguishable
+        router.peers[hash(1)]!.seedStatistics(outgoing: 1)        // 10%, below the floor, and distinguishable
 
         router.rotatePeers()
 
@@ -127,7 +127,7 @@ final class PeerRotationTests: XCTestCase {
         let router = makeRouter()
         fullTable(router)
         // Worst peer accepts 60% — above ROTATION_AR_MAX (50%).
-        router.peers[hash(0)]!.outgoing = 6
+        router.peers[hash(0)]!.seedStatistics(outgoing: 6)
 
         router.rotatePeers()
 
@@ -142,9 +142,9 @@ final class PeerRotationTests: XCTestCase {
     func testAStaticPeerSurvivesRotation() {
         let router = makeRouter()
         fullTable(router)
-        router.peers[hash(0)]!.outgoing = 0            // the worst peer by far
+        router.peers[hash(0)]!.seedStatistics(outgoing: 0)            // the worst peer by far
         router.setStaticPeers([hash(0)])
-        router.peers[hash(1)]!.outgoing = 1            // the worst non-static peer
+        router.peers[hash(1)]!.seedStatistics(outgoing: 1)            // the worst non-static peer
 
         router.rotatePeers()
 
@@ -160,7 +160,7 @@ final class PeerRotationTests: XCTestCase {
     func testRotationDoesNothingBelowItsThreshold() {
         let router = makeRouter()
         for index in 0..<(Self.bound - 2) { addCandidate(router, index) }
-        router.peers[hash(0)]!.outgoing = 0
+        router.peers[hash(0)]!.seedStatistics(outgoing: 0)
 
         router.rotatePeers()
 
@@ -177,11 +177,11 @@ final class PeerRotationTests: XCTestCase {
         fullTable(router)
         router.prioritiseRotatingUnreachablePeers = true
         // The reachable peer with the worse record...
-        router.peers[hash(0)]!.outgoing = 0
+        router.peers[hash(0)]!.seedStatistics(outgoing: 0)
         // ...and an unreachable peer with a better one.
         let unreachable = router.peers[hash(1)]!
-        unreachable.alive    = false
-        unreachable.outgoing = 4
+        unreachable.seedSyncState(alive: false)
+        unreachable.seedStatistics(outgoing: 4)
 
         router.rotatePeers()
 
@@ -201,7 +201,7 @@ final class PeerRotationTests: XCTestCase {
         // to take. Python narrows the pool to fully-synced peers when any exist (`:2075-2084`), so
         // this one is not considered on this pass.
         let stillSyncing = router.peers[hash(0)]!
-        stillSyncing.outgoing = 0
+        stillSyncing.seedStatistics(outgoing: 0)
         // The entry has to exist in the store first: `addUnhandledMessage` routes through the
         // router and is a no-op for a transient ID it does not hold, so calling it alone leaves
         // the peer looking fully synced and this test asserting nothing.
@@ -213,7 +213,7 @@ final class PeerRotationTests: XCTestCase {
         XCTAssertEqual(stillSyncing.unhandledMessageCount, 1,
                        "precondition: the peer must actually have something outstanding")
         // The worst of the fully-synced peers.
-        router.peers[hash(1)]!.outgoing = 1
+        router.peers[hash(1)]!.seedStatistics(outgoing: 1)
 
         router.rotatePeers()
 

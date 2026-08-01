@@ -56,18 +56,18 @@ final class PeerSyncSelectionTests: XCTestCase {
                     transferLimit: 256, syncLimit: 256, stampCost: 0, stampCostFlexibility: 0,
                     peeringCost: 0, metadata: nil)
         let peer = router.peers[hash(index)]!
-        peer.alive            = true
-        peer.state            = .idle
-        peer.lastHeard        = Date().timeIntervalSince1970
-        peer.nextSyncAttempt  = 0
+        peer.seedSyncState(alive: true)
+        peer.seedSyncState(state: .idle)
+        peer.seedSyncState(lastHeard: Date().timeIntervalSince1970)
+        peer.seedSyncState(nextSyncAttempt: 0)
         peer.syncTransferRate = transferRate
         // Stamp costs, so `sync()` gets past its first guard. No peering key is assigned: this
         // suite's observable is `lastSyncAttempt`, which `sync()` stamps unconditionally before
         // every gate (`LXMPeer.py:269`), so the key was never load-bearing here. Assigning one by
         // hand is also no longer possible, which is the point — see `swift_devel/bugs/054`.
-        peer.propagationStampCost            = 0
-        peer.propagationStampCostFlexibility = 0
-        peer.peeringCost                     = 0
+        peer.seedAnnouncedTerms(propagationStampCost: 0)
+        peer.seedAnnouncedTerms(propagationStampCostFlexibility: 0)
+        peer.seedAnnouncedTerms(peeringCost: 0)
         peer.addUnhandledMessage(outstandingID)
         return peer
     }
@@ -119,7 +119,7 @@ final class PeerSyncSelectionTests: XCTestCase {
         seedStore(router)
         addSyncablePeer(router, 0)
         let gone = addSyncablePeer(router, 1)
-        gone.lastHeard = Date().timeIntervalSince1970 - LXMPeer.maxUnreachable - 1
+        gone.seedSyncState(lastHeard: Date().timeIntervalSince1970 - LXMPeer.maxUnreachable - 1)
 
         router.syncPeers()
 
@@ -136,7 +136,7 @@ final class PeerSyncSelectionTests: XCTestCase {
         let router = try makeNode()
         seedStore(router)
         let upstream = addSyncablePeer(router, 0)
-        upstream.lastHeard = Date().timeIntervalSince1970 - LXMPeer.maxUnreachable - 1
+        upstream.seedSyncState(lastHeard: Date().timeIntervalSince1970 - LXMPeer.maxUnreachable - 1)
         router.setStaticPeers([hash(0)])
 
         router.syncPeers()
@@ -170,8 +170,8 @@ final class PeerSyncSelectionTests: XCTestCase {
         let router = try makeNode()
         seedStore(router)
         let backing_off = addSyncablePeer(router, 0)
-        backing_off.alive           = false
-        backing_off.nextSyncAttempt = Date().timeIntervalSince1970 + 3_600
+        backing_off.seedSyncState(alive: false)
+        backing_off.seedSyncState(nextSyncAttempt: Date().timeIntervalSince1970 + 3_600)
 
         router.syncPeers()
 
@@ -193,7 +193,7 @@ final class PeerSyncSelectionTests: XCTestCase {
             seedStore(router)
             addSyncablePeer(router, 0)
             let unresponsive = addSyncablePeer(router, 1)
-            unresponsive.alive = false
+            unresponsive.seedSyncState(alive: false)
 
             var generator = SeededGenerator(seed: UInt64(seed))
             router.syncPeers(using: &generator)

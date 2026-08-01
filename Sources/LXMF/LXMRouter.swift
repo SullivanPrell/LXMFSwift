@@ -2322,8 +2322,10 @@ public final class LXMRouter {
             if let senderPeer {
                 // `LXMRouter.py:2434-2436` — a sync from a peer counts against that peer, not
                 // against the client tally.
-                senderPeer.incoming += 1
-                senderPeer.rxBytes  += entry.lxmfData.count
+                // One `peerLock` acquisition inside the peer; `lock` is not held here
+                // (`swift_devel/bugs/055`). These two used to be bare `+=` on a link-callback
+                // thread, against a doc comment claiming they had no runtime writer.
+                senderPeer.creditInbound(bytes: entry.lxmfData.count)
             } else if sender != nil {
                 _unpeeredPropagationIncoming += 1
                 _unpeeredPropagationRxBytes  += entry.lxmfData.count
@@ -2719,8 +2721,7 @@ public final class LXMRouter {
             // Python also clears the backoff on re-peering (`:2017-2018`), so a peer that comes
             // back after a run of failures is retried at once rather than after its accumulated
             // wait.
-            existing.syncBackoff     = 0
-            existing.nextSyncAttempt = 0
+            existing.clearSyncBackoff()
             return
         }
 
@@ -2745,16 +2746,15 @@ public final class LXMRouter {
                        peeringCost: Int,
                        metadata: [String: String]?,
                        to peer: LXMPeer) {
-        peer.alive                          = true
-        peer.metadata                       = metadata
-        peer.peeringTimebase                = announcedTimestamp
-        peer.lastHeard                      = Date().timeIntervalSince1970
-        peer.propagationStampCost           = stampCost
-        peer.propagationStampCostFlexibility = stampCostFlexibility
-        peer.peeringCost                    = peeringCost
-        peer.propagationTransferLimit       = transferLimit
-        // Python: an unset sync limit means "same as the transfer limit" (`:2028-2029`).
-        peer.propagationSyncLimit           = syncLimit ?? transferLimit
+        // One `peerLock` acquisition for the whole set, inside the peer. `lock` is NOT held here
+        // — one lock order, `lock` then `peerLock`, never the reverse (`swift_devel/bugs/055`).
+        peer.adoptAnnouncedTerms(announcedTimestamp: announcedTimestamp,
+                                 transferLimit: transferLimit,
+                                 syncLimit: syncLimit,
+                                 stampCost: stampCost,
+                                 stampCostFlexibility: stampCostFlexibility,
+                                 peeringCost: peeringCost,
+                                 metadata: metadata)
     }
 
     /// Peer with the sender of a sync, if the reference's conditions are met.

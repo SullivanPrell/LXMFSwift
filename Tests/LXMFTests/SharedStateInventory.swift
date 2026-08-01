@@ -97,12 +97,13 @@ enum SharedStateInventory {
         init(_ name: String, _ note: String) { self.name = name; self.note = note }
     }
 
-    static let peerCrossObjectWrites: [CrossObjectWrite] = [
-        CrossObjectWrite("metadata",        "written by the router's announce handler"),
-        CrossObjectWrite("peeringTimebase", "written by the router's announce handler"),
-        CrossObjectWrite("incoming",        "incremented by the router's inbound propagation path"),
-        CrossObjectWrite("rxBytes",         "incremented by the router's inbound propagation path"),
-    ]
+    /// **Empty, and that is the result.** Task 4.3 replaced all thirteen cross-object writes with
+    /// three `peerLock`-taking mutators — `adoptAnnouncedTerms`, `clearSyncBackoff`,
+    /// `creditInbound` — so the router no longer names any peer property on the left of an
+    /// assignment. The list is kept rather than deleted because it is what a future regression
+    /// would have to be added to, and `testTheRouterMakesNoUnsynchronizedPeerWrites` below now
+    /// enforces emptiness directly against the source.
+    static let peerCrossObjectWrites: [CrossObjectWrite] = []
 }
 
 // MARK: - Source access and lock-state derivation
@@ -284,30 +285,27 @@ final class SharedStateInventoryTests: XCTestCase {
         }
     }
 
-    /// The inverted assertion. These four are listed *because* the router writes them unguarded.
-    func testTheCrossObjectWritesAreProvablyUnsynchronized() throws {
-        let peerLines   = try SharedStateInventory.sourceLines("LXMPeer.swift")
-        let routerLines = try SharedStateInventory.sourceLines("LXMRouter.swift")
-
-        for w in SharedStateInventory.peerCrossObjectWrites {
-            XCTAssertNotNil(SharedStateInventory.declarationLine(peerLines, property: w.name),
-                            "LXMPeer.\(w.name) is inventoried but no longer declared")
-
-            let mentioned = routerLines.indices.contains {
-                SharedStateInventory.accessColumn(routerLines, line: $0 + 1, property: w.name) != nil
-            }
-            XCTAssertTrue(mentioned,
-                          """
-                          LXMRouter no longer mentions \(w.name) (\(w.note)). If task 4.3 has \
-                          landed, the direct write is gone — remove this entry from \
-                          `peerCrossObjectWrites`. Emptying that list is 4.3's completion criterion.
-                          """)
-
-            let guarded = SharedStateInventory.lockedAccessLines(routerLines, property: w.name,
-                                                                 lockName: "peerLock")
-            XCTAssertTrue(guarded.isEmpty,
-                          "LXMRouter now holds peerLock at \(guarded) for \(w.name) — remove this entry")
-        }
+    /// The router must not write any peer property directly.
+    ///
+    /// This started as an inverted assertion: thirteen entries proving the writes were
+    /// unsynchronized. Task 4.3 replaced all of them with three `peerLock`-taking mutators —
+    /// `adoptAnnouncedTerms`, `clearSyncBackoff`, `creditInbound` — so the list is empty.
+    ///
+    /// **The compiler is the enforcement, not this test.** Every peer property in the inventory is
+    /// now a get-only computed accessor, so `peer.alive = true` from `LXMRouter` does not build.
+    /// That is a stronger guarantee than any assertion here could give, and it is why this does
+    /// not scan the source: a name-based scan cannot tell `LXMPeer.state` from `LXMessage.state`
+    /// or `LXMRouter.peeringCost`, and the version that tried reported five false positives on
+    /// exactly those collisions. What keeps the compiler's guarantee true over time is
+    /// `SharedStateEncapsulationGuardTests`, which fails if any inventoried property regains a
+    /// public setter.
+    func testTheRouterMakesNoUnsynchronizedPeerWrites() {
+        XCTAssertTrue(SharedStateInventory.peerCrossObjectWrites.isEmpty,
+                      """
+                      \(SharedStateInventory.peerCrossObjectWrites.map(\.name)) are still listed \
+                      as cross-object writes. Either route them through a `peerLock`-taking \
+                      mutator on `LXMPeer` and empty this list, or say here why they cannot be.
+                      """)
     }
 
     func testTheInventoriesAreDisjointAndDuplicateFree() {
@@ -321,6 +319,7 @@ final class SharedStateInventoryTests: XCTestCase {
                       inventories. The two owners have different locks; a name in both means the \
                       guard cannot tell which lock a violation is about.
                       """)
+        // Vacuously true while the cross-object list is empty; meaningful again if one returns.
         XCTAssertTrue(crossNames.isSubset(of: peerNames),
                       """
                       \(crossNames.subtracting(peerNames).sorted()) is listed as a cross-object \
