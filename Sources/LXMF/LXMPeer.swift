@@ -547,6 +547,37 @@ public final class LXMPeer {
         _rxBytes  += bytes
     }
 
+    // MARK: - The one consumer-side write (`swift_devel/bugs/055`)
+
+    /// Make this peer eligible to sync on its next opportunity, ignoring any accumulated backoff.
+    ///
+    /// This is the only write path on `LXMPeer` a consumer keeps, and it exists because a consumer
+    /// in the reference implementation uses it. NomadNet's peer list offers a "sync now" action,
+    /// implemented by assigning the field directly (`nomadnet/ui/textui/Network.py:1818`):
+    ///
+    /// ```python
+    /// if time.time() > peer.last_sync_attempt + sync_grace:
+    ///     peer.next_sync_attempt = time.time() - 1
+    ///     threading.Thread(target=lambda: peer.sync(), daemon=True).start()
+    /// ```
+    ///
+    /// That one line is the entire consumer-side write surface of Python's LXMF — `lxmd`,
+    /// `Handlers.py` and the rest of NomadNet assign to nothing on a router or a peer. So making
+    /// the guarded properties read-only cost exactly one capability, and this restores it as the
+    /// intent rather than as the field assignment.
+    ///
+    /// It does not start the sync; Python's caller spawns a thread for `sync()`, which is public
+    /// here too. Nor does it clear `syncBackoff` — Python's line does not, and a manual nudge that
+    /// silently reset the backoff would retry a failing peer at the base interval forever.
+    ///
+    /// The grace check belongs to the caller, as it does in Python, and `lastSyncAttempt` stays
+    /// publicly readable for it.
+    public func requestImmediateSync() {
+        peerLock.lock(); defer { peerLock.unlock() }
+        // Python's literal expression (`Network.py:1818`); the gate is `now > nextSyncAttempt`.
+        _nextSyncAttempt = Date().timeIntervalSince1970 - 1
+    }
+
     // MARK: - Serialization
 
     /// Deserialize a peer from msgpack bytes.

@@ -13,6 +13,21 @@ accessor that takes the lock and returns a snapshot**.
 compile error. There are no consumers of these setters in this repository — verified across
 `RetiOS/`, `NomadNetSwift/` and `LXSTSwift/` — which is what made this the moment to do it.
 
+### The one write Python's consumers actually make
+
+Python's attributes are writable, so the question that decides whether this is a parity break is
+not "does Python permit a consumer to write these" but "does any Python consumer *do* it". Across
+the reference tree — `nomadnet`, `lxmd`, `LXMF`'s own handlers — the answer is **one line**:
+NomadNet's peer-list "sync now" action, which sets `peer.next_sync_attempt = time.time()-1` and
+then calls `peer.sync()` on a thread (`nomadnet/ui/textui/Network.py:1818`). Everything else those
+consumers do with a router or a peer is a read, a constructor argument, or a method call.
+
+That capability is preserved as **`LXMPeer.requestImmediateSync()`** — the intent rather than the
+field assignment. It does not start the sync (`sync()` is public, as in Python) and does not clear
+`syncBackoff`, because Python's line does not and a nudge that silently reset the backoff would
+retry a failing peer at the base interval forever. The grace check Python gates the action on reads
+`lastSyncAttempt`, which stays publicly readable.
+
 ### Why it mattered
 
 A Swift `Dictionary` write is not atomic. A consumer reading `router.propagationEntries` while the
@@ -53,7 +68,10 @@ one rule: no inventoried property is publicly settable; every `public var` is in
 exempt with a stated reason; every computed accessor that reads guarded storage takes the lock; and
 every backing-store access is under the lock or on a named construction path.
 
-589 tests, 0 failures. ThreadSanitizer clean on the propagation-concurrency and snapshot suites.
+592 tests, 0 failures. ThreadSanitizer clean on the propagation-concurrency and snapshot suites.
+
+No wire or on-disk format change: `toBytes()` emits the same keys in the same order with the same
+values, and only reads them atomically now.
 
 ## [1.5.0] — a propagation node that pushes
 
