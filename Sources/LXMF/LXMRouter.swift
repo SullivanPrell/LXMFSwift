@@ -46,10 +46,16 @@ public final class LXMRouter {
 
     // MARK: - Constants
 
+    /// Python: `LXMRouter.MAX_DELIVERY_ATTEMPTS = 5` (`LXMRouter.py:30`). The delivery gates
+    /// compare with `<=` (`LXMRouter.py:2736,:2766,:2853`), so a message is really attempted
+    /// `maxDeliveryAttempts + 1` times before `failMessage`.
     public static let maxDeliveryAttempts = 5
-    public static let maxPathlessTries    = 2
-    public static let deliveryRetryWait: TimeInterval = 12
-    public static let pathRequestWait: TimeInterval   = 15
+    /// Python: `LXMRouter.MAX_PATHLESS_TRIES = 1` (`LXMRouter.py:34`).
+    public static let maxPathlessTries    = 1
+    /// Python: `LXMRouter.DELIVERY_RETRY_WAIT = 10` (`LXMRouter.py:32`).
+    public static let deliveryRetryWait: TimeInterval = 10
+    /// Python: `LXMRouter.PATH_REQUEST_WAIT = 7` (`LXMRouter.py:33`).
+    public static let pathRequestWait: TimeInterval   = 7
 
     /// RNS request path for fetching/delivering messages to/from a propagation node.
     /// Mirrors Python `LXMPeer.MESSAGE_GET_PATH = "/get"`.
@@ -1307,27 +1313,29 @@ public final class LXMRouter {
     private func deliverOpportunistically(_ msg: LXMessage) {
         let destHash = msg.destinationHash
 
+        // LXMRouter.py:2736 — the gate is `<=`, so the message is attempted
+        // maxDeliveryAttempts + 1 times before fail_message (LXMRouter.py:2760-2761).
+        guard msg.deliveryAttempts <= LXMRouter.maxDeliveryAttempts else {
+            failMessage(msg)
+            return
+        }
+
+        // LXMRouter.py:2737-2742.
         if msg.deliveryAttempts >= LXMRouter.maxPathlessTries && !transport.hasPath(to: destHash) {
-            try? transport.requestPath(for: destHash)
             msg.deliveryAttempts += 1
+            try? transport.requestPath(for: destHash)
             msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
             return
         }
 
-        if msg.deliveryAttempts >= LXMRouter.maxDeliveryAttempts {
-            msg.state = .failed
-            return
-        }
-
-        guard let identity = transport.recall(identity: destHash),
-              let packed = msg.packed else {
-            msg.deliveryAttempts += 1
-            msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
-            return
-        }
-
+        // LXMRouter.py:2754-2756 — the attempt is counted and spaced before the send,
+        // whether or not the send itself can proceed.
         msg.deliveryAttempts += 1
         msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+
+        guard let identity = transport.recall(identity: destHash),
+              let packed = msg.packed else { return }
+
         msg.state = .sending
 
         // For opportunistic delivery the packet body omits the leading
@@ -1357,8 +1365,9 @@ public final class LXMRouter {
     private func deliverDirect(_ msg: LXMessage) {
         let destHash = msg.destinationHash
 
-        if msg.deliveryAttempts >= LXMRouter.maxDeliveryAttempts {
-            msg.state = .failed
+        // LXMRouter.py:2766 — `<=`, mirrored from the opportunistic gate; fail at :2841-2842.
+        guard msg.deliveryAttempts <= LXMRouter.maxDeliveryAttempts else {
+            failMessage(msg)
             return
         }
 
@@ -1420,17 +1429,15 @@ public final class LXMRouter {
     // MARK: - Propagated delivery
 
     private func deliverPropagated(_ msg: LXMessage) {
+        // LXMRouter.py:2850-2851.
         guard let nodeHash = outboundPropagationNode else {
-            removePending(msg)
-            msg.state = .failed
-            msg.onFailed?(msg)
+            failMessage(msg)
             return
         }
 
-        if msg.deliveryAttempts >= LXMRouter.maxDeliveryAttempts {
-            removePending(msg)
-            msg.state = .failed
-            msg.onFailed?(msg)
+        // LXMRouter.py:2853 — `<=`, mirrored from the opportunistic gate; fail at :2898-2899.
+        guard msg.deliveryAttempts <= LXMRouter.maxDeliveryAttempts else {
+            failMessage(msg)
             return
         }
 
@@ -2109,6 +2116,15 @@ public final class LXMRouter {
 
     private func removePending(_ msg: LXMessage) {
         lock.lock(); _pendingOutbound.removeAll { $0 === msg }; lock.unlock()
+    }
+
+    /// LXMRouter.py:2564-2571 (`fail_message`) — the one place a delivery gives up:
+    /// dequeue, mark failed (a rejection stands), tell the application.
+    private func failMessage(_ msg: LXMessage) {
+        msg.progress = 0
+        removePending(msg)
+        if msg.state != .rejected { msg.state = .failed }
+        msg.onFailed?(msg)
     }
 
     /// Test helper: directly inject a message into the pending outbound queue.
