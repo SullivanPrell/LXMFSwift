@@ -5,6 +5,27 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+### A stale link is no longer treated as a dead one
+
+ReticulumSwift 1.10.2 changed what `Link.status == .stale` means. It used to be a marker set
+immediately before teardown; it is now a **live, recoverable** state — the link is held for a
+grace tick and any inbound packet promotes it back to `.active` (`RNS/Link.py:753-755`, `:939`).
+
+This router shipped the same day still classifying `.stale` with `.closed` and `.failed`: it
+dropped its reference to the link, burned a delivery attempt, and requested a path — while RNS
+was still holding that session open and might have recovered it a moment later. The two releases
+disagreed about the same enum case.
+
+Python never had the problem because it branches only on `ACTIVE` and `CLOSED`
+(`LXMRouter.py:2784`, `:2797`): a stale link falls through both branches and is simply waited
+out. The direct-link and propagation-link paths now do the same, and
+`reapClosedOutboundPropagationLink` no longer reaps a stale link. Nothing is lost from
+`bugs/020`'s guarantee: a transfer that genuinely stops progressing is still terminated by
+`cleanLinks(syncStallTimeout:)`, which is the layer that owns that job.
+
+Found by the post-release adversarial audit — a cross-package interaction that neither package's
+own test suite could see.
+
 ### The outbound retry ladder runs on the reference's numbers and gate (`bugs/013 §9`)
 
 Python LXMF 1.1.0 paces delivery with `DELIVERY_RETRY_WAIT = 10`, `PATH_REQUEST_WAIT = 7` and
