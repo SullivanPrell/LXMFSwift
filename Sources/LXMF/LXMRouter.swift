@@ -2303,10 +2303,17 @@ public final class LXMRouter {
                                                 remoteDeliveryHash: remoteDeliveryHash)
         }
 
-        // Set up the link callback to accept resource uploads from clients/peers.
-        // Mirrors Python's propagation_link_established() callback.
+        // Set up the link callbacks to accept uploads from clients/peers.
+        // Mirrors Python's propagation_link_established() callback — which sets BOTH the packet
+        // callback and the resource callbacks (`LXMRouter.py:2189-2193`). The packet half is the
+        // path an ordinary short message takes (`LXMessage.py:439-441` chooses the PACKET
+        // representation whenever the container fits 319 bytes), so leaving it unwired lost the
+        // most common message size while long ones got through (`swift_devel/bugs/021`).
         propagationDestination?.onLinkEstablished = { [weak self] link in
             guard let self else { return }
+            link.onDataReceived = { [weak self] data, inboundLink in
+                self?.handleInboundPropagationPacket(data, on: inboundLink)
+            }
             link.resourceStrategy = .acceptApp
             link.onResourceAdvertised = { [weak self] resource, _ -> Bool in
                 guard let self else { return false }
@@ -2360,6 +2367,58 @@ public final class LXMRouter {
     /// (`LXMRouter.py:2348-2352`) and every decision that depends on *who* uploaded — autopeering
     /// (`:2366-2375`) and stamp throttling (`:2449-2454`) — reads it from there. Pass the link
     /// whenever one exists.
+    /// A single-packet propagated upload on an inbound propagation link.
+    ///
+    /// Mirrors Python's `propagation_packet` (`LXMRouter.py:2234-2260`): unpack
+    /// `msgpack([timestamp, [lxmf_data ‖ stamp]])`, validate every propagation stamp, ingest the
+    /// valid ones, and **prove the packet only when the whole set validated** — the proof is the
+    /// client's delivery confirmation, and proving a partially-discarded upload would tell the
+    /// client the node accepted what it dropped. On any invalid stamp the reference answers
+    /// `ERROR_INVALID_STAMP` on the link and tears it down (`:2253-2256`).
+    ///
+    /// Deliberately narrower than the resource path (`handleInboundPropagationResource`): the
+    /// reference's packet path does no autopeering, no peer crediting and no throttling — every
+    /// counter it touches is the *client* one (`:2248`), because peers move messages through the
+    /// offer/get protocol and never through bare packets. Ingestion converges with the resource
+    /// path at `ingestPropagatedLXM`, so stamp validation, duplicate suppression and the store
+    /// limits apply identically.
+    func handleInboundPropagationPacket(_ data: Data, on link: Link) {
+        guard case .array(let outer) = (try? MsgPack.decode(data)) ?? .nil,
+              outer.count >= 2,
+              case .array(let messages) = outer[1] else { return }
+
+        let transientList: [Data] = messages.compactMap {
+            if case .bytes(let b) = $0 { return Data(b) }
+            return nil
+        }
+
+        let minCost = max(0, propagationStampCost - propagationStampCostFlexibility)
+        let validated = LXStamper.validatePNStamps(transientList: transientList, targetCost: minCost)
+
+        for entry in validated {
+            lock.lock(); _clientPropagationMessagesReceived += 1; lock.unlock()
+            _ = ingestPropagatedLXM(lxmfData: entry.lxmfData,
+                                    stampValue: entry.stampValue,
+                                    stamp:      entry.stamp,
+                                    fromPeer:   nil)
+        }
+
+        // Against `messages.count`, not `transientList.count`: a non-bytes element is an invalid
+        // entry, and folding it out of the denominator would prove an upload the reference rejects.
+        if validated.count == messages.count {
+            // Synchronous with the data callback, as `proveInboundData` requires — the proof is
+            // for the packet that just fired it.
+            link.proveInboundData()
+        } else {
+            // Python encodes the error code with `msgpack.packb([ERROR_INVALID_STAMP])`; the
+            // code is > 127, so it travels as a msgpack uint (`swift_devel/bugs/053`).
+            if let reject = try? MsgPack.encode(.array([.uint(UInt64(LXMPeerError.invalidStamp.rawValue))])) {
+                _ = try? link.send(reject)
+            }
+            try? link.teardown()
+        }
+    }
+
     public func handleInboundPropagationResource(_ data: Data, on link: Link?) {
         guard case .array(let outer) = (try? MsgPack.decode(data)) ?? .nil,
               outer.count >= 2,
