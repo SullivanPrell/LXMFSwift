@@ -115,6 +115,76 @@ final class OutboundRetryParityTests: XCTestCase {
         XCTAssertFalse(net.router.pendingOutbound.contains { $0 === msg },
                        "fail_message removes the message from pending_outbound (LXMRouter.py:2567)")
     }
+
+    // MARK: - Stale-path rediscovery
+
+    /// A path that exists but keeps failing to deliver is stale: at
+    /// `delivery_attempts == MAX_PATHLESS_TRIES + 1` the reference drops it and re-requests
+    /// half a second later (`LXMRouter.py:2743-2752`, `rediscover_job`), instead of retrying
+    /// into the dead path until the message fails. This is the only branch that can recover
+    /// a message whose path entry outlived the route.
+    func testStalePathIsDroppedAndRediscovered() throws {
+        // Two transports on a synchronous wire: B announces a delivery destination, so A
+        // holds a real path table entry and can recall B's identity — a path that *looks*
+        // healthy, which is exactly what a stale entry looks like.
+        let transportA = Transport()
+        let transportB = Transport()
+        let ifaceA = PeerSyncLoopInterface(name: "a")
+        let ifaceB = PeerSyncLoopInterface(name: "b")
+        ifaceA.paired = ifaceB
+        ifaceB.paired = ifaceA
+        transportA.register(interface: ifaceA)
+        transportB.register(interface: ifaceB)
+
+        let identityB = Identity()
+        let destB = try Destination(
+            identity: identityB, direction: .in, kind: .single,
+            appName: "lxmf", aspects: ["delivery"])
+        transportB.ownerIdentity = identityB
+        transportB.register(destination: destB)
+        _ = try transportB.announce(destination: destB)
+
+        let pathLearned = Date().addingTimeInterval(2.0)
+        while !transportA.hasPath(to: destB.hash) && Date() < pathLearned {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertTrue(transportA.hasPath(to: destB.hash),
+                      "precondition: the announce must have given A a path to B")
+
+        let router = LXMRouter(transport: transportA)
+        let sourceIdentity = Identity()
+        let sourceDestination = try Destination(
+            identity: sourceIdentity, direction: .in, kind: .single,
+            appName: "lxmf", aspects: ["delivery"])
+        let msg = LXMessage(
+            destination: destB, source: sourceDestination,
+            content: "stale path", desiredMethod: .opportunistic)
+        try msg.pack()
+        msg.state = .outbound
+        msg.deliveryAttempts = LXMRouter.maxPathlessTries + 1
+        router.testInjectPendingOutbound(msg)
+
+        ifaceA.clearSent()
+        let before = Date().timeIntervalSince1970
+        router.processOutbound()
+
+        XCTAssertFalse(transportA.hasPath(to: destB.hash),
+                       "the stale path is dropped (LXMRouter.py:2746)")
+        XCTAssertTrue(ifaceA.sent.filter { $0.destinationHash == destB.hash }.isEmpty,
+                      "the rediscovery pass must not send into the path it just judged stale")
+        XCTAssertEqual(msg.deliveryAttempts, LXMRouter.maxPathlessTries + 2,
+                       "the rediscovery counts as an attempt (LXMRouter.py:2745)")
+        XCTAssertEqual(msg.nextDeliveryAttempt - before, LXMRouter.pathRequestWait, accuracy: 0.5,
+                       "the rediscovery is waited out for PATH_REQUEST_WAIT (LXMRouter.py:2751)")
+
+        // The re-request runs 0.5 s after the drop (LXMRouter.py:2747-2750).
+        let requested = Date().addingTimeInterval(2.5)
+        while ifaceA.sentPathRequests().isEmpty && Date() < requested {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertEqual(ifaceA.sentPathRequests().count, 1,
+                       "the dropped path is re-requested (LXMRouter.py:2749)")
+    }
 }
 
 // MARK: - Harness

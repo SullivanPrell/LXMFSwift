@@ -1328,6 +1328,20 @@ public final class LXMRouter {
             return
         }
 
+        // LXMRouter.py:2743-2752 — a path that exists but has not delivered by
+        // MAX_PATHLESS_TRIES + 1 attempts is treated as stale: drop it and rediscover,
+        // rather than retrying into the dead path until the message fails.
+        if msg.deliveryAttempts == LXMRouter.maxPathlessTries + 1 && transport.hasPath(to: destHash) {
+            msg.deliveryAttempts += 1
+            transport.dropPath(for: destHash)
+            // LXMRouter.py:2747-2750 (`rediscover_job`): the re-request runs 0.5 s after the drop.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [transport] in
+                try? transport.requestPath(for: destHash)
+            }
+            msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
+            return
+        }
+
         // LXMRouter.py:2754-2756 — the attempt is counted and spaced before the send,
         // whether or not the send itself can proceed.
         msg.deliveryAttempts += 1

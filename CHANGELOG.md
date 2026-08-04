@@ -5,7 +5,32 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
-### A sync whose link dies reaches a terminal state (`bugs/020`)
+### The outbound retry ladder runs on the reference's numbers and gate (`bugs/013 §9`)
+
+Python LXMF 1.1.0 paces delivery with `DELIVERY_RETRY_WAIT = 10`, `PATH_REQUEST_WAIT = 7` and
+`MAX_PATHLESS_TRIES = 1` (`LXMRouter.py:30-34`); the port shipped 12, 15 and 2 — the 12 being
+LXMF's pre-0.2.8 retry wait — so a Swift sender made two pathless sends before its first path
+request, spaced retries 12 s apart and sat 15 s after every path request. Delivery to a pathless
+destination converged roughly twice as slowly as the reference's. The constants now match, each
+pinned by test against the Python values.
+
+Two neighbours fixed in the same pass:
+
+- **The attempts gate is `<=`, and lives in one seam.** The reference gates every method branch
+  with `delivery_attempts <= MAX_DELIVERY_ATTEMPTS` (`LXMRouter.py:2736,:2766,:2853`), giving a
+  message six real attempts before `fail_message` (`:2564-2571`); the port failed fast on `>=`,
+  giving five. Worse, the opportunistic path-request branch sat *in front of* the gate, so a
+  pathless opportunistic message never failed at all — it re-requested a path forever. All three
+  branches now guard with `<=` and give up through one `failMessage(_:)`, the port of
+  `fail_message`: progress reset, dequeue, `.failed` unless already `.rejected`, failed callback.
+
+- **Stale-path rediscovery** (`LXMRouter.py:2743-2752`) had no Swift counterpart. When an
+  opportunistic message has a path that still has not delivered by
+  `MAX_PATHLESS_TRIES + 1` attempts, the reference treats the path as stale: drop it, then
+  re-request it half a second later (`rediscover_job`). Without the branch, a Swift sender
+  holding a path entry that outlived the route retried into the dead path until the message
+  failed, where Python recovers and delivers. This was the only piece that could strand a
+  message outright.
 
 Python maps a closed outbound propagation link onto the sync state machine in `clean_links`
 (`LXMRouter.py:991-1000`); the port's `onClosed` handlers cleared the link reference and left
