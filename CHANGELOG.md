@@ -5,6 +5,43 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+### A sync whose link dies reaches a terminal state (`bugs/020`)
+
+Python maps a closed outbound propagation link onto the sync state machine in `clean_links`
+(`LXMRouter.py:991-1000`); the port's `onClosed` handlers cleared the link reference and left
+`propagationTransferState` wherever it was, so "Sync Now" against an unreachable node spun for
+the lifetime of the process. One method — `reapClosedOutboundPropagationLink()` — now carries
+the reference's mapping (complete acknowledges to idle; in flight fails; an existing failure
+stands), called from both `onClosed` handlers immediately and from `cleanLinks` on the
+reference's own schedule. A deliberate cancel stays a cancel for the reference's own reason:
+`cancelPropagationNodeRequests` clears the reference before tearing down, so the closure finds
+nothing to map.
+
+Found while proving it: **`propagationTransferState = .requestSent` sat after
+`link.request(...)`**, and the response callback can run inside that call — so a sync that
+completed inline had its `.done` stomped back to `.requestSent`. The reference has the same
+line order (`:520`) as a latent race its network never resolves inline. The write moved before
+the callout.
+
+Also new, port-only and recorded as such: `cleanLinks(syncStallTimeout:)` bounds a sync on a
+*live* link that has stopped moving (default 240 s, above the RNS inactivity teardown so the
+watchdog gets the first move). The reference has nothing for this case; a caller waiting on a
+terminal state would wait forever.
+
+### A propagation node ingests and proves single-packet uploads (`bugs/021`)
+
+Python's `propagation_link_established` sets **both** a packet callback and the resource
+callbacks (`LXMRouter.py:2189-2193`); the port wired only the resource path, so the plaintext
+of every single-packet upload was dropped without a proof — and Python clients take the packet
+path for any message whose container fits 319 bytes, an ordinary short chat message. The node
+worked for long messages and lost short ones, presenting as random.
+
+`handleInboundPropagationPacket` mirrors `propagation_packet` (`:2234-2260`): validate every
+stamp, ingest through the same `ingestPropagatedLXM` the resource path uses, prove only when
+the whole set validated, answer `ERROR_INVALID_STAMP` and tear down otherwise. Deliberately
+narrower than the resource path — no autopeering, no peer credit, no throttle — because the
+reference's packet path is a client surface, not a peer one.
+
 ### The suite's ThreadSanitizer count is zero, and can be gated on (`bugs/056`)
 
 Two data races in **test code** made the suite report 2–3 TSan warnings on good code, so a real
