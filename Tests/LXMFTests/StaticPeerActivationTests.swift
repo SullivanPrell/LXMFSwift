@@ -70,8 +70,8 @@ final class StaticPeerActivationTests: XCTestCase {
 
         let first = try makeNode(staticPeers: [hash])
         let peer = try XCTUnwrap(first.peers[hash])
-        peer.lastHeard = Date().timeIntervalSince1970
-        peer.propagationStampCost = 7
+        peer.seedSyncState(lastHeard: Date().timeIntervalSince1970)
+        peer.seedAnnouncedTerms(propagationStampCost: 7)
         first.savePeers()
 
         // Same storage, new router: the peer comes back from disk and activation must leave it be.
@@ -135,7 +135,7 @@ final class StaticPeerActivationTests: XCTestCase {
         retained.append(transport)
         let router = LXMRouter(transport: transport)
         router.propagationStampCost = 0
-        router.staticPeers = Set(staticPeers)
+        router.setStaticPeers(Set(staticPeers))
         try router.register(identity: Identity(), transport: transport)
         try router.enablePropagation(storagePath: tempDir)
         retained.append(router)

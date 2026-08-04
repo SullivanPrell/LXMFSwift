@@ -77,13 +77,13 @@ final class LXMPeerTests: XCTestCase {
 
     private func addFakeEntry(router: LXMRouter, tid: Data = Data(repeating: 0x01, count: 16)) {
         let destHash = Data(repeating: 0x02, count: 16)
-        router.propagationEntries[tid] = PropagationEntry(
+        router.seedPropagationEntry(tid, PropagationEntry(
             destinationHash: destHash,
             filePath:        "/tmp/fake",
             received:        Date().timeIntervalSince1970,
             msgSize:         100,
             stampValue:      0
-        )
+        ))
     }
 
     func testAddHandledMessage() {
@@ -187,8 +187,8 @@ final class LXMPeerTests: XCTestCase {
 
     func testAcceptanceRate() {
         let peer    = LXMPeer(router: makeRouter(), destinationHash: fakeHash())
-        peer.offered  = 10
-        peer.outgoing = 7
+        peer.seedStatistics(offered: 10)
+        peer.seedStatistics(outgoing: 7)
         XCTAssertEqual(peer.acceptanceRate, 0.7, accuracy: 0.001)
     }
 
@@ -226,14 +226,14 @@ final class LXMPeerTests: XCTestCase {
         let router = makeRouter()
         let hash   = fakeHash(0xBB)
         let peer   = LXMPeer(router: router, destinationHash: hash, syncStrategy: .lazy)
-        peer.alive           = true
-        peer.lastHeard       = 1_000_000.0
-        peer.offered         = 5
-        peer.outgoing        = 3
-        peer.rxBytes         = 2048
-        peer.txBytes         = 4096
-        peer.peeringCost     = 10
-        peer.propagationStampCost = 8
+        peer.seedSyncState(alive: true)
+        peer.seedSyncState(lastHeard: 1_000_000.0)
+        peer.seedStatistics(offered: 5)
+        peer.seedStatistics(outgoing: 3)
+        peer.seedStatistics(rxBytes: 2048)
+        peer.seedStatistics(txBytes: 4096)
+        peer.seedAnnouncedTerms(peeringCost: 10)
+        peer.seedAnnouncedTerms(propagationStampCost: 8)
 
         let bytes  = peer.toBytes()
         let peer2  = try XCTUnwrap(LXMPeer.from(bytes: bytes, router: router))

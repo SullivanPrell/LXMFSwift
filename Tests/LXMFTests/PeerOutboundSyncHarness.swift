@@ -112,7 +112,7 @@ final class PeerOutboundSyncNetwork {
         try announce(routerB, on: transportB)
         let peer = try XCTUnwrap(routerA.peers[bPropagationHash],
                                  "A must peer with B off the announce before it can sync to it")
-        peer.syncStrategy = defaultSyncStrategy
+        peer.seedSyncState(syncStrategy: defaultSyncStrategy)
         return peer
     }
 

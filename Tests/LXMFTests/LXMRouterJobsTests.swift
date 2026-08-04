@@ -175,7 +175,7 @@ final class LXMRouterJobsTests: XCTestCase {
     /// node. Deleting its body fails here and nowhere else.
     func testARoutinesBodyActuallyRuns() throws {
         let router = try makePropagationNode()
-        router.throttledPeers[Data(repeating: 0x11, count: 16)] = Date().timeIntervalSince1970 - 1
+        router.seedThrottledPeer(Data(repeating: 0x11, count: 16), until: Date().timeIntervalSince1970 - 1)
         XCTAssertEqual(router.throttledPeers.count, 1, "precondition: there is an expired entry")
 
         // cleanThrottledPeers runs every jobPeerSyncInterval ticks.
