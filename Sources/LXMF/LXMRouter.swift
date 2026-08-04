@@ -107,8 +107,17 @@ public final class LXMRouter {
     /// Active outbound direct links, keyed by the remote destination hash.
     private(set) var directLinks: [Data: Link] = [:]
 
-    /// Messages awaiting delivery.
-    private(set) var pendingOutbound: [LXMessage] = []
+    /// Messages awaiting delivery. Python: `LXMRouter.pending_outbound`.
+    ///
+    /// Read-only, for the reasons on `propagationEntries` (`swift_devel/bugs/055`): the router
+    /// mutates the array under `lock` on the send, process and cancel paths, so an unlocked read
+    /// races those writes (`swift_devel/bugs/056` observed exactly that from a test poll). The
+    /// snapshot is of the *array*; its elements are `LXMessage` class references.
+    var pendingOutbound: [LXMessage] {
+        lock.lock(); defer { lock.unlock() }
+        return _pendingOutbound
+    }
+    private var _pendingOutbound: [LXMessage] = []
 
     /// Delivered or failed messages available for the caller.
     public var onMessageReceived: ((LXMessage) -> Void)?
@@ -1114,10 +1123,10 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.cancel_outbound(message_id)`.
     public func cancelOutbound(messageID: Data) {
         lock.lock()
-        if let idx = pendingOutbound.firstIndex(where: { $0.messageID == messageID }) {
-            pendingOutbound[idx].state = .cancelled
+        if let idx = _pendingOutbound.firstIndex(where: { $0.messageID == messageID }) {
+            _pendingOutbound[idx].state = .cancelled
         }
-        pendingOutbound.removeAll { $0.messageID == messageID && $0.state == .cancelled }
+        _pendingOutbound.removeAll { $0.messageID == messageID && $0.state == .cancelled }
         lock.unlock()
     }
 
@@ -1126,7 +1135,7 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.get_outbound_progress(lxm_hash)`.
     public func getOutboundProgress(lxmHash: Data) -> Double? {
         lock.lock(); defer { lock.unlock() }
-        return pendingOutbound.first { $0.hash == lxmHash }?.progress
+        return _pendingOutbound.first { $0.hash == lxmHash }?.progress
     }
 
     // MARK: - URI ingestion
@@ -1221,7 +1230,7 @@ public final class LXMRouter {
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     message.attachPropagationStamp(cost: cost)
                     guard let self else { return }
-                    self.lock.lock(); self.pendingOutbound.append(message); self.lock.unlock()
+                    self.lock.lock(); self._pendingOutbound.append(message); self.lock.unlock()
                     self.processOutbound()
                 }
                 return
@@ -1229,7 +1238,7 @@ public final class LXMRouter {
         }
 
         message.state = .outbound
-        lock.lock(); pendingOutbound.append(message); lock.unlock()
+        lock.lock(); _pendingOutbound.append(message); lock.unlock()
         processOutbound()
     }
 
@@ -1237,7 +1246,7 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.process_outbound()`.
     public func processOutbound() {
         lock.lock()
-        let snapshot = pendingOutbound
+        let snapshot = _pendingOutbound
         lock.unlock()
 
         for msg in snapshot {
@@ -2041,14 +2050,14 @@ public final class LXMRouter {
     // MARK: - Helpers
 
     private func removePending(_ msg: LXMessage) {
-        lock.lock(); pendingOutbound.removeAll { $0 === msg }; lock.unlock()
+        lock.lock(); _pendingOutbound.removeAll { $0 === msg }; lock.unlock()
     }
 
     /// Test helper: directly inject a message into the pending outbound queue.
     public func testInjectPendingOutbound(_ message: LXMessage) {
         lock.lock(); defer { lock.unlock() }
-        if !pendingOutbound.contains(where: { $0 === message }) {
-            pendingOutbound.append(message)
+        if !_pendingOutbound.contains(where: { $0 === message }) {
+            _pendingOutbound.append(message)
         }
     }
 
@@ -2057,7 +2066,7 @@ public final class LXMRouter {
     /// announces its presence, triggering an immediate delivery attempt.
     internal func handleAnnounceForDestination(_ destinationHash: Data) {
         lock.lock()
-        let matches = pendingOutbound.filter { $0.destinationHash == destinationHash }
+        let matches = _pendingOutbound.filter { $0.destinationHash == destinationHash }
         // Drain inbound messages waiting for this source's identity.
         let pendingSig = pendingSignatureValidation.filter { $0.message.sourceHash == destinationHash }
         pendingSignatureValidation.removeAll { $0.message.sourceHash == destinationHash }
@@ -3804,7 +3813,7 @@ public final class LXMRouter {
     /// Mirrors Python `Handlers.PropagationNodeAnnounceHandler` (LXMF 0.9.9).
     internal func triggerPropagatedOutbound() {
         lock.lock()
-        let propagated = pendingOutbound.filter { $0.desiredMethod == .propagated }
+        let propagated = _pendingOutbound.filter { $0.desiredMethod == .propagated }
         lock.unlock()
         for msg in propagated { msg.nextDeliveryAttempt = 0 }
         if !propagated.isEmpty {
