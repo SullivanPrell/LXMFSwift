@@ -51,6 +51,7 @@ enum SharedStateInventory {
         Entry("unpeeredPropagationIncoming",       "counter; unpeered inbound messages"),
         Entry("unpeeredPropagationRxBytes",        "counter; unpeered inbound bytes"),
         Entry("maxPeers",                          "peer-table bound; configuration, but read under the lock at both use sites"),
+        Entry("pendingOutbound",                   "the outbound delivery queue; mutated under the lock on the send, process and cancel paths (bugs/056)"),
     ]
 
     /// Properties of `LXMPeer` that the peer accesses under `LXMPeer.peerLock`.

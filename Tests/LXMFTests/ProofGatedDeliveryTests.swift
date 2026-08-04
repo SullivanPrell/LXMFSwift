@@ -31,13 +31,13 @@ final class ProofGatedDeliveryTests: XCTestCase {
         // a dropped packet, not a closed link.
         net.senderInterface.dropOutbound = { $0.destinationType == .link && $0.packetType == .data }
 
-        var deliveryFired = false
+        let deliveryFired = Flag()
         let message = try net.sendMessage(content: "into the void",
-                                          onDelivery: { _ in deliveryFired = true })
+                                          onDelivery: { _ in deliveryFired.raise() })
 
         XCTAssertEqual(message.state, .sending,
                        "the message never arrived, so it cannot be past 'sending'")
-        XCTAssertFalse(deliveryFired,
+        XCTAssertFalse(deliveryFired.isRaised,
                        "the delivery callback fired for a message the peer never received")
     }
 
@@ -53,9 +53,9 @@ final class ProofGatedDeliveryTests: XCTestCase {
         net.senderInterface.dropOutbound = { $0.destinationType == .link && $0.packetType == .data }
         try net.senderTransport.start()
 
-        var deliveryFired = false
+        let deliveryFired = Flag()
         let message = try net.sendMessage(content: "never acknowledged",
-                                          onDelivery: { _ in deliveryFired = true })
+                                          onDelivery: { _ in deliveryFired.raise() })
         XCTAssertEqual(message.state, .sending)
 
         // Expire the receipt almost immediately; the sweep still has to notice it.
@@ -67,7 +67,7 @@ final class ProofGatedDeliveryTests: XCTestCase {
         net.poll(until: { message.state == .outbound }, fulfilling: returned, limit: 900)
         wait(for: [returned], timeout: 12.0)
 
-        XCTAssertFalse(deliveryFired, "a timed-out message was never delivered")
+        XCTAssertFalse(deliveryFired.isRaised, "a timed-out message was never delivered")
         XCTAssertNotEqual(net.link?.status, .active,
                           "the reference tears the link down on timeout, because a proof that "
                           + "never returned is evidence about the link, not just the packet")
@@ -125,15 +125,15 @@ final class ProofGatedDeliveryTests: XCTestCase {
         // would block the link handshake's own LRPROOF and no link would come up at all.
         net.receiverInterface.holdOutbound = { $0.packetType == .proof && $0.context == .none }
 
-        var deliveryFired = false
+        let deliveryFired = Flag()
         let message = try net.sendMessage(content: "prove it",
-                                          onDelivery: { _ in deliveryFired = true })
+                                          onDelivery: { _ in deliveryFired.raise() })
 
         wait(for: [received], timeout: 2.0)
 
         // The receiver has the message in hand. The sender must still not claim delivery,
         // because nothing has come back to say so.
-        XCTAssertFalse(deliveryFired,
+        XCTAssertFalse(deliveryFired.isRaised,
                        "delivery was reported while the proof was still held — this is "
                        + "send-time firing, which a healthy loopback link hides")
         XCTAssertEqual(message.state, .sending)
@@ -142,10 +142,23 @@ final class ProofGatedDeliveryTests: XCTestCase {
         net.receiverInterface.releaseHeld()
 
         let delivered = expectation(description: "delivery reported after the proof")
-        net.poll(until: { deliveryFired }, fulfilling: delivered)
+        net.poll(until: { deliveryFired.isRaised }, fulfilling: delivered)
         wait(for: [delivered], timeout: 2.0)
         XCTAssertEqual(message.state, .delivered)
     }
+}
+
+/// Thread-safe boolean, for callbacks that fire on a link thread while the test thread reads.
+///
+/// The delivery callback runs on whichever thread resolved the proof; a captured `var Bool` read
+/// by the test thread is a data race even when the assertion's *answer* would be right
+/// (`swift_devel/bugs/056`).
+private final class Flag {
+    private let lock = NSLock()
+    private var value = false
+
+    func raise() { lock.lock(); value = true; lock.unlock() }
+    var isRaised: Bool { lock.lock(); defer { lock.unlock() }; return value }
 }
 
 /// Thread-safe log of observed state transitions.

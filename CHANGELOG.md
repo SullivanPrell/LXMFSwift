@@ -3,6 +3,26 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### The suite's ThreadSanitizer count is zero, and can be gated on (`bugs/056`)
+
+Two data races in **test code** made the suite report 2–3 TSan warnings on good code, so a real
+regression could hide in the noise:
+
+- `ProofGatedDeliveryTests` captured a plain `var Bool` in the delivery callback — written on a
+  link thread, read on the test thread. All three occurrences use a lock-guarded `Flag` now, not
+  just the one ThreadSanitizer happened to flag.
+- `PropagationAnnouncePeeringTests` polled `pendingOutbound` from a background thread while the
+  router mutated it under `lock`. The property was the last of the `bugs/055` shape left outside
+  the inventory: every router mutation already held `lock`, and the unguarded piece was the raw
+  `private(set)` getter. It is now private storage behind the same lock-taking snapshot accessor
+  as the other thirty, inventoried and guard-checked. (Internal API only — `pendingOutbound` was
+  never `public`.)
+
+Verified as three complete `swift test --sanitize=thread` runs: **0, 0, 0 warnings** against the
+previous release's 2, 3, 2.
+
 ## [1.6.0] — shared state stops being public
 
 `bugs/055`. Thirty properties across `LXMRouter` and `LXMPeer` were `public var` over state their
