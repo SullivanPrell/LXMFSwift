@@ -203,12 +203,22 @@ final class PeerSyncLoopInterface: Interface {
     /// When set, `send` records the packet and drops it. Used to hold a link half-open.
     var isBlackholed = false
 
+    /// When set, `send` drops any packet the predicate matches. Finer-grained than
+    /// `isBlackholed`: on a synchronous wire a whole exchange completes inside one call, so
+    /// holding a sync at a *chosen* stage means the drop decision has to be per-packet — e.g.
+    /// "let the link proof through, drop the request responses" parks the far side's client at
+    /// `.requestSent` (`swift_devel/bugs/020`'s mid-transfer closure point).
+    var dropOutbound: ((Packet) -> Bool)?
+
     init(name: String) { self.name = name }
     func start() throws { isOnline = true }
     func stop() { isOnline = false }
 
     func send(_ packet: Packet) throws {
-        lock.lock(); sent.append(packet); let dropping = isBlackholed; lock.unlock()
+        lock.lock()
+        sent.append(packet)
+        let dropping = isBlackholed || (dropOutbound?(packet) ?? false)
+        lock.unlock()
         guard !dropping else { return }
         let raw  = try packet.pack()
         let copy = try Packet.unpack(raw)

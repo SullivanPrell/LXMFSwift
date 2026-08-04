@@ -133,11 +133,22 @@ public final class LXMRouter {
 
     /// Current state of an in-progress propagation sync transfer.
     /// Mirrors Python's `LXMRouter.propagation_transfer_state`.
-    public var propagationTransferState: PropagationTransferState = .idle
+    public var propagationTransferState: PropagationTransferState = .idle {
+        didSet { propagationTransferLastActivity = Date().timeIntervalSince1970 }
+    }
 
     /// Progress of the current propagation sync (0.0–1.0).
     /// Mirrors Python's `LXMRouter.propagation_transfer_progress`.
-    public var propagationTransferProgress: Double = 0.0
+    public var propagationTransferProgress: Double = 0.0 {
+        didSet { propagationTransferLastActivity = Date().timeIntervalSince1970 }
+    }
+
+    /// When the sync machine last moved: any state transition or progress update refreshes it.
+    ///
+    /// Port-only, feeding the stall bound in `cleanLinks(syncStallTimeout:)`. The reference has
+    /// no equivalent because it has no bound for a live-but-stuck transfer — its watchdog only
+    /// catches links that die (`swift_devel/bugs/020`, design D5).
+    private(set) var propagationTransferLastActivity: TimeInterval = 0
 
     /// Size in bytes of the in-flight propagation-node message-get response, or
     /// `nil` when no sync is running. Lets a UI render "x of y bytes" instead of
@@ -214,6 +225,13 @@ public final class LXMRouter {
     /// Seconds a propagation link may sit idle before it is torn down.
     /// Python: `LXMRouter.P_LINK_MAX_INACTIVITY = 180` (`:37`).
     public static let propagationLinkMaxInactivity: TimeInterval = 180
+    /// Seconds a client sync may sit with no state transition and no progress before
+    /// `cleanLinks` fails it and tears its link down. **Port-only** (design D5, `bugs/020`):
+    /// the reference has no bound for a live-but-stuck transfer. Sized above
+    /// `propagationLinkMaxInactivity` so the RNS inactivity teardown — whose closure the state
+    /// machine maps — gets the first move, and the stall bound only ever catches a link that
+    /// stayed nominally busy (keepalives count as data) while its transfer went nowhere.
+    public static let propagationSyncStallTimeout: TimeInterval = 240
 
     // MARK: - Priority and ignore lists
 
@@ -1458,9 +1476,7 @@ public final class LXMRouter {
                 self?.sendPropagatedOverLink(msg, link: l)
             }
             link.onClosed = { [weak self] _ in
-                self?.lock.lock()
-                self?.outboundPropagationLink = nil
-                self?.lock.unlock()
+                self?.reapClosedOutboundPropagationLink()
             }
         } catch {
             msg.deliveryAttempts += 1
@@ -1607,6 +1623,12 @@ public final class LXMRouter {
         if let link = existingLink, link.status == .active {
             propagationTransferState = .linkEstablished
             try? link.identify(as: identity)
+            // `.requestSent` is set BEFORE the callout, not after as the reference does
+            // (`LXMRouter.py:520`): the response callback can run *inside* `request(...)` — it
+            // does, deterministically, on a synchronous wire — and a state write placed after
+            // the callout stomps the `.done` or `.failed` the callback just set. The reference
+            // carries the same latent race; its network merely never resolves a request inline.
+            propagationTransferState = .requestSent
             // [nil, nil] = "give me everything" (want=nil, have=nil) — use nativeValue:
             // so Python propagation nodes receive a native msgpack array, not bytes.
             _ = try? link.request(
@@ -1619,7 +1641,6 @@ public final class LXMRouter {
                     self?.handleMessageGetFailed(receipt)
                 }
             )
-            propagationTransferState = .requestSent
 
         } else if existingLink == nil {
             if transport.hasPath(to: nodeHash) {
@@ -1641,9 +1662,7 @@ public final class LXMRouter {
                     self?.requestMessagesFromPropagationNode(identity: identity, maxMessages: maxMessages)
                 }
                 link.onClosed = { [weak self] _ in
-                    self?.lock.lock()
-                    self?.outboundPropagationLink = nil
-                    self?.lock.unlock()
+                    self?.reapClosedOutboundPropagationLink()
                 }
             } else {
                 propagationTransferState = .pathRequested
@@ -1779,6 +1798,45 @@ public final class LXMRouter {
         propagationTransferProgress = 0.0
         propagationTransferSize = nil
         wantsDownloadOnPathAvailableFrom = nil
+    }
+
+    /// The sync state machine's answer to its outbound propagation link closing — the outbound
+    /// half of the reference's `clean_links` (`LXMRouter.py:991-1000`), mapped through
+    /// `acknowledgeSyncCompletion` exactly as `acknowledge_sync_completion` (`:1656`) is:
+    /// a completed sync acknowledges to `.idle`; anything still in flight fails (the reference
+    /// distinguishes `PR_LINK_FAILED` from `PR_TRANSFER_FAILED`; this port's enum carries one
+    /// `.failed`); an existing failure state is left in place.
+    ///
+    /// One method, called from every closure path — the `onClosed` handlers for immediacy and
+    /// `cleanLinks` as the periodic safety net — so a third dial site cannot appear without it
+    /// (`swift_devel/bugs/020`).
+    ///
+    /// Does nothing unless the *current* link has actually reached a terminal status. That guard
+    /// is what keeps a deliberate cancel a cancel: `cancelPropagationNodeRequests` clears the
+    /// reference before tearing down, exactly as the reference does, so the teardown's own
+    /// `onClosed` finds nothing to map. It equally ignores a stale callback from a link a newer
+    /// sync has already replaced.
+    @discardableResult
+    func reapClosedOutboundPropagationLink() -> Bool {
+        lock.lock()
+        guard let link = outboundPropagationLink,
+              link.status == .closed || link.status == .failed || link.status == .stale else {
+            lock.unlock(); return false
+        }
+        outboundPropagationLink = nil
+        lock.unlock()
+
+        switch propagationTransferState {
+        case .done:
+            acknowledgeSyncCompletion()                       // PR_COMPLETE → PR_IDLE (`:993-994`)
+        case .idle, .pathRequested, .linkEstablishing:
+            acknowledgeSyncCompletion(failureState: .failed)  // Python: PR_LINK_FAILED (`:996-997`)
+        case .linkEstablished, .requestSent, .receiving:
+            acknowledgeSyncCompletion(failureState: .failed)  // Python: PR_TRANSFER_FAILED (`:998-999`)
+        case .failed:
+            acknowledgeSyncCompletion()                       // already terminal; clears transient fields
+        }
+        return true
     }
 
     func handleMessageGetResponse(_ data: Data, receipt: RequestReceipt) {
@@ -3062,13 +3120,21 @@ public final class LXMRouter {
     /// just locally, and keepalive traffic keeps flowing over it.
     ///
     /// The reference's `clean_links` also maps outbound-propagation link closure onto the sync
-    /// state machine (`:991-1000`); that is `swift_devel/bugs/020` and belongs with the sync
-    /// terminality work, not here.
-    /// - Parameter peerSyncMaxInactivity: how long an outbound peer-sync link may go quiet before
-    ///   it is torn down. An argument only so a test can reap without waiting out the real budget;
-    ///   production always takes the default.
+    /// state machine (`:991-1000`); that mapping is `reapClosedOutboundPropagationLink()`,
+    /// called here on the reference's schedule and from the link's own `onClosed` for immediacy
+    /// (`swift_devel/bugs/020`).
+    /// - Parameters:
+    ///   - peerSyncMaxInactivity: how long an outbound peer-sync link may go quiet before
+    ///     it is torn down. An argument only so a test can reap without waiting out the real
+    ///     budget; production always takes the default.
+    ///   - syncStallTimeout: how long a client sync may sit with no state transition and no
+    ///     progress before it is failed and its link torn down. Port-only (design D5): the
+    ///     reference has nothing for a live-but-stuck transfer — its watchdog only catches links
+    ///     that die — and a caller waiting on a terminal state would wait forever.
     public func cleanLinks(peerSyncMaxInactivity: TimeInterval =
-                                LXMRouter.propagationLinkMaxInactivity) {
+                                LXMRouter.propagationLinkMaxInactivity,
+                           syncStallTimeout: TimeInterval =
+                                LXMRouter.propagationSyncStallTimeout) {
         lock.lock()
         let direct = directLinks
         let propagation = _activePropagationLinks
@@ -3099,6 +3165,29 @@ public final class LXMRouter {
         // offer had nothing left in it, a `.responseReceived` peer that was denied or throttled,
         // and a `.requestSent` peer whose send failed.
         for peer in peerList { peer.reapStalledSyncLink(maxInactivity: peerSyncMaxInactivity) }
+
+        // The outbound half of the reference's `clean_links` (`LXMRouter.py:991-1000`): a closed
+        // client-sync link is mapped onto the sync state machine. The `onClosed` handlers already
+        // do this the moment closure fires; this is the periodic safety net for a link whose
+        // callback was lost or replaced.
+        reapClosedOutboundPropagationLink()
+
+        // Port-only stall bound (design D5): a sync on a *live* link that has stopped moving —
+        // no closure will fire and no response will come. Activity is any state transition or
+        // progress update; see `propagationTransferLastActivity`.
+        switch propagationTransferState {
+        case .pathRequested, .linkEstablishing, .linkEstablished, .requestSent, .receiving:
+            if Date().timeIntervalSince1970 - propagationTransferLastActivity > syncStallTimeout {
+                lock.lock()
+                let stalled = outboundPropagationLink
+                outboundPropagationLink = nil
+                lock.unlock()
+                try? stalled?.teardown()
+                acknowledgeSyncCompletion(failureState: .failed)
+            }
+        case .idle, .done, .failed:
+            break
+        }
     }
 
     /// Map newly stored messages onto the peers that have not seen them.
