@@ -1393,14 +1393,20 @@ public final class LXMRouter {
             switch link.status {
             case .active:
                 sendOverLink(msg, link: link)
-            case .closed, .failed, .stale:
+            case .closed, .failed:
                 // Link died — open a new one after requesting the path.
                 lock.lock(); directLinks.removeValue(forKey: destHash); lock.unlock()
                 try? transport.requestPath(for: destHash)
                 msg.deliveryAttempts += 1
                 msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
-            case .pending, .handshake:
-                break // still establishing, wait
+            case .pending, .handshake, .stale:
+                // `.stale` is NOT terminal. Python branches only on ACTIVE and CLOSED
+                // (`LXMRouter.py:2784`, `:2797`); a stale link falls through both and is simply
+                // waited out, because RNS holds it for a grace tick and any inbound packet
+                // promotes it back to active (`Link.py:753-755`, `:939`). ReticulumSwift 1.10.2
+                // ported exactly that, so abandoning the link here would burn a delivery attempt
+                // and orphan a session the stack is still keeping alive.
+                break // still establishing or recoverable — wait
             }
             return
         }
@@ -1467,7 +1473,13 @@ public final class LXMRouter {
                 lock.lock(); outboundPropagationLink = nil; lock.unlock()
                 msg.deliveryAttempts += 1
                 msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
-            case .pending, .handshake:
+            case .pending, .handshake, .stale:
+                // `.stale` is NOT terminal. Python branches only on ACTIVE and CLOSED
+                // (`LXMRouter.py:2784`, `:2797`); a stale link falls through both and is simply
+                // waited out, because RNS holds it for a grace tick and any inbound packet
+                // promotes it back to active (`Link.py:753-755`, `:939`). ReticulumSwift 1.10.2
+                // ported exactly that, so abandoning the link here would burn a delivery attempt
+                // and orphan a session the stack is still keeping alive.
                 break
             }
             return
@@ -1841,7 +1853,11 @@ public final class LXMRouter {
     func reapClosedOutboundPropagationLink() -> Bool {
         lock.lock()
         guard let link = outboundPropagationLink,
-              link.status == .closed || link.status == .failed || link.status == .stale else {
+              // `.stale` is deliberately absent: since ReticulumSwift 1.10.2 a stale link is
+              // held for a grace tick and recovers on any inbound packet, so reaping it here
+              // would tear down a session the stack is still trying to save. A transfer that
+              // really has stopped is caught by `cleanLinks(syncStallTimeout:)` instead.
+              link.status == .closed || link.status == .failed else {
             lock.unlock(); return false
         }
         outboundPropagationLink = nil
