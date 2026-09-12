@@ -204,9 +204,14 @@ final class PropagationThrottleTests: XCTestCase {
             try sender.send(payload: payload)
             test.wait(for: [uploaded], timeout: 5.0)
 
-            let settled = test.expectation(description: "receiver settled")
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { settled.fulfill() }
-            test.wait(for: [settled], timeout: 2.0)
+            // The node processes the transfer after the sender's `onComplete` fires, so its
+            // outcome has to be waited for rather than assumed. Either branch leaves a mark: an
+            // accepted message is filed, a rejected one throttles its sender.
+            let deadline = Date().addingTimeInterval(5.0)
+            while Date() < deadline
+                && router.propagationEntries.isEmpty && router.throttledPeers.isEmpty {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            }
         }
 
         /// Offer the node a transient ID it does not have, over the same link, and return the
