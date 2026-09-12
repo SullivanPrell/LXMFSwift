@@ -597,7 +597,8 @@ public final class LXMessage {
 
   private func selectMethod(contentSize: Int) {
     // MDU constants (match Python defaults)
-    let encryptedPacketMaxContent = 295  // RNS.Packet.ENCRYPTED_MDU + TIMESTAMP_SIZE - LXMF_OVERHEAD + DESTINATION_LENGTH
+    // RNS.Packet.ENCRYPTED_MDU + TIMESTAMP_SIZE - LXMF_OVERHEAD + DESTINATION_LENGTH
+    let encryptedPacketMaxContent = 295
     let linkPacketMaxContent = 319  // RNS.Link.MDU - LXMF_OVERHEAD
 
     let method = desiredMethod ?? .direct

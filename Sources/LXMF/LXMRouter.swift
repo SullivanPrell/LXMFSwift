@@ -888,7 +888,8 @@ public final class LXMRouter {
       .int(Int64(propagationStampCostFlexibility)),
       .int(Int64(peeringCost)),
     ])
-    let metaMap: MsgPack.Value = .map([])  // name and other metadata can be added via subclass/config
+    // name and other metadata can be added via subclass/config
+    let metaMap: MsgPack.Value = .map([])
     return MsgPack.encode(
       .array([
         .bool(false),  // 0: legacy PN support flag
@@ -2658,7 +2659,8 @@ public final class LXMRouter {
     propagationDestination?.onLinkEstablished = nil
     isPropagationNode = false
     propagationNodeStartTime = nil
-    try? announcePropagationNode()  // mirrors Python disable_propagation() line 675 (re-announces with node_state=false)
+    // mirrors Python disable_propagation() line 675 (re-announces with node_state=false)
+    try? announcePropagationNode()
   }
 
   /// Process a resource uploaded to the propagation destination (from a client or peer).

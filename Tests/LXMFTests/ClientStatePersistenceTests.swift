@@ -64,7 +64,8 @@ final class ClientStatePersistenceTests: XCTestCase {
 
     let a = makeRouter()
     a.storagePath = dir
-    a.locallyDeliveredTransientIDs[tid] = Date().timeIntervalSince1970  // single-threaded test; direct mutation
+    // single-threaded test; direct mutation
+    a.locallyDeliveredTransientIDs[tid] = Date().timeIntervalSince1970
     a.saveLocallyDeliveredTransientIDs()
 
     let b = makeRouter()

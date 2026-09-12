@@ -92,7 +92,7 @@ final class LXMRouterAuthTests: XCTestCase {
   func testAllowMultipleHashes() {
     let router = makeRouter()
     let hashes = (0..<5).map { Data(repeating: UInt8($0 + 1), count: 16) }
-    hashes.forEach { router.allow(identityHash: $0) }
+    for h in hashes { router.allow(identityHash: h) }
     for h in hashes {
       XCTAssertTrue(router.isAllowed(identityHash: h))
     }

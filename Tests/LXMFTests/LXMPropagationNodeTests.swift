@@ -1089,7 +1089,8 @@ final class LXMPropagationNodeTests: XCTestCase {
     // Build a fake propagation resource payload: [timestamp, [lxmfDataWithStamp]].
     // Use a real message so the stamp validates.
     let srcId = Identity()
-    let dstId = clientId  // destination = the "client" in this test (reverse of what server expects)
+    // destination = the "client" in this test (reverse of what server expects)
+    let dstId = clientId
     let srcDest = try Destination(
       identity: srcId, direction: .in, kind: .single, appName: "lxmf", aspects: ["delivery"])
     let dstDest = try Destination(
