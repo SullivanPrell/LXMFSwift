@@ -140,7 +140,7 @@ final class PeerSyncContextTests: XCTestCase {
         // B's propagation destination, and its identity known to A's transport — which is what a
         // received announce would have done.
         let bPropagation = try Destination(identity: bIdentity, direction: .out, kind: .single,
-                                           appName: APP_NAME, aspects: ["propagation"])
+                                           appName: appName, aspects: ["propagation"])
         transportA.restore(identity: bIdentity, forDestination: bPropagation.hash)
 
         let peerB = routerA.addPeer(destinationHash: bPropagation.hash)

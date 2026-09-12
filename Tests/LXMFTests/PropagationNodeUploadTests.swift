@@ -37,7 +37,7 @@ final class PropagationNodeTests: XCTestCase {
         try net.announceBToA()
         let nodeIdentity = try XCTUnwrap(net.transportA.recall(identity: net.bPropagationHash))
         let nodeDest = try Destination(identity: nodeIdentity, direction: .out, kind: .single,
-                                       appName: APP_NAME, aspects: ["propagation"])
+                                       appName: appName, aspects: ["propagation"])
         let link = try Link.initiate(destination: nodeDest, transport: net.transportA)
         XCTAssertTrue(net.waitUntil("client link up", timeout: 5) { link.status == .active },
                       "precondition: the client link must establish before anything is uploaded")

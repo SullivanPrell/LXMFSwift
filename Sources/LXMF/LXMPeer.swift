@@ -132,9 +132,9 @@ public final class LXMPeer {
     /// Current state of the sync link to this peer.
     public var state: LXMPeerState {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _state
+        return unsafeState
     }
-    private var _state: LXMPeerState = .idle
+    private var unsafeState: LXMPeerState = .idle
 
     // MARK: - Strategy
 
@@ -146,55 +146,55 @@ public final class LXMPeer {
     /// takes the strategy at construction (`LXMPeer.py`) and never rebinds it.
     public var syncStrategy: LXMSyncStrategy {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _syncStrategy
+        return unsafeSyncStrategy
     }
-    private var _syncStrategy: LXMSyncStrategy
+    private var unsafeSyncStrategy: LXMSyncStrategy
 
     // MARK: - Liveness
 
     /// Whether this peer is considered reachable.
     public var alive: Bool {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _alive
+        return unsafeAlive
     }
-    private var _alive: Bool = false
+    private var unsafeAlive: Bool = false
 
     /// Unix timestamp when we last received a successful sync from this peer.
     public var lastHeard: TimeInterval {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _lastHeard
+        return unsafeLastHeard
     }
-    private var _lastHeard: TimeInterval = 0
+    private var unsafeLastHeard: TimeInterval = 0
 
     // MARK: - Timing
 
     /// Unix timestamp of the next allowed sync attempt.
     public var nextSyncAttempt: TimeInterval {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _nextSyncAttempt
+        return unsafeNextSyncAttempt
     }
-    private var _nextSyncAttempt: TimeInterval = 0
+    private var unsafeNextSyncAttempt: TimeInterval = 0
 
     /// Unix timestamp of the last sync attempt.
     public var lastSyncAttempt: TimeInterval {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _lastSyncAttempt
+        return unsafeLastSyncAttempt
     }
-    private var _lastSyncAttempt: TimeInterval = 0
+    private var unsafeLastSyncAttempt: TimeInterval = 0
 
     /// Current accumulated backoff for consecutive sync failures.
     public var syncBackoff: TimeInterval {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _syncBackoff
+        return unsafeSyncBackoff
     }
-    private var _syncBackoff: TimeInterval = 0
+    private var unsafeSyncBackoff: TimeInterval = 0
 
     /// Timebase of the remote peer node.
     public var peeringTimebase: TimeInterval {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _peeringTimebase
+        return unsafePeeringTimebase
     }
-    private var _peeringTimebase: TimeInterval = 0
+    private var unsafePeeringTimebase: TimeInterval = 0
 
     // MARK: - Rate tracking
 
@@ -212,47 +212,47 @@ public final class LXMPeer {
     /// rates. Faking a peering key, a link or an in-flight offer would fake the machine — those
     /// are `private`.
     public internal(set) var syncTransferRate: Double {
-        get { peerLock.lock(); defer { peerLock.unlock() }; return _syncTransferRate }
-        set { peerLock.lock(); _syncTransferRate = newValue; peerLock.unlock() }
+        get { peerLock.lock(); defer { peerLock.unlock() }; return unsafeSyncTransferRate }
+        set { peerLock.lock(); unsafeSyncTransferRate = newValue; peerLock.unlock() }
     }
-    private var _syncTransferRate: Double = 0
+    private var unsafeSyncTransferRate: Double = 0
 
     // MARK: - Negotiated limits (learned from peer announces)
 
     /// Per-transfer limit for outgoing messages to this peer, in KB. nil = unlimited.
     public var propagationTransferLimit: Double? {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _propagationTransferLimit
+        return unsafePropagationTransferLimit
     }
-    private var _propagationTransferLimit: Double? = nil
+    private var unsafePropagationTransferLimit: Double? = nil
 
     /// Per-sync limit for total data transferred to this peer, in KB. nil = unlimited.
     public var propagationSyncLimit: Double? {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _propagationSyncLimit
+        return unsafePropagationSyncLimit
     }
-    private var _propagationSyncLimit: Double? = nil
+    private var unsafePropagationSyncLimit: Double? = nil
 
     /// Stamp cost this peer requires for messages it will accept.
     public var propagationStampCost: Int? {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _propagationStampCost
+        return unsafePropagationStampCost
     }
-    private var _propagationStampCost: Int? = nil
+    private var unsafePropagationStampCost: Int? = nil
 
     /// Flexibility (±) on the peer's stamp cost requirement.
     public var propagationStampCostFlexibility: Int? {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _propagationStampCostFlexibility
+        return unsafePropagationStampCostFlexibility
     }
-    private var _propagationStampCostFlexibility: Int? = nil
+    private var unsafePropagationStampCostFlexibility: Int? = nil
 
     /// PoW cost required for peering with this peer.
     public var peeringCost: Int? {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _peeringCost
+        return unsafePeeringCost
     }
-    private var _peeringCost: Int? = nil
+    private var unsafePeeringCost: Int? = nil
 
     // MARK: - Peering key
 
@@ -267,26 +267,26 @@ public final class LXMPeer {
     /// any reader on another thread tear the tuple mid-write. TSan caught exactly that — the
     /// assertions all passed.
     public private(set) var peeringKey: (stamp: Data, value: Int)? {
-        get { peerLock.lock(); defer { peerLock.unlock() }; return _peeringKey }
-        set { peerLock.lock(); _peeringKey = newValue; peerLock.unlock() }
+        get { peerLock.lock(); defer { peerLock.unlock() }; return unsafePeeringKey }
+        set { peerLock.lock(); unsafePeeringKey = newValue; peerLock.unlock() }
     }
-    private var _peeringKey: (stamp: Data, value: Int)? = nil
+    private var unsafePeeringKey: (stamp: Data, value: Int)? = nil
 
     /// The value of the peering key we hold, or nil if we hold none.
     /// Python: `LXMPeer.peering_key_value()` (`LXMPeer.py:238-240`).
     public var peeringKeyValue: Int? {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _peeringKey?.value
+        return unsafePeeringKey?.value
     }
 
     /// How many key generations this peer has started. Single-flight is otherwise unobservable:
     /// eight redundant generations and one produce the same key. Lock-guarded for the same reason
     /// as `peeringKey` — it is incremented from whichever thread got through the gate.
     public private(set) var peeringKeyGenerationsStarted: Int {
-        get { peerLock.lock(); defer { peerLock.unlock() }; return _peeringKeyGenerationsStarted }
-        set { peerLock.lock(); _peeringKeyGenerationsStarted = newValue; peerLock.unlock() }
+        get { peerLock.lock(); defer { peerLock.unlock() }; return unsafePeeringKeyGenerationsStarted }
+        set { peerLock.lock(); unsafePeeringKeyGenerationsStarted = newValue; peerLock.unlock() }
     }
-    private var _peeringKeyGenerationsStarted: Int = 0
+    private var unsafePeeringKeyGenerationsStarted: Int = 0
 
     /// Set while a generation is in flight, so concurrent sync passes do not each start one.
     private var peeringKeyGenerating = false
@@ -299,46 +299,46 @@ public final class LXMPeer {
     /// Peer metadata dict (from announce app data).
     public var metadata: [String: String]? {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _metadata
+        return unsafeMetadata
     }
-    private var _metadata: [String: String]? = nil
+    private var unsafeMetadata: [String: String]? = nil
 
     // MARK: - Statistics
 
     /// Count of messages we have offered to this peer.
     public var offered: Int {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _offered
+        return unsafeOffered
     }
-    private var _offered: Int = 0
+    private var unsafeOffered: Int = 0
 
     /// Count of messages we have successfully transferred to this peer.
     public var outgoing: Int {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _outgoing
+        return unsafeOutgoing
     }
-    private var _outgoing: Int = 0
+    private var unsafeOutgoing: Int = 0
 
     /// Count of messages received from this peer.
     public var incoming: Int {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _incoming
+        return unsafeIncoming
     }
-    private var _incoming: Int = 0
+    private var unsafeIncoming: Int = 0
 
     /// Bytes received from this peer.
     public var rxBytes: Int {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _rxBytes
+        return unsafeRxBytes
     }
-    private var _rxBytes: Int = 0
+    private var unsafeRxBytes: Int = 0
 
     /// Bytes sent to this peer.
     public var txBytes: Int {
         peerLock.lock(); defer { peerLock.unlock() }
-        return _txBytes
+        return unsafeTxBytes
     }
-    private var _txBytes: Int = 0
+    private var unsafeTxBytes: Int = 0
 
     // MARK: - Sync state
 
@@ -380,16 +380,16 @@ public final class LXMPeer {
 
     // MARK: - Count cache
 
-    private var _hmCount: Int = 0
-    private var _umCount: Int = 0
-    private var _hmCountsSynced: Bool = false
-    private var _umCountsSynced: Bool = false
+    private var hmCount: Int = 0
+    private var umCount: Int = 0
+    private var hmCountsSynced: Bool = false
+    private var umCountsSynced: Bool = false
 
     // MARK: - Synchronization
     //
     // Guards this peer's OWN mutable internal state — the batched message queues
     // (`handledMessagesQueue` / `unhandledMessagesQueue`), the count caches
-    // (`_hmCount` / `_umCount` / `_hmCountsSynced` / `_umCountsSynced`), and the sync
+    // (`hmCount` / `umCount` / `hmCountsSynced` / `umCountsSynced`), and the sync
     // state machine (`state` / `link` / `nextSyncAttempt` / `lastSyncAttempt` /
     // `syncBackoff` / `currentlyTransferringMessages` / `lastOffer` / `alive` /
     // `lastHeard` / `offered` / `outgoing` / `txBytes`). The router drives these from
@@ -417,7 +417,7 @@ public final class LXMPeer {
                 syncStrategy: LXMSyncStrategy = LXMPeer.defaultSyncStrategy) {
         self.router          = router
         self.destinationHash = destinationHash
-        self._syncStrategy   = syncStrategy
+        self.unsafeSyncStrategy   = syncStrategy
     }
 
     // MARK: - Seeding, for tests (`swift_devel/bugs/055`)
@@ -438,24 +438,24 @@ public final class LXMPeer {
                        syncBackoff: TimeInterval? = nil,
                        syncStrategy: LXMSyncStrategy? = nil) {
         peerLock.lock(); defer { peerLock.unlock() }
-        if let v = state           { self._state           = v }
-        if let v = alive           { self._alive           = v }
-        if let v = lastHeard       { self._lastHeard       = v }
-        if let v = nextSyncAttempt { self._nextSyncAttempt = v }
-        if let v = lastSyncAttempt { self._lastSyncAttempt = v }
-        if let v = syncBackoff     { self._syncBackoff     = v }
-        if let v = syncStrategy    { self._syncStrategy    = v }
+        if let v = state           { self.unsafeState           = v }
+        if let v = alive           { self.unsafeAlive           = v }
+        if let v = lastHeard       { self.unsafeLastHeard       = v }
+        if let v = nextSyncAttempt { self.unsafeNextSyncAttempt = v }
+        if let v = lastSyncAttempt { self.unsafeLastSyncAttempt = v }
+        if let v = syncBackoff     { self.unsafeSyncBackoff     = v }
+        if let v = syncStrategy    { self.unsafeSyncStrategy    = v }
     }
 
     /// Seed the transfer statistics. `nil` means "leave unchanged".
     func seedStatistics(offered: Int? = nil, outgoing: Int? = nil, incoming: Int? = nil,
                         rxBytes: Int? = nil, txBytes: Int? = nil) {
         peerLock.lock(); defer { peerLock.unlock() }
-        if let v = offered  { self._offered  = v }
-        if let v = outgoing { self._outgoing = v }
-        if let v = incoming { self._incoming = v }
-        if let v = rxBytes  { self._rxBytes  = v }
-        if let v = txBytes  { self._txBytes  = v }
+        if let v = offered  { self.unsafeOffered  = v }
+        if let v = outgoing { self.unsafeOutgoing = v }
+        if let v = incoming { self.unsafeIncoming = v }
+        if let v = rxBytes  { self.unsafeRxBytes  = v }
+        if let v = txBytes  { self.unsafeTxBytes  = v }
     }
 
     /// Seed the terms a peer would otherwise learn from an announce.
@@ -476,13 +476,13 @@ public final class LXMPeer {
                             peeringTimebase: TimeInterval? = nil,
                             metadata: [String: String]?? = nil) {
         peerLock.lock(); defer { peerLock.unlock() }
-        if case .some(let v) = propagationTransferLimit        { _propagationTransferLimit        = v }
-        if case .some(let v) = propagationSyncLimit            { _propagationSyncLimit            = v }
-        if case .some(let v) = propagationStampCost            { _propagationStampCost            = v }
-        if case .some(let v) = propagationStampCostFlexibility { _propagationStampCostFlexibility = v }
-        if case .some(let v) = peeringCost                     { _peeringCost                     = v }
-        if case .some(let v) = peeringTimebase                 { _peeringTimebase                 = v }
-        if case .some(let v) = metadata                        { _metadata                        = v }
+        if case .some(let v) = propagationTransferLimit        { unsafePropagationTransferLimit        = v }
+        if case .some(let v) = propagationSyncLimit            { unsafePropagationSyncLimit            = v }
+        if case .some(let v) = propagationStampCost            { unsafePropagationStampCost            = v }
+        if case .some(let v) = propagationStampCostFlexibility { unsafePropagationStampCostFlexibility = v }
+        if case .some(let v) = peeringCost                     { unsafePeeringCost                     = v }
+        if case .some(let v) = peeringTimebase                 { unsafePeeringTimebase                 = v }
+        if case .some(let v) = metadata                        { unsafeMetadata                        = v }
     }
 
     // MARK: - Mutators the router uses (`swift_devel/bugs/055`)
@@ -511,40 +511,40 @@ public final class LXMPeer {
                              peeringCost: Int,
                              metadata: [String: String]?) {
         peerLock.lock(); defer { peerLock.unlock() }
-        _alive                           = true
-        _metadata                        = metadata
-        _peeringTimebase                 = announcedTimestamp
-        _lastHeard                       = Date().timeIntervalSince1970
-        _propagationStampCost            = stampCost
-        _propagationStampCostFlexibility = stampCostFlexibility
-        _peeringCost                     = peeringCost
-        _propagationTransferLimit        = transferLimit
+        unsafeAlive                           = true
+        unsafeMetadata                        = metadata
+        unsafePeeringTimebase                 = announcedTimestamp
+        unsafeLastHeard                       = Date().timeIntervalSince1970
+        unsafePropagationStampCost            = stampCost
+        unsafePropagationStampCostFlexibility = stampCostFlexibility
+        unsafePeeringCost                     = peeringCost
+        unsafePropagationTransferLimit        = transferLimit
         // Python: an unset sync limit means "same as the transfer limit" (`:2028-2029`).
-        _propagationSyncLimit            = syncLimit ?? transferLimit
+        unsafePropagationSyncLimit            = syncLimit ?? transferLimit
     }
 
     /// Clear the accumulated backoff so a returning peer is retried at once.
     ///
     /// Python does this on re-peering (`LXMRouter.py:2017-2018`). These two fields are the sync
-    /// machine's own: `sync()` computes `_nextSyncAttempt = now + _syncBackoff` under `peerLock`
+    /// machine's own: `sync()` computes `unsafeNextSyncAttempt = now + unsafeSyncBackoff` under `peerLock`
     /// (`:807-808`), so clearing them from the announce thread with the lock not held could tear
     /// that deadline — the most consequential of the thirteen cross-object writes, and the two
     /// the original survey missed.
     func clearSyncBackoff() {
         peerLock.lock(); defer { peerLock.unlock() }
-        _syncBackoff     = 0
-        _nextSyncAttempt = 0
+        unsafeSyncBackoff     = 0
+        unsafeNextSyncAttempt = 0
     }
 
     /// Credit this peer for an inbound propagated message.
     ///
     /// Python: `LXMRouter.py` increments `peer.incoming` and `peer.rx_bytes` on the inbound path.
-    /// The doc comment on `_incoming`/`_rxBytes` used to claim they had no runtime writer; the
+    /// The doc comment on `unsafeIncoming`/`unsafeRxBytes` used to claim they had no runtime writer; the
     /// router has always been one.
     func creditInbound(bytes: Int) {
         peerLock.lock(); defer { peerLock.unlock() }
-        _incoming += 1
-        _rxBytes  += bytes
+        unsafeIncoming += 1
+        unsafeRxBytes  += bytes
     }
 
     // MARK: - The one consumer-side write (`swift_devel/bugs/055`)
@@ -575,7 +575,7 @@ public final class LXMPeer {
     public func requestImmediateSync() {
         peerLock.lock(); defer { peerLock.unlock() }
         // Python's literal expression (`Network.py:1818`); the gate is `now > nextSyncAttempt`.
-        _nextSyncAttempt = Date().timeIntervalSince1970 - 1
+        unsafeNextSyncAttempt = Date().timeIntervalSince1970 - 1
     }
 
     // MARK: - Serialization
@@ -621,25 +621,25 @@ public final class LXMPeer {
         let peer = LXMPeer(router: router, destinationHash: destinationHash,
                            syncStrategy: strategy)
 
-        if let v = dblVal("peering_timebase")         { peer._peeringTimebase = v }
-        if case .bool(let v) = dict["alive"]           { peer._alive = v }
-        if let v = dblVal("last_heard")               { peer._lastHeard = v }
-        if let v = dblVal("last_sync_attempt")        { peer._lastSyncAttempt = v }
-        if let v = intVal("offered")                  { peer._offered = v }
-        if let v = intVal("outgoing")                 { peer._outgoing = v }
-        if let v = intVal("incoming")                 { peer._incoming = v }
-        if let v = intVal("rx_bytes")                 { peer._rxBytes = v }
-        if let v = intVal("tx_bytes")                 { peer._txBytes = v }
+        if let v = dblVal("peering_timebase")         { peer.unsafePeeringTimebase = v }
+        if case .bool(let v) = dict["alive"]           { peer.unsafeAlive = v }
+        if let v = dblVal("last_heard")               { peer.unsafeLastHeard = v }
+        if let v = dblVal("last_sync_attempt")        { peer.unsafeLastSyncAttempt = v }
+        if let v = intVal("offered")                  { peer.unsafeOffered = v }
+        if let v = intVal("outgoing")                 { peer.unsafeOutgoing = v }
+        if let v = intVal("incoming")                 { peer.unsafeIncoming = v }
+        if let v = intVal("rx_bytes")                 { peer.unsafeRxBytes = v }
+        if let v = intVal("tx_bytes")                 { peer.unsafeTxBytes = v }
         if let v = dblVal("link_establishment_rate")  { peer.linkEstablishmentRate = v }
-        if let v = dblVal("sync_transfer_rate")       { peer._syncTransferRate = v }
+        if let v = dblVal("sync_transfer_rate")       { peer.unsafeSyncTransferRate = v }
 
         // Nullable doubles
-        if let v = dblVal("propagation_transfer_limit") { peer._propagationTransferLimit = v }
+        if let v = dblVal("propagation_transfer_limit") { peer.unsafePropagationTransferLimit = v }
         // Absent or unreadable, the per-sync budget falls back to the per-transfer one
         // (`LXMPeer.py:76-79`). The announce path already does this (`LXMRouter.swift:2572`); the
         // restore path did not, so a peer reloaded from disk had no per-sync budget at all.
-        if let v = dblVal("propagation_sync_limit") { peer._propagationSyncLimit = v }
-        else { peer._propagationSyncLimit = peer.propagationTransferLimit }
+        if let v = dblVal("propagation_sync_limit") { peer.unsafePropagationSyncLimit = v }
+        else { peer.unsafePropagationSyncLimit = peer.propagationTransferLimit }
 
         // The peering key, as Python's two-element list (`:113-114`). Without this every restart
         // redoes a full proof of work for every peer — minutes each at the default cost of 18 —
@@ -653,13 +653,13 @@ public final class LXMPeer {
                 default:           return nil
                 }
             }()
-            if let keyValue { peer._peeringKey = (stamp: Data(stampBytes), value: keyValue) }
+            if let keyValue { peer.unsafePeeringKey = (stamp: Data(stampBytes), value: keyValue) }
         }
 
         // Nullable ints
-        if let v = intVal("propagation_stamp_cost")              { peer._propagationStampCost = v }
-        if let v = intVal("propagation_stamp_cost_flexibility")  { peer._propagationStampCostFlexibility = v }
-        if let v = intVal("peering_cost")                        { peer._peeringCost = v }
+        if let v = intVal("propagation_stamp_cost")              { peer.unsafePropagationStampCost = v }
+        if let v = intVal("propagation_stamp_cost_flexibility")  { peer.unsafePropagationStampCostFlexibility = v }
+        if let v = intVal("peering_cost")                        { peer.unsafePeeringCost = v }
 
         // Handled and unhandled IDs — only add if still in router's propagation_entries
         if case .array(let handledArr) = dict["handled_ids"] {
@@ -703,22 +703,22 @@ public final class LXMPeer {
         // propagated message (`swift_devel/bugs/055`) — so that read raced serialization against
         // the inbound path. They are snapshotted with the rest now.
         peerLock.lock()
-        let sAlive           = _alive
-        let sLastHeard       = _lastHeard
-        let sLastSyncAttempt = _lastSyncAttempt
-        let sOffered         = _offered
-        let sOutgoing        = _outgoing
-        let sTxBytes         = _txBytes
-        let sIncoming        = _incoming
-        let sRxBytes         = _rxBytes
-        let sPeeringTimebase = _peeringTimebase
-        let sSyncStrategy    = _syncStrategy
+        let sAlive           = unsafeAlive
+        let sLastHeard       = unsafeLastHeard
+        let sLastSyncAttempt = unsafeLastSyncAttempt
+        let sOffered         = unsafeOffered
+        let sOutgoing        = unsafeOutgoing
+        let sTxBytes         = unsafeTxBytes
+        let sIncoming        = unsafeIncoming
+        let sRxBytes         = unsafeRxBytes
+        let sPeeringTimebase = unsafePeeringTimebase
+        let sSyncStrategy    = unsafeSyncStrategy
         // The announced terms too: `adoptAnnouncedTerms` writes all five from the announce thread.
-        let sTransferLimit   = _propagationTransferLimit
-        let sSyncLimit       = _propagationSyncLimit
-        let sStampCost       = _propagationStampCost
-        let sStampFlex       = _propagationStampCostFlexibility
-        let sPeeringCost     = _peeringCost
+        let sTransferLimit   = unsafePropagationTransferLimit
+        let sSyncLimit       = unsafePropagationSyncLimit
+        let sStampCost       = unsafePropagationStampCost
+        let sStampFlex       = unsafePropagationStampCostFlexibility
+        let sPeeringCost     = unsafePeeringCost
         // `linkEstablishmentRate` too: `syncLinkEstablished` writes it under `peerLock`, so
         // reading it below the release would be the one guarded scalar left racing.
         let sLinkRate        = linkEstablishmentRate
@@ -755,11 +755,11 @@ public final class LXMPeer {
         // same file, and the peer would silently redo the work.
         //
         // `metadata` is deliberately **not** written. Python stores it as a raw dict whose name
-        // key is `PN_META_NAME`, an *integer*, with a bytes value; this port models it as
+        // key is `pnMetaName`, an *integer*, with a bytes value; this port models it as
         // `[String: String]`, which cannot express that. A Swift-shaped map would load on a Python
         // node and leave `peer.name` nil — worse than absent, because it looks like data.
         peerLock.lock()
-        let key = _peeringKey
+        let key = unsafePeeringKey
         peerLock.unlock()
         if let key { kv("peering_key", .array([.bytes(key.stamp), .int(Int64(key.value))])) }
         else { kv("peering_key", .nil) }
@@ -783,8 +783,8 @@ public final class LXMPeer {
         // then take `peerLock` only to refresh the cache.
         let result = router.peerHandledTransientIDs(for: destinationHash)
         peerLock.lock()
-        _hmCount = result.count
-        _hmCountsSynced = true
+        hmCount = result.count
+        hmCountsSynced = true
         peerLock.unlock()
         return result
     }
@@ -795,31 +795,31 @@ public final class LXMPeer {
         guard let router else { return [] }
         let result = router.peerUnhandledTransientIDs(for: destinationHash)
         peerLock.lock()
-        _umCount = result.count
-        _umCountsSynced = true
+        umCount = result.count
+        umCountsSynced = true
         peerLock.unlock()
         return result
     }
 
     /// Cached handled message count (may be stale; refresh via `handledMessages`).
     public var handledMessageCount: Int {
-        peerLock.lock(); let synced = _hmCountsSynced; peerLock.unlock()
+        peerLock.lock(); let synced = hmCountsSynced; peerLock.unlock()
         if !synced { _ = handledMessages }   // refreshes cache (self-locks)
         peerLock.lock(); defer { peerLock.unlock() }
-        return _hmCount
+        return hmCount
     }
 
     /// Cached unhandled message count (may be stale; refresh via `unhandledMessages`).
     public var unhandledMessageCount: Int {
-        peerLock.lock(); let synced = _umCountsSynced; peerLock.unlock()
+        peerLock.lock(); let synced = umCountsSynced; peerLock.unlock()
         if !synced { _ = unhandledMessages }   // refreshes cache (self-locks)
         peerLock.lock(); defer { peerLock.unlock() }
-        return _umCount
+        return umCount
     }
 
     /// Acceptance rate (outgoing / offered). 0.0 when offered == 0.
     public var acceptanceRate: Double {
-        peerLock.lock(); let o = _offered, g = _outgoing; peerLock.unlock()
+        peerLock.lock(); let o = unsafeOffered, g = unsafeOutgoing; peerLock.unlock()
         return o == 0 ? 0.0 : Double(g) / Double(o)
     }
 
@@ -831,7 +831,7 @@ public final class LXMPeer {
         guard let router else { return }
         // Router accessor first (takes the router lock); then `peerLock` for the cache.
         if router.peerAddHandled(transientID, destinationHash: destinationHash) {
-            peerLock.lock(); _hmCountsSynced = false; peerLock.unlock()
+            peerLock.lock(); hmCountsSynced = false; peerLock.unlock()
         }
     }
 
@@ -840,7 +840,7 @@ public final class LXMPeer {
     public func addUnhandledMessage(_ transientID: Data) {
         guard let router else { return }
         if router.peerAddUnhandled(transientID, destinationHash: destinationHash) {
-            peerLock.lock(); _umCount += 1; peerLock.unlock()
+            peerLock.lock(); umCount += 1; peerLock.unlock()
         }
     }
 
@@ -849,7 +849,7 @@ public final class LXMPeer {
     public func removeHandledMessage(_ transientID: Data) {
         guard let router else { return }
         if router.peerRemoveHandled(transientID, destinationHash: destinationHash) {
-            peerLock.lock(); _hmCountsSynced = false; peerLock.unlock()
+            peerLock.lock(); hmCountsSynced = false; peerLock.unlock()
         }
     }
 
@@ -858,7 +858,7 @@ public final class LXMPeer {
     public func removeUnhandledMessage(_ transientID: Data) {
         guard let router else { return }
         if router.peerRemoveUnhandled(transientID, destinationHash: destinationHash) {
-            peerLock.lock(); _umCountsSynced = false; peerLock.unlock()
+            peerLock.lock(); umCountsSynced = false; peerLock.unlock()
         }
     }
 
@@ -937,10 +937,10 @@ public final class LXMPeer {
     /// Takes `peerLock` — never call it with the lock held.
     private func peeringKeyReady() -> Bool {
         peerLock.lock(); defer { peerLock.unlock() }
-        guard let cost = _peeringCost, cost > 0 else { return false }
-        guard let key = _peeringKey else { return false }
+        guard let cost = unsafePeeringCost, cost > 0 else { return false }
+        guard let key = unsafePeeringKey else { return false }
         if key.value >= cost { return true }
-        _peeringKey = nil
+        unsafePeeringKey = nil
         return false
     }
 
@@ -961,15 +961,15 @@ public final class LXMPeer {
     @discardableResult
     func generatePeeringKey() -> Bool {
         peerLock.lock()
-        guard let cost = _peeringCost, cost > 0 else { peerLock.unlock(); return false }
+        guard let cost = unsafePeeringCost, cost > 0 else { peerLock.unlock(); return false }
         // Any existing key is accepted here, exactly as Python does (`:245`) — **not**
         // `key.value >= cost`. Deciding a key's sufficiency is `peeringKeyReady()`'s job, and it
         // discards one that has fallen short. Re-deciding it here would make that discard dead
         // code, and dead code is how the reset stops being tested.
-        if _peeringKey != nil { peerLock.unlock(); return true }
+        if unsafePeeringKey != nil { peerLock.unlock(); return true }
         guard !peeringKeyGenerating else { peerLock.unlock(); return false }
         peeringKeyGenerating = true
-        _peeringKeyGenerationsStarted += 1
+        unsafePeeringKeyGenerationsStarted += 1
         peerLock.unlock()
 
         defer { peerLock.lock(); peeringKeyGenerating = false; peerLock.unlock() }
@@ -985,7 +985,7 @@ public final class LXMPeer {
 
         guard generated.value >= cost else { return false }   // `:260-261`
         peerLock.lock()
-        _peeringKey = generated
+        unsafePeeringKey = generated
         peerLock.unlock()
         return true
     }
@@ -1007,20 +1007,20 @@ public final class LXMPeer {
         // Read under the lock, then release it before `peeringKeyReady()` — that self-locks, and
         // `peerLock` is a non-reentrant `NSLock`.
         peerLock.lock()
-        let stampCostsKnown = _propagationStampCost != nil
-                           && _propagationStampCostFlexibility != nil
-                           && _peeringCost != nil
+        let stampCostsKnown = unsafePropagationStampCost != nil
+                           && unsafePropagationStampCostFlexibility != nil
+                           && unsafePeeringCost != nil
         peerLock.unlock()
 
         let keyReady = peeringKeyReady()   // self-locks; may discard a now-too-cheap key
 
         peerLock.lock()
-        _lastSyncAttempt = now
-        let syncTimeReached = now > _nextSyncAttempt
+        unsafeLastSyncAttempt = now
+        let syncTimeReached = now > unsafeNextSyncAttempt
         let syncChecks = syncTimeReached && stampCostsKnown && keyReady
         guard syncChecks else {
             // Postpone; if time has passed but last attempt > last_heard, mark not alive
-            if !syncTimeReached && now > _lastHeard { _alive = false }
+            if !syncTimeReached && now > unsafeLastHeard { unsafeAlive = false }
             peerLock.unlock()
 
             // The branch that was missing entirely: without a key nothing downstream can ever
@@ -1057,7 +1057,7 @@ public final class LXMPeer {
         peerLock.lock()
         // A transfer already in flight; a second offer would race its index (`:315-317`).
         guard currentlyTransferringMessages == nil else { peerLock.unlock(); return }
-        let currentState = _state
+        let currentState = unsafeState
 
         switch currentState {
         case .idle:
@@ -1069,14 +1069,14 @@ public final class LXMPeer {
             // transition, and `syncPeers` only ever selects `.idle` (`LXMRouter.swift:3038`), so
             // the peer is then never dialled again. There must be no state write after the
             // callouts in this branch.
-            _syncBackoff += LXMPeer.syncBackoffStep
-            _nextSyncAttempt = now + _syncBackoff
-            _state = .linkEstablishing
+            unsafeSyncBackoff += LXMPeer.syncBackoffStep
+            unsafeNextSyncAttempt = now + unsafeSyncBackoff
+            unsafeState = .linkEstablishing
             peerLock.unlock()
 
             guard let link = try? Link.initiate(destination: ctx.destination,
                                                 transport: ctx.transport) else {
-                peerLock.lock(); _state = .idle; peerLock.unlock()
+                peerLock.lock(); unsafeState = .idle; peerLock.unlock()
                 return
             }
 
@@ -1120,12 +1120,12 @@ public final class LXMPeer {
         }
 
         peerLock.lock()
-        _state = .linkReady
+        unsafeState = .linkReady
         // Required, not cosmetic: the re-entrant `sync()` below re-evaluates `now >
         // nextSyncAttempt`, and the `.idle` branch has just pushed that a backoff step into the
         // future. Without the reset the pump fails its own gate and the link idles until the
         // reaper collects it (`:541`).
-        _nextSyncAttempt = 0
+        unsafeNextSyncAttempt = 0
         peerLock.unlock()
 
         sync()   // `:542` — re-entry 1
@@ -1135,7 +1135,7 @@ public final class LXMPeer {
     private func syncLinkClosed(_ link: Link) {
         peerLock.lock()
         self.link = nil
-        _state = .idle
+        unsafeState = .idle
         peerLock.unlock()
     }
 
@@ -1150,14 +1150,14 @@ public final class LXMPeer {
     func reapStalledSyncLink(maxInactivity: TimeInterval) {
         peerLock.lock()
         let current = link
-        let isStalled = current != nil && _state != .idle
+        let isStalled = current != nil && unsafeState != .idle
         peerLock.unlock()
 
         guard isStalled, let current, current.noDataFor() > maxInactivity else { return }
         try? current.teardown()            // callout — may re-enter syncLinkClosed
         peerLock.lock()
         link = nil
-        _state = .idle
+        unsafeState = .idle
         peerLock.unlock()
     }
 
@@ -1172,13 +1172,13 @@ public final class LXMPeer {
         // The link is up and answering, which is itself proof of life (`:328-330`). Committed
         // before any of the work below, because the reference commits it before the work below.
         peerLock.lock()
-        _alive = true
-        _lastHeard = ctx.now()
-        _syncBackoff = 0
-        let minAcceptedCost = max(0, (_propagationStampCost ?? 0)
-                                     - (_propagationStampCostFlexibility ?? 0))
-        let transferLimit = _propagationTransferLimit
-        let syncLimit     = _propagationSyncLimit
+        unsafeAlive = true
+        unsafeLastHeard = ctx.now()
+        unsafeSyncBackoff = 0
+        let minAcceptedCost = max(0, (unsafePropagationStampCost ?? 0)
+                                     - (unsafePropagationStampCostFlexibility ?? 0))
+        let transferLimit = unsafePropagationTransferLimit
+        let syncLimit     = unsafePropagationSyncLimit
         peerLock.unlock()
 
         var candidates: [(id: Data, weight: Double, size: Int)] = []
@@ -1237,9 +1237,9 @@ public final class LXMPeer {
         // cannot deliver a response synchronously from inside it. This transport can. Committing
         // first is identical over a real network and correct over a synchronous one.
         peerLock.lock()
-        guard let key = _peeringKey else { peerLock.unlock(); return }
+        guard let key = unsafePeeringKey else { peerLock.unlock(); return }
         lastOffer = offerIDs
-        _state = .requestSent
+        unsafeState = .requestSent
         let link = self.link
         peerLock.unlock()
 
@@ -1279,7 +1279,7 @@ public final class LXMPeer {
 
         peerLock.lock()
         self.link = nil
-        _state = .idle
+        unsafeState = .idle
         peerLock.unlock()
     }
 
@@ -1289,7 +1289,7 @@ public final class LXMPeer {
     /// **with its side effects** — the branches are not merely classified, they are carried out.
     private func offerResponse(_ data: Data, _ ctx: PeerSyncContext) {
         peerLock.lock()
-        _state = .responseReceived
+        unsafeState = .responseReceived
         let offeredIDs = lastOffer
         peerLock.unlock()
 
@@ -1319,7 +1319,7 @@ public final class LXMPeer {
                 guard !alreadyRetried else { return abandonSync() }
 
                 try? link.identify(as: ctx.routerIdentity)
-                peerLock.lock(); _state = .linkReady; peerLock.unlock()
+                peerLock.lock(); unsafeState = .linkReady; peerLock.unlock()
                 sync()                            // re-entry 2
                 return
 
@@ -1333,7 +1333,7 @@ public final class LXMPeer {
                 // Back off by the peer's throttle window rather than retrying into a refusal
                 // (`:421-425`).
                 peerLock.lock()
-                _nextSyncAttempt = ctx.now() + ctx.throttleWait
+                unsafeNextSyncAttempt = ctx.now() + ctx.throttleWait
                 peerLock.unlock()
                 return
 
@@ -1347,7 +1347,7 @@ public final class LXMPeer {
                 //
                 // Do not "restore parity" by routing this into the wants-nothing path. That marks
                 // every offered message as delivered to a node that never received it.
-                peerLock.lock(); _peeringKey = nil; peerLock.unlock()
+                peerLock.lock(); unsafePeeringKey = nil; peerLock.unlock()
                 return abandonSync()
 
             default:
@@ -1394,12 +1394,12 @@ public final class LXMPeer {
             // Nothing to send. Note `offered` accrues here but the persistent re-sync does not —
             // that belongs only to a completed transfer (`:475-480`).
             peerLock.lock()
-            self._offered += offeredIDs.count
+            self.unsafeOffered += offeredIDs.count
             let link = self.link
             peerLock.unlock()
 
             if let link { try? link.teardown() }
-            peerLock.lock(); self.link = nil; _state = .idle; peerLock.unlock()
+            peerLock.lock(); self.link = nil; unsafeState = .idle; peerLock.unlock()
             return
         }
 
@@ -1417,7 +1417,7 @@ public final class LXMPeer {
 
         peerLock.lock()
         self.link = nil
-        _state = .idle
+        unsafeState = .idle
         peerLock.unlock()
     }
 
@@ -1431,11 +1431,11 @@ public final class LXMPeer {
         let bodies = ids.compactMap { ctx.messageBytes($0) }
         guard !bodies.isEmpty else {
             peerLock.lock()
-            self._offered += lastOffer.count
+            self.unsafeOffered += lastOffer.count
             let link = self.link
             peerLock.unlock()
             if let link { try? link.teardown() }
-            peerLock.lock(); self.link = nil; _state = .idle; peerLock.unlock()
+            peerLock.lock(); self.link = nil; unsafeState = .idle; peerLock.unlock()
             return
         }
 
@@ -1467,7 +1467,7 @@ public final class LXMPeer {
         peerLock.lock()
         currentlyTransferringMessages = ids
         currentSyncTransferStarted    = ctx.now()
-        _state = .resourceTransferring
+        unsafeState = .resourceTransferring
         peerLock.unlock()
 
         do {
@@ -1501,7 +1501,7 @@ public final class LXMPeer {
             if let link { try? link.teardown() }
             peerLock.lock()
             self.link = nil
-            _state = .idle
+            unsafeState = .idle
             currentlyTransferringMessages = nil
             currentSyncTransferStarted    = nil
             peerLock.unlock()
@@ -1514,7 +1514,7 @@ public final class LXMPeer {
             if let link { try? link.teardown() }
             peerLock.lock()
             self.link = nil
-            _state = .idle
+            unsafeState = .idle
             peerLock.unlock()
             return
         }
@@ -1528,27 +1528,27 @@ public final class LXMPeer {
 
         peerLock.lock()
         self.link = nil
-        _state = .idle
+        unsafeState = .idle
         // Guarded, as Python guards it (`:509`) — an aborted transfer can conclude with no start
         // time, and dividing by `now - nil` is not a thing that has a sensible answer.
         if let startedAt {
-            let elapsed = ctx_elapsed(since: startedAt)
+            let elapsed = secondsSince(startedAt)
             if elapsed > 0 {
                 // Compressed size: this is a measure of the link, and `syncPeers` ranks its
                 // candidate pool by it (`LXMRouter.swift:3060`).
-                _syncTransferRate = Double(transfer.transferSize * 8) / elapsed
+                unsafeSyncTransferRate = Double(transfer.transferSize * 8) / elapsed
             }
         }
-        _alive     = true
-        _lastHeard = Date().timeIntervalSince1970
-        _offered  += offerCount
-        _outgoing += transferring.count
+        unsafeAlive     = true
+        unsafeLastHeard = Date().timeIntervalSince1970
+        unsafeOffered  += offerCount
+        unsafeOutgoing += transferring.count
         // Uncompressed: `tx_bytes` is what an operator reads to size a link, so it counts the
         // payload, not what the wire happened to squeeze it to (`:518`).
-        _txBytes  += transfer.dataSize
+        unsafeTxBytes  += transfer.dataSize
         currentlyTransferringMessages = nil
         currentSyncTransferStarted    = nil
-        let strategy = _syncStrategy
+        let strategy = unsafeSyncStrategy
         peerLock.unlock()
 
         // Drain the rest of the backlog now rather than waiting 24 s for the next scheduled pass
@@ -1559,7 +1559,7 @@ public final class LXMPeer {
         }
     }
 
-    private func ctx_elapsed(since start: TimeInterval) -> TimeInterval {
+    private func secondsSince(_ start: TimeInterval) -> TimeInterval {
         Date().timeIntervalSince1970 - start
     }
 
@@ -1568,11 +1568,11 @@ public final class LXMPeer {
 
     /// Display name from peer announce metadata.
     public var name: String? {
-        // Takes `peerLock` because `_metadata` is now lock-guarded: the router writes it from the
+        // Takes `peerLock` because `unsafeMetadata` is now lock-guarded: the router writes it from the
         // announce-callback thread via `adoptAnnouncedTerms` (`swift_devel/bugs/055`). Reading it
         // here unguarded would be the same defect this change removes, wearing the fix's clothes.
         peerLock.lock(); defer { peerLock.unlock() }
-        guard let metadata = _metadata else { return nil }
+        guard let metadata = unsafeMetadata else { return nil }
         return metadata["name"]
     }
 }

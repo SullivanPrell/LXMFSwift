@@ -4,8 +4,8 @@ import LXMF
 import ReticulumSwift
 
 /// Tests for missing LXMF module-level constants and helper functions:
-///   - SF_COMPRESSION
-///   - PN_META_* constants
+///   - sfCompression
+///   - pnMeta* constants
 ///   - RENDERER_* constants
 ///   - pnNameFromAppData
 ///   - pnStampCostFromAppData
@@ -15,18 +15,18 @@ final class LXMFConstantsTests: XCTestCase {
     // MARK: - Supported Features
 
     func testSFCompressionIsZero() {
-        XCTAssertEqual(SF_COMPRESSION, 0x00)
+        XCTAssertEqual(sfCompression, 0x00)
     }
 
     // MARK: - Propagation Node Metadata keys
 
-    func testPNMetaVersion() { XCTAssertEqual(PN_META_VERSION,        0x00) }
-    func testPNMetaName()    { XCTAssertEqual(PN_META_NAME,           0x01) }
-    func testPNMetaSyncStratum() { XCTAssertEqual(PN_META_SYNC_STRATUM, 0x02) }
-    func testPNMetaSyncThrottle() { XCTAssertEqual(PN_META_SYNC_THROTTLE, 0x03) }
-    func testPNMetaAuthBand() { XCTAssertEqual(PN_META_AUTH_BAND,     0x04) }
-    func testPNMetaUtilPressure() { XCTAssertEqual(PN_META_UTIL_PRESSURE, 0x05) }
-    func testPNMetaCustom()  { XCTAssertEqual(PN_META_CUSTOM,         0xFF) }
+    func testPNMetaVersion() { XCTAssertEqual(pnMetaVersion,        0x00) }
+    func testPNMetaName()    { XCTAssertEqual(pnMetaName,           0x01) }
+    func testPNMetaSyncStratum() { XCTAssertEqual(pnMetaSyncStratum, 0x02) }
+    func testPNMetaSyncThrottle() { XCTAssertEqual(pnMetaSyncThrottle, 0x03) }
+    func testPNMetaAuthBand() { XCTAssertEqual(pnMetaAuthBand,     0x04) }
+    func testPNMetaUtilPressure() { XCTAssertEqual(pnMetaUtilPressure, 0x05) }
+    func testPNMetaCustom()  { XCTAssertEqual(pnMetaCustom,         0xFF) }
 
     // MARK: - Renderer mode constants
 
@@ -47,11 +47,11 @@ final class LXMFConstantsTests: XCTestCase {
 
     func testPNNameFromAppDataValidMsgpack() throws {
         // Build a valid PN announce app_data: msgpack array with at least 7 elements
-        // [timebase_int, bool, int, int, [stamp_cost, flexibility, peering_cost], {PN_META_NAME: "TestNode"}]
+        // [timebase_int, bool, int, int, [stamp_cost, flexibility, peering_cost], {pnMetaName: "TestNode"}]
         // Actually Python format: [display_name_bytes, timebase, enabled, transfer_limit, sync_limit,
         //                          [stamp_cost, flexibility, peering_cost], metadata_dict]
         let pairs: [(MsgPack.Value, MsgPack.Value)] = [
-            (.uint(UInt64(PN_META_NAME)), .bytes(Data("TestNode".utf8)))
+            (.uint(UInt64(pnMetaName)), .bytes(Data("TestNode".utf8)))
         ]
         let appData = MsgPack.encode(.array([
             .nil,              // display_name (unused in PN announce)

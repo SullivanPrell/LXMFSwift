@@ -17,7 +17,7 @@ public final class LXMFDeliveryAnnounceHandler: AnnounceHandler {
 
     /// Aspect filter that selects delivery announcements.
     /// Python: `self.aspect_filter = APP_NAME + ".delivery"`.
-    public let aspectFilter: String? = APP_NAME + ".delivery"
+    public let aspectFilter: String? = appName + ".delivery"
 
     /// Whether this handler should receive path-response announces.
     /// Python: `self.receive_path_responses = True`.
@@ -71,7 +71,7 @@ public final class LXMFPropagationAnnounceHandler: AnnounceHandler {
 
     /// Aspect filter that selects propagation node announcements.
     /// Python: `self.aspect_filter = APP_NAME + ".propagation"`.
-    public let aspectFilter: String? = APP_NAME + ".propagation"
+    public let aspectFilter: String? = appName + ".propagation"
 
     /// Whether this handler should receive path-response announces.
     /// Python: `self.receive_path_responses = True`.

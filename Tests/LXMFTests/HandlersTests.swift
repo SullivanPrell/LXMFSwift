@@ -54,13 +54,13 @@ final class HandlersTests: XCTestCase {
     // MARK: - Aspect filter matches expected LXMF app name
 
     func testDeliveryAspectFilterMatchesAPPNAME() {
-        // APP_NAME is the module-level "lxmf" constant from LXMF.swift
+        // appName is the module-level "lxmf" constant from LXMF.swift
         let handler = LXMFDeliveryAnnounceHandler(router: makeRouter())
-        XCTAssertTrue(handler.aspectFilter!.hasPrefix(APP_NAME + "."))
+        XCTAssertTrue(handler.aspectFilter!.hasPrefix(appName + "."))
     }
 
     func testPropagationAspectFilterMatchesAPPNAME() {
         let handler = LXMFPropagationAnnounceHandler(router: makeRouter())
-        XCTAssertTrue(handler.aspectFilter!.hasPrefix(APP_NAME + "."))
+        XCTAssertTrue(handler.aspectFilter!.hasPrefix(appName + "."))
     }
 }

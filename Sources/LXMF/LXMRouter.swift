@@ -121,9 +121,9 @@ public final class LXMRouter {
     /// snapshot is of the *array*; its elements are `LXMessage` class references.
     var pendingOutbound: [LXMessage] {
         lock.lock(); defer { lock.unlock() }
-        return _pendingOutbound
+        return unsafePendingOutbound
     }
-    private var _pendingOutbound: [LXMessage] = []
+    private var unsafePendingOutbound: [LXMessage] = []
 
     /// Delivered or failed messages available for the caller.
     public var onMessageReceived: ((LXMessage) -> Void)?
@@ -247,7 +247,7 @@ public final class LXMRouter {
 
     /// Whether stamp enforcement is enabled for inbound messages.
     /// Mirrors Python's `LXMRouter.enforce_stamps` flag.
-    private var enforceStamps_: Bool = false
+    private var stampsEnforced: Bool = false
 
     /// Destinations whose inbound messages should be silently ignored.
     /// Mirrors Python's `LXMRouter.ignored_list`.
@@ -285,7 +285,7 @@ public final class LXMRouter {
 
     /// Inbound tickets we generated for remote peers: [destHash: [ticket: expiry]].
     /// Mirrors Python's `available_tickets["inbound"]`.
-    private var inboundTickets_: [Data: [Data: TimeInterval]] = [:]
+    private var inboundTickets: [Data: [Data: TimeInterval]] = [:]
 
     /// Timestamps of the last ticket delivered to each destination.
     /// Mirrors Python's `available_tickets["last_deliveries"]`.
@@ -329,9 +329,9 @@ public final class LXMRouter {
     /// retain, not a copy, so it costs nothing until the router's next write.
     public var propagationEntries: [Data: PropagationEntry] {
         lock.lock(); defer { lock.unlock() }
-        return _propagationEntries
+        return unsafePropagationEntries
     }
-    private var _propagationEntries: [Data: PropagationEntry] = [:]
+    private var unsafePropagationEntries: [Data: PropagationEntry] = [:]
 
     /// All known propagation peers, keyed by destination hash.
     /// Python: `LXMRouter.peers`.
@@ -344,9 +344,9 @@ public final class LXMRouter {
     /// why `LXMPeer`'s own properties are in scope for the same change.
     public var peers: [Data: LXMPeer] {
         lock.lock(); defer { lock.unlock() }
-        return _peers
+        return unsafePeers
     }
-    private var _peers: [Data: LXMPeer] = [:]
+    private var unsafePeers: [Data: LXMPeer] = [:]
 
     /// Whether to enforce ratchet usage on registered delivery destinations.
     /// When true, register() calls enforceRatchets() on the delivery destination
@@ -404,9 +404,9 @@ public final class LXMRouter {
     /// Python: `LXMRouter.MAX_PEERS = 20` (`LXMRouter.py:43`), per-node at `:206`.
     public var maxPeers: Int {
         lock.lock(); defer { lock.unlock() }
-        return _maxPeers
+        return unsafeMaxPeers
     }
-    private var _maxPeers: Int = LXMRouter.defaultMaxPeers
+    private var unsafeMaxPeers: Int = LXMRouter.defaultMaxPeers
 
     /// The highest peering cost this node is willing to pay to peer with a remote.
     /// Python: `LXMRouter.max_peering_cost` (`:150`), applied at `:2005`.
@@ -419,9 +419,9 @@ public final class LXMRouter {
     /// unreachability cull (`:2140`) — losing it is not something discovery can repair.
     public var staticPeers: Set<Data> {
         lock.lock(); defer { lock.unlock() }
-        return _staticPeers
+        return unsafeStaticPeers
     }
-    private var _staticPeers: Set<Data> = []
+    private var unsafeStaticPeers: Set<Data> = []
 
     /// Whether rotation drops only unreachable peers when any exist, rather than considering
     /// merely-waiting ones alongside them.
@@ -439,23 +439,23 @@ public final class LXMRouter {
     /// hash. Python: `LXMRouter.throttled_peers` (`LXMRouter.py:154`).
     public var throttledPeers: [Data: TimeInterval] {
         lock.lock(); defer { lock.unlock() }
-        return _throttledPeers
+        return unsafeThrottledPeers
     }
-    private var _throttledPeers: [Data: TimeInterval] = [:]
+    private var unsafeThrottledPeers: [Data: TimeInterval] = [:]
 
     /// Active inbound propagation links from peers/clients.
     public var activePropagationLinks: [ObjectIdentifier: Link] {
         lock.lock(); defer { lock.unlock() }
-        return _activePropagationLinks
+        return unsafeActivePropagationLinks
     }
-    private var _activePropagationLinks: [ObjectIdentifier: Link] = [:]
+    private var unsafeActivePropagationLinks: [ObjectIdentifier: Link] = [:]
 
     /// Link IDs that have been validated as coming from authenticated peers.
     public var validatedPeerLinks: [ObjectIdentifier: Bool] {
         lock.lock(); defer { lock.unlock() }
-        return _validatedPeerLinks
+        return unsafeValidatedPeerLinks
     }
-    private var _validatedPeerLinks: [ObjectIdentifier: Bool] = [:]
+    private var unsafeValidatedPeerLinks: [ObjectIdentifier: Bool] = [:]
 
     /// Queue of transient IDs waiting to be distributed to peers.
     /// Transient IDs awaiting fan-out to peers, each with the peer it arrived from.
@@ -465,37 +465,37 @@ public final class LXMRouter {
     /// to whoever supplied it.
     public var peerDistributionQueue: [(transientID: Data, fromPeer: LXMPeer?)] {
         lock.lock(); defer { lock.unlock() }
-        return _peerDistributionQueue
+        return unsafePeerDistributionQueue
     }
-    private var _peerDistributionQueue: [(transientID: Data, fromPeer: LXMPeer?)] = []
+    private var unsafePeerDistributionQueue: [(transientID: Data, fromPeer: LXMPeer?)] = []
 
     /// Number of messages received from unpeered clients.
     public var clientPropagationMessagesReceived: Int {
         lock.lock(); defer { lock.unlock() }
-        return _clientPropagationMessagesReceived
+        return unsafeClientPropagationMessagesReceived
     }
-    private var _clientPropagationMessagesReceived: Int = 0
+    private var unsafeClientPropagationMessagesReceived: Int = 0
 
     /// Number of messages served to clients.
     public var clientPropagationMessagesServed: Int {
         lock.lock(); defer { lock.unlock() }
-        return _clientPropagationMessagesServed
+        return unsafeClientPropagationMessagesServed
     }
-    private var _clientPropagationMessagesServed: Int = 0
+    private var unsafeClientPropagationMessagesServed: Int = 0
 
     /// Number of propagation messages from unpeered nodes.
     public var unpeeredPropagationIncoming: Int {
         lock.lock(); defer { lock.unlock() }
-        return _unpeeredPropagationIncoming
+        return unsafeUnpeeredPropagationIncoming
     }
-    private var _unpeeredPropagationIncoming: Int = 0
+    private var unsafeUnpeeredPropagationIncoming: Int = 0
 
     /// Bytes received from unpeered propagation sources.
     public var unpeeredPropagationRxBytes: Int {
         lock.lock(); defer { lock.unlock() }
-        return _unpeeredPropagationRxBytes
+        return unsafeUnpeeredPropagationRxBytes
     }
-    private var _unpeeredPropagationRxBytes: Int = 0
+    private var unsafeUnpeeredPropagationRxBytes: Int = 0
 
     // Announce handlers kept alive so ARC doesn't release them.
     private var deliveryAnnounceHandler: DeliveryAnnounceHandler?
@@ -592,7 +592,7 @@ public final class LXMRouter {
             identity: identity,
             direction: .in,
             kind: .single,
-            appName: APP_NAME,
+            appName: appName,
             aspects: ["delivery"]
         )
         lock.lock()
@@ -618,7 +618,7 @@ public final class LXMRouter {
         // Create the propagation destination once (mirrors Python __init__ line 172).
         if isFirst, let propDest = try? Destination(
             identity: identity, direction: .in, kind: .single,
-            appName: APP_NAME, aspects: ["propagation"]
+            appName: appName, aspects: ["propagation"]
         ) {
             lock.lock(); propagationDestination = propDest; lock.unlock()
             transport.register(destination: propDest)
@@ -746,7 +746,7 @@ public final class LXMRouter {
         }
 
         // Supported functionality flags (Python: peer_data[2] = [SF_COMPRESSION])
-        let supportedFunctionality: MsgPack.Value = .array([.uint(UInt64(SF_COMPRESSION))])
+        let supportedFunctionality: MsgPack.Value = .array([.uint(UInt64(sfCompression))])
 
         return MsgPack.encode(.array([displayNameValue, stampCostValue, supportedFunctionality]))
     }
@@ -891,7 +891,7 @@ public final class LXMRouter {
         }
 
         // Reuse an existing inbound ticket if it has enough validity remaining.
-        if let existing = inboundTickets_[destinationHash] {
+        if let existing = inboundTickets[destinationHash] {
             for (ticket, ticketExpiry) in existing {
                 let validityLeft = ticketExpiry - now
                 if validityLeft > LXMessage.ticketRenew {
@@ -904,7 +904,7 @@ public final class LXMRouter {
         let newTicket = SecureRandom.bytes(LXMessage.ticketLength)
         let newExpiry = now + expiry
 
-        inboundTickets_[destinationHash, default: [:]][newTicket] = newExpiry
+        inboundTickets[destinationHash, default: [:]][newTicket] = newExpiry
         lock.unlock()
         saveAvailableTickets()   // persist the newly issued ticket across restarts
         return (expiry: newExpiry, ticket: newTicket)
@@ -916,7 +916,7 @@ public final class LXMRouter {
     public func getInboundTickets(destinationHash: Data) -> [Data]? {
         lock.lock(); defer { lock.unlock() }
         let now = Date().timeIntervalSince1970
-        guard let tickets = inboundTickets_[destinationHash] else { return nil }
+        guard let tickets = inboundTickets[destinationHash] else { return nil }
         let valid = tickets.compactMap { (ticket, expiry) -> Data? in
             expiry > now ? ticket : nil
         }
@@ -937,8 +937,8 @@ public final class LXMRouter {
         outboundTickets = outboundTickets.filter { $0.value.expiry > now }
 
         // Clean inbound tickets (respects grace period)
-        for (destHash, tickets) in inboundTickets_ {
-            inboundTickets_[destHash] = tickets.filter { $0.value + LXMessage.ticketGrace > now }
+        for (destHash, tickets) in inboundTickets {
+            inboundTickets[destHash] = tickets.filter { $0.value + LXMessage.ticketGrace > now }
         }
     }
 
@@ -1021,14 +1021,14 @@ public final class LXMRouter {
 
     /// Enable stamp enforcement for inbound messages.
     /// Mirrors Python's `LXMRouter.enforce_stamps()`.
-    public func enforceStamps() { enforceStamps_ = true }
+    public func enforceStamps() { stampsEnforced = true }
 
     /// Disable stamp enforcement for inbound messages.
     /// Mirrors Python's `LXMRouter.ignore_stamps()`.
-    public func ignoreStamps()  { enforceStamps_ = false }
+    public func ignoreStamps()  { stampsEnforced = false }
 
     /// Returns whether stamp enforcement is currently active.
-    public func isEnforcingStamps() -> Bool { enforceStamps_ }
+    public func isEnforcingStamps() -> Bool { stampsEnforced }
 
     // MARK: - Ignore list API
 
@@ -1147,10 +1147,10 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.cancel_outbound(message_id)`.
     public func cancelOutbound(messageID: Data) {
         lock.lock()
-        if let idx = _pendingOutbound.firstIndex(where: { $0.messageID == messageID }) {
-            _pendingOutbound[idx].state = .cancelled
+        if let idx = unsafePendingOutbound.firstIndex(where: { $0.messageID == messageID }) {
+            unsafePendingOutbound[idx].state = .cancelled
         }
-        _pendingOutbound.removeAll { $0.messageID == messageID && $0.state == .cancelled }
+        unsafePendingOutbound.removeAll { $0.messageID == messageID && $0.state == .cancelled }
         lock.unlock()
     }
 
@@ -1159,7 +1159,7 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.get_outbound_progress(lxm_hash)`.
     public func getOutboundProgress(lxmHash: Data) -> Double? {
         lock.lock(); defer { lock.unlock() }
-        return _pendingOutbound.first { $0.hash == lxmHash }?.progress
+        return unsafePendingOutbound.first { $0.hash == lxmHash }?.progress
     }
 
     // MARK: - URI ingestion
@@ -1254,7 +1254,7 @@ public final class LXMRouter {
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     message.attachPropagationStamp(cost: cost)
                     guard let self else { return }
-                    self.lock.lock(); self._pendingOutbound.append(message); self.lock.unlock()
+                    self.lock.lock(); self.unsafePendingOutbound.append(message); self.lock.unlock()
                     self.processOutbound()
                 }
                 return
@@ -1262,7 +1262,7 @@ public final class LXMRouter {
         }
 
         message.state = .outbound
-        lock.lock(); _pendingOutbound.append(message); lock.unlock()
+        lock.lock(); unsafePendingOutbound.append(message); lock.unlock()
         processOutbound()
     }
 
@@ -1270,7 +1270,7 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.process_outbound()`.
     public func processOutbound() {
         lock.lock()
-        let snapshot = _pendingOutbound
+        let snapshot = unsafePendingOutbound
         lock.unlock()
 
         for msg in snapshot {
@@ -1424,7 +1424,7 @@ public final class LXMRouter {
             identity: identity,
             direction: .out,
             kind: .single,
-            appName: APP_NAME,
+            appName: appName,
             aspects: ["delivery"]
         ) else { return }
 
@@ -1495,7 +1495,7 @@ public final class LXMRouter {
         guard let nodeIdentity = transport.recall(identity: nodeHash),
               let nodeDest = try? Destination(
                   identity: nodeIdentity, direction: .out, kind: .single,
-                  appName: APP_NAME, aspects: ["propagation"]
+                  appName: appName, aspects: ["propagation"]
               ) else {
             msg.deliveryAttempts += 1
             msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
@@ -1682,7 +1682,7 @@ public final class LXMRouter {
                     identity: nodeIdentity,
                     direction: .out,
                     kind: .single,
-                    appName: APP_NAME,
+                    appName: appName,
                     aspects: ["propagation"]
                 ) else { return }
                 propagationTransferState = .linkEstablishing
@@ -2112,7 +2112,7 @@ public final class LXMRouter {
         //    Mirrors Python: `required_stamp_cost = delivery_destinations[dest].stamp_cost`.
         lock.lock()
         let requiredCost: Int? = inboundStampCosts[msg.destinationHash].flatMap { $0 }
-        let enforcing = enforceStamps_
+        let enforcing = stampsEnforced
         lock.unlock()
         if let requiredCost {
             let tickets = getInboundTickets(destinationHash: msg.sourceHash)
@@ -2145,7 +2145,7 @@ public final class LXMRouter {
     // MARK: - Helpers
 
     private func removePending(_ msg: LXMessage) {
-        lock.lock(); _pendingOutbound.removeAll { $0 === msg }; lock.unlock()
+        lock.lock(); unsafePendingOutbound.removeAll { $0 === msg }; lock.unlock()
     }
 
     /// LXMRouter.py:2564-2571 (`fail_message`) — the one place a delivery gives up:
@@ -2160,8 +2160,8 @@ public final class LXMRouter {
     /// Test helper: directly inject a message into the pending outbound queue.
     public func testInjectPendingOutbound(_ message: LXMessage) {
         lock.lock(); defer { lock.unlock() }
-        if !_pendingOutbound.contains(where: { $0 === message }) {
-            _pendingOutbound.append(message)
+        if !unsafePendingOutbound.contains(where: { $0 === message }) {
+            unsafePendingOutbound.append(message)
         }
     }
 
@@ -2170,7 +2170,7 @@ public final class LXMRouter {
     /// announces its presence, triggering an immediate delivery attempt.
     internal func handleAnnounceForDestination(_ destinationHash: Data) {
         lock.lock()
-        let matches = _pendingOutbound.filter { $0.destinationHash == destinationHash }
+        let matches = unsafePendingOutbound.filter { $0.destinationHash == destinationHash }
         // Drain inbound messages waiting for this source's identity.
         let pendingSig = pendingSignatureValidation.filter { $0.message.sourceHash == destinationHash }
         pendingSignatureValidation.removeAll { $0.message.sourceHash == destinationHash }
@@ -2223,7 +2223,7 @@ public final class LXMRouter {
         // Index existing messages in the store. (Setup-time; guarded for consistency —
         // LXMPeer.from below self-locks via the accessors, so it must NOT run under
         // the lock, hence the per-write locking rather than one wide critical section.)
-        lock.lock(); _propagationEntries.removeAll(); lock.unlock()
+        lock.lock(); unsafePropagationEntries.removeAll(); lock.unlock()
         let fm = FileManager.default
         if let filenames = try? fm.contentsOfDirectory(atPath: msgPath) {
             for filename in filenames {
@@ -2258,7 +2258,7 @@ public final class LXMRouter {
                     unhandledPeers: [],
                     stampValue:     sv
                 )
-                lock.lock(); _propagationEntries[transientID] = entry; lock.unlock()
+                lock.lock(); unsafePropagationEntries[transientID] = entry; lock.unlock()
             }
         }
 
@@ -2271,7 +2271,7 @@ public final class LXMRouter {
             for item in peerList {
                 if case .bytes(let peerBytes) = item,
                    let peer = LXMPeer.from(bytes: Data(peerBytes), router: self) {
-                    lock.lock(); _peers[peer.destinationHash] = peer; lock.unlock()
+                    lock.lock(); unsafePeers[peer.destinationHash] = peer; lock.unlock()
                 }
             }
         }
@@ -2285,7 +2285,7 @@ public final class LXMRouter {
         //
         // Without it `staticPeers` was a set the sync path filtered against and nothing ever put
         // a peer into — an operator could configure a peering that silently never happened.
-        for staticPeer in _staticPeers {
+        for staticPeer in unsafeStaticPeers {
             // `addPeer` returns the existing entry when there is one, which is what supplies
             // Python's `if not static_peer in self.peers` (`:635`) — a peer restored from disk
             // keeps its terms and sync history rather than being replaced with a blank one.
@@ -2308,16 +2308,16 @@ public final class LXMRouter {
                 }
             }
             if let v = statsInt("client_propagation_messages_received") {
-                _clientPropagationMessagesReceived = v
+                unsafeClientPropagationMessagesReceived = v
             }
             if let v = statsInt("client_propagation_messages_served") {
-                _clientPropagationMessagesServed = v
+                unsafeClientPropagationMessagesServed = v
             }
             if let v = statsInt("unpeered_propagation_incoming") {
-                _unpeeredPropagationIncoming = v
+                unsafeUnpeeredPropagationIncoming = v
             }
             if let v = statsInt("unpeered_propagation_rx_bytes") {
-                _unpeeredPropagationRxBytes = v
+                unsafeUnpeeredPropagationRxBytes = v
             }
         }
 
@@ -2343,7 +2343,7 @@ public final class LXMRouter {
             // Derive the client's delivery destination hash from their identity.
             let remoteDeliveryHash: Data? = link.remoteIdentity.flatMap { id in
                 try? Destination(identity: id, direction: .in, kind: .single,
-                                 appName: APP_NAME, aspects: ["delivery"]).hash
+                                 appName: appName, aspects: ["delivery"]).hash
             }
             return self.handleMessageGetRequest(data: requestData,
                                                 remoteDeliveryHash: remoteDeliveryHash)
@@ -2379,8 +2379,8 @@ public final class LXMRouter {
                 priorOnClosed?(l)
                 guard let self else { return }
                 self.lock.lock()
-                self._validatedPeerLinks.removeValue(forKey: ObjectIdentifier(l))
-                self._activePropagationLinks.removeValue(forKey: ObjectIdentifier(l))
+                self.unsafeValidatedPeerLinks.removeValue(forKey: ObjectIdentifier(l))
+                self.unsafeActivePropagationLinks.removeValue(forKey: ObjectIdentifier(l))
                 self.lock.unlock()
             }
         }
@@ -2442,7 +2442,7 @@ public final class LXMRouter {
         let validated = LXStamper.validatePNStamps(transientList: transientList, targetCost: minCost)
 
         for entry in validated {
-            lock.lock(); _clientPropagationMessagesReceived += 1; lock.unlock()
+            lock.lock(); unsafeClientPropagationMessagesReceived += 1; lock.unlock()
             _ = ingestPropagatedLXM(lxmfData: entry.lxmfData,
                                     stampValue: entry.stampValue,
                                     stamp:      entry.stamp,
@@ -2488,7 +2488,7 @@ public final class LXMRouter {
         if let sender { considerAutopeering(with: sender) }
 
         lock.lock()
-        let senderPeer = sender.flatMap { _peers[$0] }
+        let senderPeer = sender.flatMap { unsafePeers[$0] }
         lock.unlock()
 
         let minCost = max(0, propagationStampCost - propagationStampCostFlexibility)
@@ -2506,10 +2506,10 @@ public final class LXMRouter {
             } else {
                 lock.lock()
                 if sender != nil {
-                    _unpeeredPropagationIncoming += 1
-                    _unpeeredPropagationRxBytes  += entry.lxmfData.count
+                    unsafeUnpeeredPropagationIncoming += 1
+                    unsafeUnpeeredPropagationRxBytes  += entry.lxmfData.count
                 } else {
-                    _clientPropagationMessagesReceived += 1
+                    unsafeClientPropagationMessagesReceived += 1
                 }
                 lock.unlock()
             }
@@ -2527,7 +2527,7 @@ public final class LXMRouter {
         let invalidCount = transientList.count - validated.count
         if invalidCount > 0, let sender {
             lock.lock()
-            _throttledPeers[sender] = Date().timeIntervalSince1970 + LXMRouter.pnStampThrottle
+            unsafeThrottledPeers[sender] = Date().timeIntervalSince1970 + LXMRouter.pnStampThrottle
             lock.unlock()
             try? link?.teardown()
         }
@@ -2549,7 +2549,7 @@ public final class LXMRouter {
     func remotePropagationHash(of link: Link) -> Data? {
         guard let remoteIdentity = link.remoteIdentity else { return nil }
         return try? Destination(identity: remoteIdentity, direction: .out, kind: .single,
-                                appName: APP_NAME, aspects: ["propagation"]).hash
+                                appName: appName, aspects: ["propagation"]).hash
     }
 
     // MARK: - Message store
@@ -2560,7 +2560,7 @@ public final class LXMRouter {
     public func messageStorageSize() -> Int? {
         guard isPropagationNode else { return nil }
         lock.lock(); defer { lock.unlock() }
-        return _propagationEntries.values.reduce(0) { $0 + $1.msgSize }
+        return unsafePropagationEntries.values.reduce(0) { $0 + $1.msgSize }
     }
 
     /// Set the maximum total bytes for the message store.
@@ -2600,7 +2600,7 @@ public final class LXMRouter {
         // Mirrors Python's `not transient_id in self.propagation_entries and
         // not transient_id in self.locally_processed_transient_ids`.
         lock.lock()
-        if let existing = _propagationEntries[transientID] { lock.unlock(); return existing }
+        if let existing = unsafePropagationEntries[transientID] { lock.unlock(); return existing }
         if locallyProcessedTransientIDs[transientID] != nil { lock.unlock(); return nil }
         lock.unlock()
 
@@ -2618,7 +2618,7 @@ public final class LXMRouter {
         // Re-check dedup + construct the entry under the lock. A concurrent add of the same
         // transientID that won while we wrote the file is honoured — we return its entry.
         lock.lock()
-        if let existing = _propagationEntries[transientID] {
+        if let existing = unsafePropagationEntries[transientID] {
             lock.unlock()
             // A concurrent add won the race; drop the file we just wrote so it isn't orphaned.
             try? FileManager.default.removeItem(atPath: filePath)
@@ -2639,7 +2639,7 @@ public final class LXMRouter {
             unhandledPeers: [],
             stampValue:     stampValue
         )
-        _propagationEntries[transientID] = entry
+        unsafePropagationEntries[transientID] = entry
         lock.unlock()
         return entry
     }
@@ -2649,7 +2649,7 @@ public final class LXMRouter {
     public func removeFromMessageStore(transientID: Data) {
         // Remove the entry under the lock; snapshot its file path and unlink OUTSIDE.
         lock.lock()
-        guard let entry = _propagationEntries.removeValue(forKey: transientID) else { lock.unlock(); return }
+        guard let entry = unsafePropagationEntries.removeValue(forKey: transientID) else { lock.unlock(); return }
         // Remember that we handled it, so it is not re-ingested after the entry
         // is gone. Expired on the same schedule as the delivered cache.
         locallyProcessedTransientIDs[transientID] = Date().timeIntervalSince1970
@@ -2666,9 +2666,9 @@ public final class LXMRouter {
         // Compute size + snapshot the sort order under the lock; delete OUTSIDE
         // (removeFromMessageStore self-locks and unlinks the file outside the lock).
         lock.lock()
-        var currentSize = _propagationEntries.values.reduce(0) { $0 + $1.msgSize }
+        var currentSize = unsafePropagationEntries.values.reduce(0) { $0 + $1.msgSize }
         guard currentSize > limit else { lock.unlock(); return }
-        let sorted = _propagationEntries.sorted { $0.value.received < $1.value.received }
+        let sorted = unsafePropagationEntries.sorted { $0.value.received < $1.value.received }
         lock.unlock()
 
         for (tid, entry) in sorted {
@@ -2687,50 +2687,50 @@ public final class LXMRouter {
     // so it is safe to hold the lock for its duration.
 
     func peerEntryExists(_ transientID: Data) -> Bool {
-        lock.lock(); defer { lock.unlock() }; return _propagationEntries[transientID] != nil
+        lock.lock(); defer { lock.unlock() }; return unsafePropagationEntries[transientID] != nil
     }
     func peerEntry(_ transientID: Data) -> PropagationEntry? {
-        lock.lock(); defer { lock.unlock() }; return _propagationEntries[transientID]
+        lock.lock(); defer { lock.unlock() }; return unsafePropagationEntries[transientID]
     }
     func peerHandledTransientIDs(for destinationHash: Data) -> [Data] {
         lock.lock(); defer { lock.unlock() }
-        return _propagationEntries.compactMap { $0.value.handledPeers.contains(destinationHash) ? $0.key : nil }
+        return unsafePropagationEntries.compactMap { $0.value.handledPeers.contains(destinationHash) ? $0.key : nil }
     }
     func peerUnhandledTransientIDs(for destinationHash: Data) -> [Data] {
         lock.lock(); defer { lock.unlock() }
-        return _propagationEntries.compactMap { $0.value.unhandledPeers.contains(destinationHash) ? $0.key : nil }
+        return unsafePropagationEntries.compactMap { $0.value.unhandledPeers.contains(destinationHash) ? $0.key : nil }
     }
     /// Add `destinationHash` to the entry's handledPeers. Returns true iff the entry
     /// existed and the peer was newly added (so the caller can invalidate its count cache).
     @discardableResult
     func peerAddHandled(_ transientID: Data, destinationHash: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard let entry = _propagationEntries[transientID] else { return false }
+        guard let entry = unsafePropagationEntries[transientID] else { return false }
         guard !entry.handledPeers.contains(destinationHash) else { return false }
-        _propagationEntries[transientID]?.handledPeers.append(destinationHash)
+        unsafePropagationEntries[transientID]?.handledPeers.append(destinationHash)
         return true
     }
     @discardableResult
     func peerAddUnhandled(_ transientID: Data, destinationHash: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard let entry = _propagationEntries[transientID] else { return false }
+        guard let entry = unsafePropagationEntries[transientID] else { return false }
         guard !entry.unhandledPeers.contains(destinationHash) else { return false }
-        _propagationEntries[transientID]?.unhandledPeers.append(destinationHash)
+        unsafePropagationEntries[transientID]?.unhandledPeers.append(destinationHash)
         return true
     }
     /// Remove `destinationHash` from the entry's handledPeers. Returns true iff the entry existed.
     @discardableResult
     func peerRemoveHandled(_ transientID: Data, destinationHash: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard _propagationEntries[transientID] != nil else { return false }
-        _propagationEntries[transientID]?.handledPeers.removeAll { $0 == destinationHash }
+        guard unsafePropagationEntries[transientID] != nil else { return false }
+        unsafePropagationEntries[transientID]?.handledPeers.removeAll { $0 == destinationHash }
         return true
     }
     @discardableResult
     func peerRemoveUnhandled(_ transientID: Data, destinationHash: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard _propagationEntries[transientID] != nil else { return false }
-        _propagationEntries[transientID]?.unhandledPeers.removeAll { $0 == destinationHash }
+        guard unsafePropagationEntries[transientID] != nil else { return false }
+        unsafePropagationEntries[transientID]?.unhandledPeers.removeAll { $0 == destinationHash }
         return true
     }
 
@@ -2749,7 +2749,7 @@ public final class LXMRouter {
     /// Insert or remove a message-store entry. Passing `nil` removes it.
     func seedPropagationEntry(_ transientID: Data, _ entry: PropagationEntry?) {
         lock.lock(); defer { lock.unlock() }
-        _propagationEntries[transientID] = entry
+        unsafePropagationEntries[transientID] = entry
     }
 
     /// Insert or remove a peer-table entry. Passing `nil` removes it.
@@ -2758,13 +2758,13 @@ public final class LXMRouter {
     /// it is the production path and applies the peering conditions this bypasses.
     func seedPeer(_ destinationHash: Data, _ peer: LXMPeer?) {
         lock.lock(); defer { lock.unlock() }
-        _peers[destinationHash] = peer
+        unsafePeers[destinationHash] = peer
     }
 
     /// Throttle a remote until `until`, or clear it with `nil`.
     func seedThrottledPeer(_ destinationHash: Data, until: TimeInterval?) {
         lock.lock(); defer { lock.unlock() }
-        _throttledPeers[destinationHash] = until
+        unsafeThrottledPeers[destinationHash] = until
     }
 
     /// Set any of the four propagation counters; `nil` leaves one unchanged.
@@ -2773,10 +2773,10 @@ public final class LXMRouter {
                                  unpeeredIncoming: Int? = nil,
                                  unpeeredRxBytes: Int? = nil) {
         lock.lock(); defer { lock.unlock() }
-        if let v = clientReceived    { _clientPropagationMessagesReceived = v }
-        if let v = clientServed      { _clientPropagationMessagesServed   = v }
-        if let v = unpeeredIncoming  { _unpeeredPropagationIncoming       = v }
-        if let v = unpeeredRxBytes   { _unpeeredPropagationRxBytes        = v }
+        if let v = clientReceived    { unsafeClientPropagationMessagesReceived = v }
+        if let v = clientServed      { unsafeClientPropagationMessagesServed   = v }
+        if let v = unpeeredIncoming  { unsafeUnpeeredPropagationIncoming       = v }
+        if let v = unpeeredRxBytes   { unsafeUnpeeredPropagationRxBytes        = v }
     }
 
     // MARK: - Static peers
@@ -2790,13 +2790,13 @@ public final class LXMRouter {
     /// `:3094`), so a bare `staticPeers = […]` from an application thread raced those reads.
     public func setStaticPeers(_ hashes: Set<Data>) {
         lock.lock(); defer { lock.unlock() }
-        _staticPeers = hashes
+        unsafeStaticPeers = hashes
     }
 
     /// Add one static peer, leaving the rest in place.
     public func addStaticPeer(_ destinationHash: Data) {
         lock.lock(); defer { lock.unlock() }
-        _staticPeers.insert(destinationHash)
+        unsafeStaticPeers.insert(destinationHash)
     }
 
     /// Set the maximum number of peers this node will hold.
@@ -2807,13 +2807,13 @@ public final class LXMRouter {
     /// the guard as "configuration the owner never locks" when the owner does lock it.
     public func setMaxPeers(_ count: Int) {
         lock.lock(); defer { lock.unlock() }
-        _maxPeers = count
+        unsafeMaxPeers = count
     }
 
     /// Stop treating `destinationHash` as static. Does not unpeer it.
     public func removeStaticPeer(_ destinationHash: Data) {
         lock.lock(); defer { lock.unlock() }
-        _staticPeers.remove(destinationHash)
+        unsafeStaticPeers.remove(destinationHash)
     }
 
     // MARK: - Outbound sync seam
@@ -2843,7 +2843,7 @@ public final class LXMRouter {
             return nil
         }
         guard let destination = try? Destination(identity: peerIdentity, direction: .out,
-                                                 kind: .single, appName: APP_NAME,
+                                                 kind: .single, appName: appName,
                                                  aspects: ["propagation"]) else {
             return nil
         }
@@ -2887,8 +2887,8 @@ public final class LXMRouter {
                      peeringCost: Int,
                      metadata: [String: String]?) {
         lock.lock()
-        let existing   = _peers[destinationHash]
-        let tableIsFull = _peers.count >= _maxPeers
+        let existing   = unsafePeers[destinationHash]
+        let tableIsFull = unsafePeers.count >= unsafeMaxPeers
         lock.unlock()
 
         // The ceiling is about what the remote *demands*, so it is checked before anything else
@@ -2954,7 +2954,7 @@ public final class LXMRouter {
         guard autopeer else { return }
 
         lock.lock()
-        let alreadyPeered = _peers[propagationHash] != nil
+        let alreadyPeered = unsafePeers[propagationHash] != nil
         lock.unlock()
         guard !alreadyPeered else { return }
 
@@ -3007,8 +3007,8 @@ public final class LXMRouter {
         guard let announce = PropagationNodeAnnounce(appData: appData) else { return }
 
         lock.lock()
-        let isStatic     = _staticPeers.contains(destinationHash)
-        let existingPeer = _peers[destinationHash]
+        let isStatic     = unsafeStaticPeers.contains(destinationHash)
+        let existingPeer = unsafePeers[destinationHash]
         lock.unlock()
         // `lastHeard` became a `peerLock`-taking accessor in `swift_devel/bugs/055`, so it is read
         // after `lock` is released — reading it inside would nest `lock` → `peerLock`.
@@ -3067,10 +3067,10 @@ public final class LXMRouter {
     func addPeer(destinationHash: Data,
                  syncStrategy: LXMSyncStrategy = LXMPeer.defaultSyncStrategy) -> LXMPeer {
         lock.lock()
-        if let existing = _peers[destinationHash] { lock.unlock(); return existing }
+        if let existing = unsafePeers[destinationHash] { lock.unlock(); return existing }
         let peer = LXMPeer(router: self, destinationHash: destinationHash,
                            syncStrategy: syncStrategy)
-        _peers[destinationHash] = peer
+        unsafePeers[destinationHash] = peer
         lock.unlock()
         // Deliberately NOT seeded with the existing store. Python's `peer()` constructs the peer,
         // sets its advertised terms, and stops (`LXMRouter.py:2032-2045`); `unhandled_messages` is
@@ -3238,21 +3238,21 @@ public final class LXMRouter {
                                 LXMRouter.propagationSyncStallTimeout) {
         lock.lock()
         let direct = directLinks
-        let propagation = _activePropagationLinks
-        let peerList = Array(_peers.values)
+        let propagation = unsafeActivePropagationLinks
+        let peerList = Array(unsafePeers.values)
         lock.unlock()
 
         for (destinationHash, link) in direct where link.noDataFor() > LXMRouter.linkMaxInactivity {
             try? link.teardown()
             lock.lock()
             directLinks.removeValue(forKey: destinationHash)
-            _validatedPeerLinks.removeValue(forKey: ObjectIdentifier(link))
+            unsafeValidatedPeerLinks.removeValue(forKey: ObjectIdentifier(link))
             lock.unlock()
         }
 
         for (key, link) in propagation
         where link.noDataFor() > LXMRouter.propagationLinkMaxInactivity {
-            lock.lock(); _activePropagationLinks.removeValue(forKey: key); lock.unlock()
+            lock.lock(); unsafeActivePropagationLinks.removeValue(forKey: key); lock.unlock()
             try? link.teardown()
         }
 
@@ -3296,12 +3296,12 @@ public final class LXMRouter {
     /// Mirrors Python's `flush_queues()` (`LXMRouter.py:923-933`): drain the distribution queue,
     /// then let each peer fold its own queued items into its handled/unhandled sets.
     public func flushQueues() {
-        lock.lock(); let hasPeers = !_peers.isEmpty; lock.unlock()
+        lock.lock(); let hasPeers = !unsafePeers.isEmpty; lock.unlock()
         guard hasPeers else { return }
 
         flushPeerDistributionQueue()
 
-        lock.lock(); let peerList = Array(_peers.values); lock.unlock()
+        lock.lock(); let peerList = Array(unsafePeers.values); lock.unlock()
         for peer in peerList { peer.processQueues() }
     }
 
@@ -3309,8 +3309,8 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.clean_throttled_peers()` (`LXMRouter.py:1136-1142`).
     public func cleanThrottledPeers(now: TimeInterval = Date().timeIntervalSince1970) {
         lock.lock(); defer { lock.unlock() }
-        for (destinationHash, deadline) in _throttledPeers where now > deadline {
-            _throttledPeers.removeValue(forKey: destinationHash)
+        for (destinationHash, deadline) in unsafeThrottledPeers where now > deadline {
+            unsafeThrottledPeers.removeValue(forKey: destinationHash)
         }
     }
 
@@ -3322,9 +3322,9 @@ public final class LXMRouter {
     /// `prioritiseRotatingUnreachablePeers` (design D4).
     public func rotatePeers() {
         lock.lock()
-        let all = Array(_peers.values)
-        let staticHashes = _staticPeers
-        let bound = _maxPeers
+        let all = Array(unsafePeers.values)
+        let staticHashes = unsafeStaticPeers
+        let bound = unsafeMaxPeers
         lock.unlock()
 
         // Headroom, and whether the table is far enough over it to be worth rotating. The second
@@ -3391,7 +3391,7 @@ public final class LXMRouter {
         let stamp = timestamp ?? Date().timeIntervalSince1970
 
         lock.lock()
-        let existingPeer = _peers[destinationHash]
+        let existingPeer = unsafePeers[destinationHash]
         lock.unlock()
         // Read outside `lock`: `peeringTimebase` is a `peerLock`-taking accessor.
         let peeringTimebase = existingPeer?.peeringTimebase
@@ -3404,13 +3404,13 @@ public final class LXMRouter {
     /// Remove a peer from the peering table.
     public func removePeer(destinationHash: Data) {
         lock.lock(); defer { lock.unlock() }
-        guard let peer = _peers.removeValue(forKey: destinationHash) else { return }
+        guard let peer = unsafePeers.removeValue(forKey: destinationHash) else { return }
         // Clean up that peer's references from all propagation entries (in-place value
         // mutation, no callout — safe to hold the lock). Snapshot the keys first to
         // avoid mutating-during-iteration of the dictionary.
-        for tid in Array(_propagationEntries.keys) {
-            _propagationEntries[tid]?.handledPeers.removeAll { $0 == peer.destinationHash }
-            _propagationEntries[tid]?.unhandledPeers.removeAll { $0 == peer.destinationHash }
+        for tid in Array(unsafePropagationEntries.keys) {
+            unsafePropagationEntries[tid]?.handledPeers.removeAll { $0 == peer.destinationHash }
+            unsafePropagationEntries[tid]?.unhandledPeers.removeAll { $0 == peer.destinationHash }
         }
     }
 
@@ -3420,8 +3420,8 @@ public final class LXMRouter {
     /// Python: `LXMRouter.peer_distribution_queue.append(transient_id)` + per-peer queue.
     public func enqueueForPeerDistribution(transientID: Data, fromPeer: LXMPeer? = nil) {
         lock.lock(); defer { lock.unlock() }
-        guard !_peerDistributionQueue.contains(where: { $0.transientID == transientID }) else { return }
-        _peerDistributionQueue.append((transientID, fromPeer))
+        guard !unsafePeerDistributionQueue.contains(where: { $0.transientID == transientID }) else { return }
+        unsafePeerDistributionQueue.append((transientID, fromPeer))
     }
 
     /// Flush the peer distribution queue — mark new messages as unhandled for all peers.
@@ -3432,10 +3432,10 @@ public final class LXMRouter {
         // queueing/processing (which self-locks via the propagationEntries accessors)
         // OUTSIDE the lock. Order preserved (batch is in queue order).
         lock.lock()
-        guard !_peerDistributionQueue.isEmpty else { lock.unlock(); return }
-        let batch = _peerDistributionQueue
-        _peerDistributionQueue.removeAll()
-        let peerList = Array(_peers.values)
+        guard !unsafePeerDistributionQueue.isEmpty else { lock.unlock(); return }
+        let batch = unsafePeerDistributionQueue
+        unsafePeerDistributionQueue.removeAll()
+        let peerList = Array(unsafePeers.values)
         lock.unlock()
 
         for (tid, origin) in batch {
@@ -3456,8 +3456,8 @@ public final class LXMRouter {
     public func syncPeers<G: RandomNumberGenerator>(using generator: inout G) {
         guard isPropagationNode else { return }
         lock.lock()
-        let all = Array(_peers.values)
-        let staticHashes = _staticPeers
+        let all = Array(unsafePeers.values)
+        let staticHashes = unsafeStaticPeers
         lock.unlock()
 
         let now = Date().timeIntervalSince1970
@@ -3564,8 +3564,8 @@ public final class LXMRouter {
         if let propagationHash {
             let now = Date().timeIntervalSince1970
             lock.lock()
-            let deadline = _throttledPeers[propagationHash]
-            if let deadline, deadline <= now { _throttledPeers.removeValue(forKey: propagationHash) }
+            let deadline = unsafeThrottledPeers[propagationHash]
+            if let deadline, deadline <= now { unsafeThrottledPeers.removeValue(forKey: propagationHash) }
             lock.unlock()
             if let deadline, deadline > now {
                 return .int(Int64(LXMPeerError.throttled.rawValue))
@@ -3606,8 +3606,8 @@ public final class LXMRouter {
         // Record the validated link + build the wanted-IDs list under the lock
         // (messages the peer offered that we don't have yet).
         lock.lock()
-        _validatedPeerLinks[linkID] = true
-        let wantedIDs = offeredIDs.filter { _propagationEntries[$0] == nil }
+        unsafeValidatedPeerLinks[linkID] = true
+        let wantedIDs = offeredIDs.filter { unsafePropagationEntries[$0] == nil }
         lock.unlock()
 
         if wantedIDs.isEmpty          { return .bool(false) }
@@ -3657,7 +3657,7 @@ public final class LXMRouter {
         // No want/have = client requesting the list of available messages.
         if wantList == nil && haveList == nil {
             lock.lock()
-            let available = _propagationEntries.compactMap { (tid, entry) -> (Data, Int)? in
+            let available = unsafePropagationEntries.compactMap { (tid, entry) -> (Data, Int)? in
                 entry.destinationHash == destHash ? (tid, entry.msgSize) : nil
             }
             lock.unlock()
@@ -3670,7 +3670,7 @@ public final class LXMRouter {
         // + unlinks the file OUTSIDE the lock.
         if let have = haveList {
             lock.lock()
-            let toPurge = have.filter { _propagationEntries[$0]?.destinationHash == destHash }
+            let toPurge = have.filter { unsafePropagationEntries[$0]?.destinationHash == destHash }
             lock.unlock()
             for tid in toPurge { removeFromMessageStore(transientID: tid) }
         }
@@ -3683,7 +3683,7 @@ public final class LXMRouter {
         if let want = wantList {
             lock.lock()
             let wantedPaths: [String] = want.compactMap { tid in
-                guard let entry = _propagationEntries[tid], entry.destinationHash == destHash else { return nil }
+                guard let entry = unsafePropagationEntries[tid], entry.destinationHash == destHash else { return nil }
                 return entry.filePath
             }
             lock.unlock()
@@ -3704,7 +3704,7 @@ public final class LXMRouter {
         }
 
         // Fix the counter asymmetry (Received is taken under lock; Served must be too).
-        lock.lock(); _clientPropagationMessagesServed += responseMessages.count; lock.unlock()
+        lock.lock(); unsafeClientPropagationMessagesServed += responseMessages.count; lock.unlock()
         return .array(responseMessages)
     }
 
@@ -3728,7 +3728,7 @@ public final class LXMRouter {
     public func ingestPropagatedLXM(lxmfData: Data, stampValue: Int, stamp: Data,
                                     fromPeer: LXMPeer? = nil) -> PropagationEntry? {
         let transientID = Hashes.fullHash(lxmfData)
-        lock.lock(); let isDup = _propagationEntries[transientID] != nil; lock.unlock()
+        lock.lock(); let isDup = unsafePropagationEntries[transientID] != nil; lock.unlock()
         guard !isDup else { return nil } // duplicate (addToMessageStore re-checks under lock)
 
         let entry = addToMessageStore(lxmfData: lxmfData, transientID: transientID,
@@ -3747,7 +3747,7 @@ public final class LXMRouter {
         guard let sp = storagePath else { return }
         // Snapshot the peer set under the lock; serialize (peer.toBytes self-locks via
         // the propagationEntries accessors) + write OUTSIDE the lock.
-        lock.lock(); let peerObjects = Array(self._peers.values); lock.unlock()
+        lock.lock(); let peerObjects = Array(self.unsafePeers.values); lock.unlock()
         let peerList = MsgPack.Value.array(peerObjects.map { .bytes($0.toBytes()) })
         let data     = MsgPack.encode(peerList)
         // Atomic write (temp file + rename) so a crash mid-write can't leave a
@@ -3759,10 +3759,10 @@ public final class LXMRouter {
     public func saveNodeStats() {
         guard let sp = storagePath else { return }
         lock.lock()
-        let rcv   = _clientPropagationMessagesReceived
-        let srv   = _clientPropagationMessagesServed
-        let unpIn = _unpeeredPropagationIncoming
-        let unpRx = _unpeeredPropagationRxBytes
+        let rcv   = unsafeClientPropagationMessagesReceived
+        let srv   = unsafeClientPropagationMessagesServed
+        let unpIn = unsafeUnpeeredPropagationIncoming
+        let unpRx = unsafeUnpeeredPropagationRxBytes
         lock.unlock()
         let pairs: [(MsgPack.Value, MsgPack.Value)] = [
             (.string("client_propagation_messages_received"), .int(Int64(rcv))),
@@ -3896,7 +3896,7 @@ public final class LXMRouter {
     public func saveAvailableTickets() {
         guard let sp = storagePath else { return }
         lock.lock()
-        let ob = outboundTickets; let ib = inboundTickets_; let ld = lastDeliveries
+        let ob = outboundTickets; let ib = inboundTickets; let ld = lastDeliveries
         lock.unlock()
         // outbound: { dest: [expiry, ticket] }
         let obValue = MsgPack.Value.map(ob.map { (dest, entry) in
@@ -3961,7 +3961,7 @@ public final class LXMRouter {
             }
         }
         lock.lock()
-        outboundTickets = ob; inboundTickets_ = ib; lastDeliveries = ld
+        outboundTickets = ob; inboundTickets = ib; lastDeliveries = ld
         lock.unlock()
     }
 
@@ -3970,7 +3970,7 @@ public final class LXMRouter {
     /// Stamp value of a stored message.
     public func getStampValue(transientID: Data) -> Int {
         lock.lock(); defer { lock.unlock() }
-        return _propagationEntries[transientID]?.stampValue ?? 0
+        return unsafePropagationEntries[transientID]?.stampValue ?? 0
     }
 
     /// Ordering weight of a stored message — offers go out ascending.
@@ -3985,7 +3985,7 @@ public final class LXMRouter {
     /// destination gets no priority at all.
     public func getWeight(transientID: Data) -> Double {
         lock.lock(); defer { lock.unlock() }
-        guard let entry = _propagationEntries[transientID] else { return 0 }
+        guard let entry = unsafePropagationEntries[transientID] else { return 0 }
 
         let ageWeight = max(1.0, (Date().timeIntervalSince1970 - entry.received) / 60 / 60 / 24 / 4)
         let priorityWeight = prioritisedList.contains(entry.destinationHash) ? 0.1 : 1.0
@@ -3995,7 +3995,7 @@ public final class LXMRouter {
     /// File size of a stored message.
     public func getSize(transientID: Data) -> Int {
         lock.lock(); defer { lock.unlock() }
-        return _propagationEntries[transientID]?.msgSize ?? 0
+        return unsafePropagationEntries[transientID]?.msgSize ?? 0
     }
 
     /// Reset delivery timers for all pending propagated messages and trigger
@@ -4003,7 +4003,7 @@ public final class LXMRouter {
     /// Mirrors Python `Handlers.PropagationNodeAnnounceHandler` (LXMF 0.9.9).
     internal func triggerPropagatedOutbound() {
         lock.lock()
-        let propagated = _pendingOutbound.filter { $0.desiredMethod == .propagated }
+        let propagated = unsafePendingOutbound.filter { $0.desiredMethod == .propagated }
         lock.unlock()
         for msg in propagated { msg.nextDeliveryAttempt = 0 }
         if !propagated.isEmpty {
@@ -4015,7 +4015,7 @@ public final class LXMRouter {
 // MARK: - Internal announce handlers
 
 private final class DeliveryAnnounceHandler: AnnounceHandler {
-    let aspectFilter: String? = APP_NAME + ".delivery"
+    let aspectFilter: String? = appName + ".delivery"
     weak var router: LXMRouter?
 
     init(router: LXMRouter) { self.router = router }
@@ -4038,7 +4038,7 @@ private final class DeliveryAnnounceHandler: AnnounceHandler {
 /// `LXMRouter.handlePropagationNodeAnnounce`, which the public handler in `Handlers.swift` also
 /// calls — see `swift_devel/bugs/046` for what having two copies of it cost.
 private final class PropagationNodeAnnounceHandler: AnnounceHandler {
-    let aspectFilter: String? = APP_NAME + ".propagation"
+    let aspectFilter: String? = appName + ".propagation"
     /// `Handlers.py:38`. The peering branch needs to *see* path responses in order to distinguish
     /// them — a static peer takes its terms from one, and autopeering must refuse one.
     let receivePathResponses: Bool = true

@@ -22,13 +22,13 @@ import ReticulumSwift
 /// a plaintext payload permits, so they passed for the whole life of the defect.
 final class LXMessagePaperEncryptionTests: XCTestCase {
 
-    private static let TEST_APP_NAME = "lxmpaper"
+    private static let testAppName = "lxmpaper"
 
     private func makeSrcDst() throws -> (Destination, Destination) {
         let src = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                  appName: Self.TEST_APP_NAME, aspects: ["delivery"])
+                                  appName: Self.testAppName, aspects: ["delivery"])
         let dst = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                  appName: Self.TEST_APP_NAME, aspects: ["delivery"])
+                                  appName: Self.testAppName, aspects: ["delivery"])
         return (src, dst)
     }
 
@@ -111,7 +111,7 @@ final class LXMessagePaperEncryptionTests: XCTestCase {
 
         // An eavesdropper holding some other identity gets nothing back.
         let stranger = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                       appName: Self.TEST_APP_NAME, aspects: ["delivery"])
+                                       appName: Self.testAppName, aspects: ["delivery"])
         let recovered = try? stranger.decrypt(Data(payload.dropFirst(LXMessage.destinationLength)))
         XCTAssertNil(recovered,
                      "an unrelated identity must not be able to decrypt the paper payload")
@@ -158,7 +158,7 @@ final class LXMessagePaperEncryptionTests: XCTestCase {
         let delivery = try router.register(identity: recipientID, transport: transport)
 
         let src = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                  appName: LXMF.APP_NAME, aspects: ["delivery"])
+                                  appName: LXMF.appName, aspects: ["delivery"])
         let msg = LXMessage(destination: delivery, source: src,
                             content: "from an ignored sender", desiredMethod: .paper)
         try msg.pack()
@@ -182,7 +182,7 @@ final class LXMessagePaperEncryptionTests: XCTestCase {
         let delivery = try router.register(identity: Identity(), transport: transport)
 
         let src = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                  appName: LXMF.APP_NAME, aspects: ["delivery"])
+                                  appName: LXMF.appName, aspects: ["delivery"])
         let msg = LXMessage(destination: delivery, source: src,
                             content: "scanned twice", desiredMethod: .paper)
         try msg.pack()

@@ -144,17 +144,17 @@ public final class LXMessage {
     /// The callback fires **outside** the lock: it re-enters application code, which is free to
     /// read this message's state.
     public var state: State {
-        get { stateLock.lock(); defer { stateLock.unlock() }; return _state }
+        get { stateLock.lock(); defer { stateLock.unlock() }; return unsafeState }
         set {
             stateLock.lock()
-            let changed = _state != newValue
-            _state = newValue
+            let changed = unsafeState != newValue
+            unsafeState = newValue
             let notify = changed ? onStateChange : nil
             stateLock.unlock()
             notify?(self)
         }
     }
-    private var _state: State = .generating
+    private var unsafeState: State = .generating
     private let stateLock = NSLock()
 
     public var method: Method = .unknown
@@ -227,7 +227,7 @@ public final class LXMessage {
     /// unsafe because Swift reuses memory addresses for newly-allocated objects,
     /// causing stale cache hits after an earlier message at the same address was
     /// deallocated.
-    private var propagationStamp_: Data?
+    private var propagationStamp: Data?
 
     /// Whether to auto-compress the resource when sending via RNS.Resource.
     /// Mirrors Python's `LXMessage.auto_compress`.
@@ -390,7 +390,7 @@ public final class LXMessage {
         let payloadToEncrypt = Data(wire.dropFirst(destLen))
         let encryptedPayload = (try? destination.encrypt(payloadToEncrypt)) ?? payloadToEncrypt
         var lxmfData = destination.hash + encryptedPayload
-        if let stamp = propagationStamp_ { lxmfData += stamp }
+        if let stamp = propagationStamp { lxmfData += stamp }
         self.propagationPacked = MsgPack.encode(.array([
             .double(ts),
             .array([.bytes(lxmfData)])
@@ -962,7 +962,7 @@ public extension LXMessage {
     /// Mirrors Python's `LXMessage.get_propagation_stamp(target_cost, timeout=None)`.
     func getPropagationStamp(targetCost: Int) -> Data? {
         // Return instance-cached stamp if already computed
-        if let cached = propagationStamp_ { return cached }
+        if let cached = propagationStamp { return cached }
 
         // Need messageID — only set after pack()
         guard let tid = messageID else { return nil }
@@ -973,7 +973,7 @@ public extension LXMessage {
             expandRounds: LXStamper.pnExpandRounds
         ) else { return nil }
 
-        propagationStamp_ = stamp
+        propagationStamp = stamp
         return stamp
     }
 
@@ -988,7 +988,7 @@ public extension LXMessage {
     /// - Parameter cost: Minimum leading-zero-bit cost required by the propagation node.
     func attachPropagationStamp(cost: Int) {
         guard cost > 0 else { return }                  // mirrors Python: no stamp for cost ≤ 0
-        guard propagationStamp_ == nil else { return }  // already stamped
+        guard propagationStamp == nil else { return }  // already stamped
         guard messageID != nil else { return }          // needs pack() first
 
         // Extract lxmfData (without stamp) from current propagationPacked.
@@ -1010,7 +1010,7 @@ public extension LXMessage {
                                                    expandRounds: LXStamper.pnExpandRounds)
         else { return }
 
-        propagationStamp_ = stamp
+        propagationStamp = stamp
         let newLxmfData = lxmfDataNoStamp + stamp
         propagationPacked = MsgPack.encode(.array([
             .double(ts),

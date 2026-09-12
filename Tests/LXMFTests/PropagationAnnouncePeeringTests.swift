@@ -297,7 +297,7 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
         func queuePropagatedMessage() throws -> LXMessage {
             let source = try XCTUnwrap(node.deliveryDestinations.values.first)
             let destination = try Destination(identity: Identity(), direction: .out, kind: .single,
-                                              appName: APP_NAME, aspects: ["delivery"])
+                                              appName: appName, aspects: ["delivery"])
             let message = LXMessage(destination: destination, source: source, content: "queued")
             message.desiredMethod = .propagated
             try node.send(message)

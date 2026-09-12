@@ -108,8 +108,8 @@ final class LXMRouterStampTests: XCTestCase {
 
     private func makeSrcDst() throws -> (Destination, Destination) {
         let srcID = Identity(); let dstID = Identity()
-        let src = try Destination(identity: srcID, direction: .in, kind: .single, appName: APP_NAME, aspects: ["delivery"])
-        let dst = try Destination(identity: dstID, direction: .in, kind: .single, appName: APP_NAME, aspects: ["delivery"])
+        let src = try Destination(identity: srcID, direction: .in, kind: .single, appName: appName, aspects: ["delivery"])
+        let dst = try Destination(identity: dstID, direction: .in, kind: .single, appName: appName, aspects: ["delivery"])
         return (src, dst)
     }
 
@@ -125,7 +125,7 @@ final class LXMRouterStampTests: XCTestCase {
 
         let dstId = Identity()
         let dstHash = try Destination(identity: dstId, direction: .in, kind: .single,
-                                      appName: APP_NAME, aspects: ["delivery"]).hash
+                                      appName: appName, aspects: ["delivery"]).hash
 
         XCTAssertNil(router.getOutboundStampCost(destinationHash: dstHash), "baseline: no stamp cost")
 
@@ -167,7 +167,7 @@ final class LXMRouterStampTests: XCTestCase {
 
         let dstId = Identity()
         let dstHash = try Destination(identity: dstId, direction: .in, kind: .single,
-                                      appName: APP_NAME, aspects: ["delivery"]).hash
+                                      appName: appName, aspects: ["delivery"]).hash
 
         // Store a known stamp cost for the destination.
         router.setOutboundStampCost(destinationHash: dstHash, stampCost: 4)
@@ -175,9 +175,9 @@ final class LXMRouterStampTests: XCTestCase {
         // Create a message without a stamp cost.
         let srcId = Identity()
         let srcDest = try Destination(identity: srcId, direction: .in, kind: .single,
-                                      appName: APP_NAME, aspects: ["delivery"])
+                                      appName: appName, aspects: ["delivery"])
         let dstDest = try Destination(identity: dstId, direction: .in, kind: .single,
-                                      appName: APP_NAME, aspects: ["delivery"])
+                                      appName: appName, aspects: ["delivery"])
         let msg = LXMessage(destination: dstDest, source: srcDest, content: "test")
         XCTAssertNil(msg.stampCost, "message should have no stamp cost before send()")
 
@@ -195,15 +195,15 @@ final class LXMRouterStampTests: XCTestCase {
 
         let dstId = Identity()
         let dstHash = try Destination(identity: dstId, direction: .in, kind: .single,
-                                      appName: APP_NAME, aspects: ["delivery"]).hash
+                                      appName: appName, aspects: ["delivery"]).hash
 
         router.setOutboundStampCost(destinationHash: dstHash, stampCost: 4)
 
         let srcId = Identity()
         let srcDest = try Destination(identity: srcId, direction: .in, kind: .single,
-                                      appName: APP_NAME, aspects: ["delivery"])
+                                      appName: appName, aspects: ["delivery"])
         let dstDest = try Destination(identity: dstId, direction: .in, kind: .single,
-                                      appName: APP_NAME, aspects: ["delivery"])
+                                      appName: appName, aspects: ["delivery"])
         let msg = LXMessage(destination: dstDest, source: srcDest, content: "test")
         msg.stampCost = 7  // user-set stamp cost — must not be overridden
 

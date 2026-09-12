@@ -13,8 +13,8 @@ final class LXMessageURITests: XCTestCase {
 
     private func makeSrcDst() throws -> (Destination, Destination) {
         let srcID = Identity(); let dstID = Identity()
-        let src = try Destination(identity: srcID, direction: .in, kind: .single, appName: APP_NAME, aspects: ["delivery"])
-        let dst = try Destination(identity: dstID, direction: .in, kind: .single, appName: APP_NAME, aspects: ["delivery"])
+        let src = try Destination(identity: srcID, direction: .in, kind: .single, appName: appName, aspects: ["delivery"])
+        let dst = try Destination(identity: dstID, direction: .in, kind: .single, appName: appName, aspects: ["delivery"])
         return (src, dst)
     }
 
@@ -89,7 +89,7 @@ final class LXMessageURITests: XCTestCase {
         let uri = try msg.asURI()
 
         let stranger = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                       appName: APP_NAME, aspects: ["delivery"])
+                                       appName: appName, aspects: ["delivery"])
         XCTAssertThrowsError(try LXMessage.fromURI(uri, destination: stranger),
                             "decoding must fail without the addressed identity's private key")
     }
@@ -107,7 +107,7 @@ final class LXMessageURITests: XCTestCase {
         let delivery = try router.register(identity: Identity(), transport: transport)
 
         let src = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                  appName: APP_NAME, aspects: ["delivery"])
+                                  appName: appName, aspects: ["delivery"])
         let msg = LXMessage(destination: delivery, source: src,
                             content: "ingest test", desiredMethod: .paper)
         try msg.pack()

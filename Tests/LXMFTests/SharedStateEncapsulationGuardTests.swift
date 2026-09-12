@@ -91,10 +91,10 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
         let computedWithSetter = [
             "final class Thing {",
             "    public var peers: [Data: Int] {",
-            "        get { lock.lock(); defer { lock.unlock() }; return _peers }",
-            "        set { lock.lock(); _peers = newValue; lock.unlock() }",
+            "        get { lock.lock(); defer { lock.unlock() }; return unsafePeers }",
+            "        set { lock.lock(); unsafePeers = newValue; lock.unlock() }",
             "    }",
-            "    private var _peers: [Data: Int] = [:]",
+            "    private var unsafePeers: [Data: Int] = [:]",
             "}",
         ]
         XCTAssertNotNil(publiclySettable(computedWithSetter, property: "peers"),
@@ -104,15 +104,15 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
             "final class Thing {",
             "    public var peers: [Data: Int] {",
             "        lock.lock(); defer { lock.unlock() }",
-            "        return _peers",
+            "        return unsafePeers",
             "    }",
-            "    private var _peers: [Data: Int] = [:]",
+            "    private var unsafePeers: [Data: Int] = [:]",
             "}",
         ]
         XCTAssertNil(publiclySettable(readOnly, property: "peers"),
                      "a read-only locked accessor is the shape being asked for and must pass")
 
-        let privateOnly = ["final class Thing {", "    private var _peers: [Data: Int] = [:]", "}"]
+        let privateOnly = ["final class Thing {", "    private var unsafePeers: [Data: Int] = [:]", "}"]
         XCTAssertNil(publiclySettable(privateOnly, property: "peers"))
     }
 
@@ -198,7 +198,7 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
     /// A public accessor that reads lock-guarded storage must take the lock.
     ///
     /// This is the defect wearing the fix's clothes, and it is not hypothetical: encapsulating
-    /// `metadata` left `LXMPeer.name` reading `_metadata` with no lock — a read-only computed
+    /// `metadata` left `LXMPeer.name` reading `unsafeMetadata` with no lock — a read-only computed
     /// property, so 7.1 had nothing to say about it, while the router writes that field from the
     /// announce-callback thread. Converting a property is not finished until everything that reads
     /// its new storage has been re-examined.
@@ -265,7 +265,7 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
     ///   they had no runtime writer.
     /// - `sync()` read the three announced-term fields outside the lock, under the same
     ///   now-false comment.
-    /// - a local named `offered` had been renamed to `_offered` by the conversion and was
+    /// - a local named `offered` had been renamed to `unsafeOffered` by the conversion and was
     ///   shadowing the property — behaviour unchanged, but one deletion away from silently
     ///   binding to the wrong thing.
     ///

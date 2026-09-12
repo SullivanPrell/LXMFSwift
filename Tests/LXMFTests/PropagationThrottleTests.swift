@@ -160,9 +160,9 @@ final class PropagationThrottleTests: XCTestCase {
         func upload(stampIsValid: Bool) throws {
             let link = try connect()
             let source = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                         appName: APP_NAME, aspects: ["delivery"])
+                                         appName: appName, aspects: ["delivery"])
             let destination = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                              appName: APP_NAME, aspects: ["delivery"])
+                                              appName: appName, aspects: ["delivery"])
             let message = LXMessage(destination: destination, source: source, content: "throttle me")
             try message.pack()
             let lxmfData = try XCTUnwrap(message.packed)
@@ -250,7 +250,7 @@ final class PropagationThrottleTests: XCTestCase {
 
         let remoteIdentity = Identity()
         let remotePropagationHash = try Destination(identity: remoteIdentity, direction: .out,
-                                                    kind: .single, appName: APP_NAME,
+                                                    kind: .single, appName: appName,
                                                     aspects: ["propagation"]).hash
 
         return Network(router: router,

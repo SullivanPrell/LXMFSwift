@@ -40,14 +40,15 @@ final class PeeringSettingsGuardTests: XCTestCase {
         for (key, backing) in LXMDConfig.peeringSettings {
             guard case .setting(let name) = backing else { continue }
             // `Mirror` reports *stored* properties. A setting that has been encapsulated
-            // (`swift_devel/bugs/055`) is stored as `_name` behind a lock-taking accessor named
-            // `name`, so both spellings are the same setting. Accepting either keeps the guard's
-            // purpose — a renamed or deleted setting still matches neither and still fails —
-            // while not treating "was made thread-safe" as "was removed".
-            XCTAssertTrue(properties.contains(name) || properties.contains("_" + name),
+            // (`swift_devel/bugs/055`) is stored as `unsafeName` behind a lock-taking accessor
+            // named `name`, so both spellings are the same setting. Accepting either keeps the
+            // guard's purpose — a renamed or deleted setting still matches neither and still
+            // fails — while not treating "was made thread-safe" as "was removed".
+            let stored = "unsafe" + name.prefix(1).uppercased() + name.dropFirst()
+            XCTAssertTrue(properties.contains(name) || properties.contains(stored),
                           """
                           the ledger says `\(key)` is backed by `LXMRouter.\(name)`, and the \
-                          router has neither that property nor its `_`-prefixed backing store — \
+                          router has neither that property nor its `\(stored)` backing store — \
                           the setting was renamed or removed and the key silently stopped being \
                           read.
                           """)

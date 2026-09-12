@@ -169,9 +169,9 @@ final class PeerSyncSelectionTests: XCTestCase {
     func testAPeerStillInSyncBackoffIsNotSynced() throws {
         let router = try makeNode()
         seedStore(router)
-        let backing_off = addSyncablePeer(router, 0)
-        backing_off.seedSyncState(alive: false)
-        backing_off.seedSyncState(nextSyncAttempt: Date().timeIntervalSince1970 + 3_600)
+        let backingOff = addSyncablePeer(router, 0)
+        backingOff.seedSyncState(alive: false)
+        backingOff.seedSyncState(nextSyncAttempt: Date().timeIntervalSince1970 + 3_600)
 
         router.syncPeers()
 

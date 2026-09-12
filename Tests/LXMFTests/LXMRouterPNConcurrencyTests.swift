@@ -18,7 +18,7 @@ import ReticulumSwift
 ///
 /// The original test kept a SINGLE serialized "driver" (worker 0) for the peer-touching
 /// operations, because LXMPeer's own internal state (unhandledMessagesQueue /
-/// handledMessagesQueue, the _hmCount/_umCount caches, and the sync state machine) was
+/// handledMessagesQueue, the hmCount/umCount caches, and the sync state machine) was
 /// not per-peer-locked. That constraint is now REMOVED: every worker drives
 /// flush/sync/addPeer/removePeer/savePeers concurrently, so two threads can be inside
 /// `peer.processQueues()` (both past the `!isEmpty` guard → `removeLast` on an empty

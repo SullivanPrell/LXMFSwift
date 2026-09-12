@@ -210,24 +210,31 @@ extension SharedStateInventory {
         return String(line[line.startIndex..<r.lowerBound])
     }
 
-    /// The first access to `name` — or to its private backing store `_name` — in `lines` at
-    /// `line`, as a column, or `nil` if neither is there.
+    /// A regex alternation matching both spellings of `name`: the accessor and the backing store.
     ///
-    /// Both spellings count as the same state. Encapsulating a property renames the storage to
-    /// `_name` and leaves `name` as a lock-taking computed accessor, so a check that looked only
-    /// for the public spelling would report the state as unguarded the moment it became guarded.
+    /// Encapsulating a property leaves `name` as a lock-taking computed accessor and moves the
+    /// storage to `unsafeName`, whose prefix records that reaching it does not take the lock. A
+    /// check that looked only for the accessor spelling would report the state as unguarded the
+    /// moment it became guarded.
+    static func spellings(_ name: String) -> String {
+        "(?:\(name)|unsafe\(name.prefix(1).uppercased())\(name.dropFirst()))"
+    }
+
+    /// The first access to `name` — or to its backing store — in `lines` at `line`, as a column,
+    /// or `nil` if neither is there.
     static func accessColumn(_ lines: [String], line: Int, property name: String) -> Int? {
         guard line - 1 >= 0, line - 1 < lines.count else { return nil }
         let l = stripComment(lines[line - 1])
-        guard let r = l.range(of: #"(?<![\w])_?\#(name)\b"#, options: .regularExpression) else { return nil }
+        guard let r = l.range(of: #"(?<![\w])\#(spellings(name))\b"#, options: .regularExpression)
+        else { return nil }
         return l.distance(from: l.startIndex, to: r.lowerBound)
     }
 
-    /// The 1-based lines declaring `name` and, if it exists, its backing store `_name`.
+    /// The 1-based lines declaring `name` and, if it exists, its backing store.
     static func declarationLines(_ lines: [String], property name: String) -> [Int] {
         lines.indices.filter {
             stripComment(lines[$0]).range(
-                of: #"^\s*(public |internal |private |fileprivate )?(private\(set\) |internal\(set\) )?var _?\#(name)\b"#,
+                of: #"^\s*(public |internal |private |fileprivate )?(private\(set\) |internal\(set\) )?var \#(spellings(name))\b"#,
                 options: .regularExpression) != nil
         }.map { $0 + 1 }
     }

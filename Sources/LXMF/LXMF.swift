@@ -1,7 +1,8 @@
 import Foundation
 
 /// LXMF application name — used for Destination naming.
-public let APP_NAME = "lxmf"
+/// Python: `LXMF.APP_NAME = "lxmf"`
+public let appName = "lxmf"
 
 // MARK: - Field identifiers (mirrors LXMF/LXMF.py)
 
@@ -55,15 +56,15 @@ public enum ContinuationField: UInt8 {
 // MARK: - Audio mode identifiers
 
 public enum AudioMode: UInt8 {
-    case codec2_450PWB  = 0x01
-    case codec2_450     = 0x02
-    case codec2_700C    = 0x03
-    case codec2_1200    = 0x04
-    case codec2_1300    = 0x05
-    case codec2_1400    = 0x06
-    case codec2_1600    = 0x07
-    case codec2_2400    = 0x08
-    case codec2_3200    = 0x09
+    case codec2Mode450PWB  = 0x01   // Python: AM_CODEC2_450PWB
+    case codec2Mode450     = 0x02   // Python: AM_CODEC2_450
+    case codec2Mode700C    = 0x03   // Python: AM_CODEC2_700C
+    case codec2Mode1200    = 0x04   // Python: AM_CODEC2_1200
+    case codec2Mode1300    = 0x05   // Python: AM_CODEC2_1300
+    case codec2Mode1400    = 0x06   // Python: AM_CODEC2_1400
+    case codec2Mode1600    = 0x07   // Python: AM_CODEC2_1600
+    case codec2Mode2400    = 0x08   // Python: AM_CODEC2_2400
+    case codec2Mode3200    = 0x09   // Python: AM_CODEC2_3200
     case opusOgg        = 0x10
     case opusLBW        = 0x11
     case opusMBW        = 0x12
@@ -147,7 +148,7 @@ public func propagationNodeAnnounceDataIsValid(_ appData: Data?) -> Bool {
 /// when the appData is absent, empty, or uses the legacy raw-UTF-8 format.
 /// For 0.5.0+ msgpack format: returns `true` when the array has fewer than 3
 /// elements, when `items[2]` is not an array, or when `items[2]` contains
-/// `SF_COMPRESSION`.
+/// `sfCompression`.
 public func compressionSupportFromAppData(_ appData: Data?) -> Bool {
     guard let appData, !appData.isEmpty else { return true }
     let firstByte = appData[appData.startIndex]
@@ -158,8 +159,8 @@ public func compressionSupportFromAppData(_ appData: Data?) -> Bool {
         guard case .array(let funcs) = items[2] else { return true }
         return funcs.contains { value in
             switch value {
-            case .uint(let n): return n == UInt64(SF_COMPRESSION)
-            case .int(let n):  return n == Int64(SF_COMPRESSION)
+            case .uint(let n): return n == UInt64(sfCompression)
+            case .int(let n):  return n == Int64(sfCompression)
             default: return false
             }
         }
@@ -172,24 +173,24 @@ public func compressionSupportFromAppData(_ appData: Data?) -> Bool {
 
 /// Supported functionality code indicating bzip2 compression support.
 /// Python: `SF_COMPRESSION = 0x00`
-public let SF_COMPRESSION: UInt8 = 0x00
+public let sfCompression: UInt8 = 0x00
 
 // MARK: - Propagation Node metadata keys (mirrors LXMF.py PN_META_* constants)
 
 /// Python: `PN_META_VERSION = 0x00`
-public let PN_META_VERSION:       UInt8 = 0x00
+public let pnMetaVersion:       UInt8 = 0x00
 /// Python: `PN_META_NAME = 0x01`
-public let PN_META_NAME:          UInt8 = 0x01
+public let pnMetaName:          UInt8 = 0x01
 /// Python: `PN_META_SYNC_STRATUM = 0x02`
-public let PN_META_SYNC_STRATUM:  UInt8 = 0x02
+public let pnMetaSyncStratum:  UInt8 = 0x02
 /// Python: `PN_META_SYNC_THROTTLE = 0x03`
-public let PN_META_SYNC_THROTTLE: UInt8 = 0x03
+public let pnMetaSyncThrottle: UInt8 = 0x03
 /// Python: `PN_META_AUTH_BAND = 0x04`
-public let PN_META_AUTH_BAND:     UInt8 = 0x04
+public let pnMetaAuthBand:     UInt8 = 0x04
 /// Python: `PN_META_UTIL_PRESSURE = 0x05`
-public let PN_META_UTIL_PRESSURE: UInt8 = 0x05
+public let pnMetaUtilPressure: UInt8 = 0x05
 /// Python: `PN_META_CUSTOM = 0xFF`
-public let PN_META_CUSTOM:        UInt8 = 0xFF
+public let pnMetaCustom:        UInt8 = 0xFF
 
 // MARK: - Message renderer modes (mirrors LXMF.py RENDERER_* constants)
 
@@ -206,7 +207,7 @@ public enum RendererMode: UInt8 {
 /// Decode the propagation node's display name from its announce `appData`.
 ///
 /// Mirrors Python's `pn_name_from_app_data(app_data)`. The PN announce format
-/// is a msgpack array where `data[6]` is a metadata dict; `PN_META_NAME` (0x01)
+/// is a msgpack array where `data[6]` is a metadata dict; `pnMetaName` (0x01)
 /// holds the node name as UTF-8 bytes.
 ///
 /// Returns `nil` when `appData` is absent, malformed, or the name is not set.
@@ -216,7 +217,7 @@ public func pnNameFromAppData(_ appData: Data?) -> String? {
           case .array(let items) = (try? MsgPack.decode(appData)),
           items.count >= 7,
           case .map(let pairs) = items[6] else { return nil }
-    let nameEntry = pairs.first { if case .uint(let k) = $0.0 { return k == UInt64(PN_META_NAME) }; return false }
+    let nameEntry = pairs.first { if case .uint(let k) = $0.0 { return k == UInt64(pnMetaName) }; return false }
     guard let entry = nameEntry, case .bytes(let b) = entry.1, !b.isEmpty else { return nil }
     return String(bytes: b, encoding: .utf8)
 }
@@ -263,7 +264,7 @@ struct PropagationNodeAnnounce {
     let stampCost: Int
     let stampCostFlexibility: Int
     let peeringCost: Int
-    /// `pn_config[6]` — node metadata. Only `PN_META_NAME` is carried, under the `"name"` key
+    /// `pn_config[6]` — node metadata. Only `pnMetaName` is carried, under the `"name"` key
     /// `LXMPeer.name` already reads (`LXMPeer.swift:765-767`); no other key has a consumer in the
     /// port, and inventing string keys for them would be a divergence, not a port.
     let metadata: [String: String]?

@@ -240,9 +240,9 @@ final class PropagationPeeringTests: XCTestCase {
         func uploadOneMessage(content: String = "peer me") throws {
             let sourceIdentity = Identity()
             let source = try Destination(identity: sourceIdentity, direction: .in, kind: .single,
-                                         appName: APP_NAME, aspects: ["delivery"])
+                                         appName: appName, aspects: ["delivery"])
             let destination = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                              appName: APP_NAME, aspects: ["delivery"])
+                                              appName: appName, aspects: ["delivery"])
             let message = LXMessage(destination: destination, source: source, content: content)
             try message.pack()
             let lxmfData = try XCTUnwrap(message.packed)
@@ -317,7 +317,7 @@ final class PropagationPeeringTests: XCTestCase {
         // The remote's propagation destination — what the reference keys the peer table by
         // (`LXMRouter.py:2350-2351`).
         let remotePropagationHash = try Destination(identity: remoteIdentity, direction: .out,
-                                                    kind: .single, appName: APP_NAME,
+                                                    kind: .single, appName: appName,
                                                     aspects: ["propagation"]).hash
 
         let localUp  = expectation(description: "remote side link established")

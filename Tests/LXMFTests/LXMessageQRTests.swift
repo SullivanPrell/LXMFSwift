@@ -12,14 +12,14 @@ import ReticulumSwift
 ///   as_qr() → QR image for paper messages; raises TypeError for non-paper
 final class LXMessageQRTests: XCTestCase {
 
-    private static let APP_NAME = "lxmqr"
+    private static let appName = "lxmqr"
 
     private func makeSrcDst() throws -> (Destination, Destination) {
         let srcID = Identity(); let dstID = Identity()
         let src = try Destination(identity: srcID, direction: .in, kind: .single,
-                                  appName: Self.APP_NAME, aspects: ["delivery"])
+                                  appName: Self.appName, aspects: ["delivery"])
         let dst = try Destination(identity: dstID, direction: .in, kind: .single,
-                                  appName: Self.APP_NAME, aspects: ["delivery"])
+                                  appName: Self.appName, aspects: ["delivery"])
         return (src, dst)
     }
 

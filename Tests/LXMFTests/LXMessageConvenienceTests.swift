@@ -14,8 +14,8 @@ final class LXMessageConvenienceTests: XCTestCase {
 
     private func makeSrcDst() throws -> (Destination, Destination) {
         let srcID = Identity(); let dstID = Identity()
-        let src = try Destination(identity: srcID, direction: .in, kind: .single, appName: APP_NAME, aspects: ["delivery"])
-        let dst = try Destination(identity: dstID, direction: .in, kind: .single, appName: APP_NAME, aspects: ["delivery"])
+        let src = try Destination(identity: srcID, direction: .in, kind: .single, appName: appName, aspects: ["delivery"])
+        let dst = try Destination(identity: dstID, direction: .in, kind: .single, appName: appName, aspects: ["delivery"])
         return (src, dst)
     }
 

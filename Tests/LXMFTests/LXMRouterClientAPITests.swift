@@ -50,7 +50,7 @@ final class LXMRouterClientAPITests: XCTestCase {
                         "Should return data for registered destination")
     }
 
-    /// Without display name or stamp cost the packed array is [nil, nil, [SF_COMPRESSION]].
+    /// Without display name or stamp cost the packed array is [nil, nil, [sfCompression]].
     func testGetAnnounceAppDataNilFields() throws {
         let (router, transport) = makeRouter()
         let (_, dest) = try makeIdentityAndRegister(router: router, transport: transport)
@@ -64,14 +64,14 @@ final class LXMRouterClientAPITests: XCTestCase {
         }
         XCTAssertEqual(items[0], .nil, "display_name should be nil when not set")
         XCTAssertEqual(items[1], .nil, "stamp_cost should be nil when not set")
-        // items[2] should be supported_functionality = [SF_COMPRESSION]
+        // items[2] should be supported_functionality = [sfCompression]
         guard case .array(let funcs) = items[2], funcs.count == 1 else {
             XCTFail("supported_functionality should be a 1-element array"); return
         }
         switch funcs[0] {
-        case .uint(let n): XCTAssertEqual(n, UInt64(SF_COMPRESSION))
-        case .int(let n):  XCTAssertEqual(n, Int64(SF_COMPRESSION))
-        default: XCTFail("Expected SF_COMPRESSION value, got \(funcs[0])")
+        case .uint(let n): XCTAssertEqual(n, UInt64(sfCompression))
+        case .int(let n):  XCTAssertEqual(n, Int64(sfCompression))
+        default: XCTFail("Expected sfCompression value, got \(funcs[0])")
         }
     }
 
@@ -130,7 +130,7 @@ final class LXMRouterClientAPITests: XCTestCase {
         XCTAssertEqual(items[1], .nil, "Stamp cost 0 should be omitted (nil)")
     }
 
-    /// The third element is [SF_COMPRESSION] indicating bzip2 support (LXMF 0.9.8+).
+    /// The third element is [sfCompression] indicating bzip2 support (LXMF 0.9.8+).
     func testGetAnnounceAppDataAdvertisesCompressionSupport() throws {
         let (router, transport) = makeRouter()
         let (_, dest) = try makeIdentityAndRegister(router: router, transport: transport,

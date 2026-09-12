@@ -237,14 +237,14 @@ final class LXMessageTests: XCTestCase {
             identity: dstIdentity,
             direction: .in,
             kind: .single,
-            appName: APP_NAME,
+            appName: appName,
             aspects: ["delivery"]
         )
         let srcDest = try Destination(
             identity: srcIdentity,
             direction: .in,
             kind: .single,
-            appName: APP_NAME,
+            appName: appName,
             aspects: ["delivery"]
         )
 

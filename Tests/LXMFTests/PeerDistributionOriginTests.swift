@@ -188,9 +188,9 @@ final class PeerDistributionOriginTests: XCTestCase {
     /// Store one message directly, bypassing the distribution enqueue and the handled-marking.
     private func storeWithoutDistributing(in router: LXMRouter) throws -> Data {
         let source = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                     appName: APP_NAME, aspects: ["delivery"])
+                                     appName: appName, aspects: ["delivery"])
         let destination = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                          appName: APP_NAME, aspects: ["delivery"])
+                                          appName: appName, aspects: ["delivery"])
         let message = LXMessage(destination: destination, source: source,
                                 content: "direct \(UUID().uuidString)")
         try message.pack()
@@ -205,9 +205,9 @@ final class PeerDistributionOriginTests: XCTestCase {
     @discardableResult
     private func store(oneMessageIn router: LXMRouter, from origin: LXMPeer?) throws -> Data {
         let source = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                     appName: APP_NAME, aspects: ["delivery"])
+                                     appName: appName, aspects: ["delivery"])
         let destination = try Destination(identity: Identity(), direction: .in, kind: .single,
-                                          appName: APP_NAME, aspects: ["delivery"])
+                                          appName: appName, aspects: ["delivery"])
         let message = LXMessage(destination: destination, source: source,
                                 content: "distribute \(UUID().uuidString)")
         try message.pack()
