@@ -145,6 +145,7 @@ public func stampCostFromAppData(_ appData: Data?) -> Int? {
 
 /// Validate that propagation node announce data is a well-formed msgpack array
 /// with the expected minimum element count.
+///
 /// Mirrors Python's `pn_announce_data_is_valid`.
 public func propagationNodeAnnounceDataIsValid(_ appData: Data?) -> Bool {
     guard let appData else { return false }
@@ -154,6 +155,7 @@ public func propagationNodeAnnounceDataIsValid(_ appData: Data?) -> Bool {
 }
 
 /// Whether auto-compression is advertised in the announce `appData`.
+///
 /// Mirrors Python's `compression_support_from_app_data`. Defaults to `true`
 /// when the appData is absent, empty, or uses the legacy raw-UTF-8 format.
 /// For 0.5.0+ msgpack format: returns `true` when the array has fewer than 3
@@ -267,14 +269,18 @@ struct PropagationNodeAnnounce {
     let isPropagationNode: Bool
     /// `pn_config[3]` — per-transfer limit, in KB.
     let transferLimit: Double?
-    /// `pn_config[4]` — per-sync limit, in KB. Python falls back to the transfer limit when unset
+    /// `pn_config[4]` — per-sync limit, in KB.
+    ///
+    /// Python falls back to the transfer limit when unset
     /// (`:2029`, `:2044`); that fallback lives at the peering site, not here.
     let syncLimit: Double?
     /// `pn_config[5][0]`, `[1]`, `[2]`.
     let stampCost: Int
     let stampCostFlexibility: Int
     let peeringCost: Int
-    /// `pn_config[6]` — node metadata. Only `pnMetaName` is carried, under the `"name"` key
+    /// `pn_config[6]` — node metadata.
+    ///
+    /// Only `pnMetaName` is carried, under the `"name"` key
     /// `LXMPeer.name` already reads (`LXMPeer.swift:765-767`); no other key has a consumer in the
     /// port, and inventing string keys for them would be a divergence, not a port.
     let metadata: [String: String]?

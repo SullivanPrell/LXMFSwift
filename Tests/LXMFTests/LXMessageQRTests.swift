@@ -124,7 +124,9 @@ final class LXMessageQRTests: XCTestCase {
             "Repeated asQR() calls must produce same-size images")
     }
 
-    /// Rebuilt for `bugs/026`. The previous version asserted only that `asURI()` returned
+    /// Rebuilt for `bugs/026`.
+    ///
+    /// The previous version asserted only that `asURI()` returned
     /// something starting with `lxm://` and that `asQR()` did not throw — which is true of a
     /// QR carrying the message in cleartext. A QR code is the form of a paper message most
     /// likely to be photographed by someone it was not shown to, so the assertion that

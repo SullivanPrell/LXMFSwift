@@ -126,7 +126,9 @@ final class PeerOutboundSyncNetwork {
         return peer
     }
 
-    /// Announce A to B, so B can peer back. Needed only where the test cares about B's peer table.
+    /// Announce A to B, so B can peer back.
+    ///
+    /// Needed only where the test cares about B's peer table.
     func announceAToB() throws {
         try announce(routerA, on: transportA)
     }
@@ -189,7 +191,9 @@ final class PeerOutboundSyncNetwork {
         return condition()
     }
 
-    /// Let queued work drain. Used after an action whose effect is an *absence*.
+    /// Let queued work drain.
+    ///
+    /// Used after an action whose effect is an *absence*.
     func settle(_ seconds: TimeInterval = 0.3) {
         RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
@@ -210,7 +214,9 @@ final class PeerSyncLoopInterface: Interface {
     private(set) var sent: [Packet] = []
     private let lock = NSLock()
 
-    /// When set, `send` records the packet and drops it. Used to hold a link half-open.
+    /// When set, `send` records the packet and drops it.
+    ///
+    /// Used to hold a link half-open.
     var isBlackholed = false
 
     /// When set, `send` drops any packet the predicate matches. Finer-grained than

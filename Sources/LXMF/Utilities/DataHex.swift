@@ -14,6 +14,7 @@ import Foundation
 extension Data {
 
     /// Decode a lowercase or uppercase hex string into Data.
+    ///
     /// Returns nil if the string has an odd length or contains non-hex characters.
     init?(hexString: String) {
         let hex = hexString.lowercased()

@@ -67,7 +67,9 @@ final class InboundResourceTrackingTests: XCTestCase {
     }
 
     /// Python's `message_get_progress` publishes the response size *while the
-    /// transfer runs*, which is the only time a progress display can use it. The
+    /// transfer runs*, which is the only time a progress display can use it.
+    ///
+    /// The
     /// size has to come off a receipt that is genuinely mid-transfer, so this
     /// drives a real oversized request response over a link and feeds the router
     /// the progress callbacks that response produces.
@@ -154,7 +156,9 @@ final class InboundResourceTrackingTests: XCTestCase {
     // MARK: - Registry keying (real resources over a real link)
 
     /// The registry is keyed by `resource.hash`, exactly as Python does
-    /// (`incoming_delivery_resources[resource.hash] = resource`). That only works
+    /// (`incoming_delivery_resources[resource.hash] = resource`).
+    ///
+    /// That only works
     /// if the hash is already populated when the resource-started callback fires.
     ///
     /// It was not: ReticulumSwift used to call the callback before parsing the

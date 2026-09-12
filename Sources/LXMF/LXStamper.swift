@@ -13,6 +13,7 @@ import CryptoKit
 import ReticulumSwift
 
 /// LXMF proof-of-work stamp computation.
+///
 /// Wire-compatible with Python's LXStamper.py.
 ///
 /// Algorithm:
@@ -43,7 +44,9 @@ public enum LXStamper {
         return workblock
     }
 
-    /// Count leading zero bits in SHA256(workblock + stamp). This is the "value" of the stamp.
+    /// Count leading zero bits in SHA256(workblock + stamp).
+    ///
+    /// This is the "value" of the stamp.
     public static func stampValue(workblock: Data, stamp: Data) -> Int {
         let material = Hashes.fullHash(workblock + stamp)
         var count = 0
@@ -69,6 +72,7 @@ public enum LXStamper {
     }
 
     /// Generate a random 32-byte stamp whose SHA256(workblock + stamp) has `targetCost` leading zeros.
+    ///
     /// Returns nil if cancelled. Runs on the calling thread.
     ///
     /// Thin wrapper over `generateStamp(material:targetCost:expandRounds:isCancelled:)`, which is
@@ -142,7 +146,9 @@ public enum LXStamper {
         private var result: (stamp: Data, value: Int)?
         private var flag = false
 
-        /// Read without the lock so the hot loop's early-out costs nothing. A stale `false` only
+        /// Read without the lock so the hot loop's early-out costs nothing.
+        ///
+        /// A stale `false` only
         /// means one more candidate is hashed before the batch notices.
         var isSet: Bool { lock.lock(); defer { lock.unlock() }; return flag }
 
@@ -181,11 +187,13 @@ public enum LXStamper {
     // MARK: - Propagation node stamp validation
 
     /// Expand rounds for propagation-node stamp validation (lower than message stamps).
+    ///
     /// Python: `WORKBLOCK_EXPAND_ROUNDS_PN = 1000` (same as `pnExpandRounds`).
     public static let pnStampExpandRounds: Int = 1000
 
 
     /// Expand rounds for peering-key validation.
+    ///
     /// Python: `WORKBLOCK_EXPAND_ROUNDS_PEERING = 25`.
     public static let peeringExpandRounds: Int = 25
 
@@ -262,7 +270,9 @@ public enum LXStamper {
         transientList.compactMap { validatePNStamp(transientData: $0, targetCost: targetCost) }
     }
 
-    /// Encode an integer as msgpack. Matches Python `umsgpack.packb(n)` for non-negative n.
+    /// Encode an integer as msgpack.
+    ///
+    /// Matches Python `umsgpack.packb(n)` for non-negative n.
     /// Used in workblock salt computation to match Python wire format exactly.
     static func encodeMsgpackInt(_ n: Int) -> Data {
         var out = Data()

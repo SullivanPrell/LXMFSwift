@@ -55,7 +55,9 @@ final class PropagationSyncTests: XCTestCase {
     // MARK: - 6.3: link closure reaches a terminal state, from both pre-close phases
 
     /// Closure point one: before the link is established (`state < PR_LINK_ESTABLISHED` →
-    /// `PR_LINK_FAILED`). The wire is held so the LINKREQUEST never arrives; the teardown is
+    /// `PR_LINK_FAILED`).
+    ///
+    /// The wire is held so the LINKREQUEST never arrives; the teardown is
     /// what the RNS link watchdog does to an unanswered link, minus the wait.
     func testLinkClosureBeforeEstablishmentFailsTheSync() throws {
         try makeClient()
@@ -80,7 +82,9 @@ final class PropagationSyncTests: XCTestCase {
     }
 
     /// Closure point two: after establishment, mid-transfer (`PR_LINK_ESTABLISHED ≤ state <
-    /// PR_COMPLETE` → `PR_TRANSFER_FAILED`). The link proof passes; every later reply from the
+    /// PR_COMPLETE` → `PR_TRANSFER_FAILED`).
+    ///
+    /// The link proof passes; every later reply from the
     /// node is dropped, parking the client at `.requestSent` with a live link.
     func testLinkClosureMidTransferFailsTheSync() throws {
         try makeClient()
@@ -104,7 +108,9 @@ final class PropagationSyncTests: XCTestCase {
 
     /// The reference's `PR_COMPLETE` branch: a *completed* sync whose link then closes
     /// acknowledges back to `.idle` (`LXMRouter.py:993-994`) — closure after success is
-    /// housekeeping, not a failure. Against B's empty store the whole sync completes inside
+    /// housekeeping, not a failure.
+    ///
+    /// Against B's empty store the whole sync completes inside
     /// the request call on this wire.
     func testCompletedSyncAcknowledgesToIdleWhenTheLinkCloses() throws {
         try makeClient()
@@ -125,7 +131,9 @@ final class PropagationSyncTests: XCTestCase {
     }
 
     /// Negative control for the two failure tests: a *deliberate* cancel must stay `.idle` when
-    /// its own teardown's `onClosed` fires afterwards. The reference gets this for free because
+    /// its own teardown's `onClosed` fires afterwards.
+    ///
+    /// The reference gets this for free because
     /// `cancel_propagation_node_requests` clears the link reference *before* tearing down, so
     /// `clean_links` finds nothing to map — the port's closure handler must keep that guard.
     /// (Passes before the fix too, because the unfixed handler does nothing at all; it is
@@ -176,7 +184,9 @@ final class PropagationSyncTests: XCTestCase {
     // MARK: - 6.5: a sync that neither completes nor sees closure terminates
 
     /// A live link whose transfer has simply stopped moving: no closure will ever fire and no
-    /// response will ever come. The reference has nothing for this case — its watchdog only
+    /// response will ever come.
+    ///
+    /// The reference has nothing for this case — its watchdog only
     /// catches links that *die* — so the bound is a port-side safety net, checked on the same
     /// periodic pass as the closure mapping. The parameter exists so the test does not wait out
     /// the production bound, the same shape as `cleanLinks(peerSyncMaxInactivity:)`.

@@ -127,6 +127,7 @@ final class LXMRouterStampTests: XCTestCase {
 
     /// When a delivery announce arrives with stamp cost at appData[1], the router
     /// must store it via setOutboundStampCost.
+    ///
     /// Mirrors Python's LXMFDeliveryAnnounceHandler.received_announce → update_stamp_cost.
     func testDeliveryAnnounceExtractsStampCostFromAppData() throws {
         let router = makeRouter()
@@ -169,6 +170,7 @@ final class LXMRouterStampTests: XCTestCase {
 
     /// send() must auto-configure message.stampCost from stored outbound stamp costs
     /// when the message hasn't set a stamp cost yet.
+    ///
     /// Mirrors Python's handle_outbound() lines 1651–1655.
     func testSendAutoConfiguresStampCostFromStoredCosts() throws {
         let router = makeRouter()

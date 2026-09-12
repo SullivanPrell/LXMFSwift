@@ -90,7 +90,9 @@ final class LXMPropagatedDeliveryTests: XCTestCase {
 
     /// LXMF 0.9.9 (189f523): sending a propagated message with no configured
     /// outbound propagation node now throws an IOError immediately rather than
-    /// silently failing. Verify the throw, the message state, and no callback.
+    /// silently failing.
+    ///
+    /// Verify the throw, the message state, and no callback.
     func testRouterFailsImmediatelyIfNoPropagationNode() throws {
         let (src, dst, _, _) = try makeDeliveryPair()
         let router = LXMRouter(transport: Transport())

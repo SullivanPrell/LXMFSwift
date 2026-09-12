@@ -13,6 +13,7 @@ import LXMF
 import ReticulumSwift
 
 /// Tests for LXMF stamp (proof-of-work anti-spam) system.
+///
 /// Mirrors Python's LXStamper.py and LXMessage stamp wire format.
 final class LXMStamperTests: XCTestCase {
 

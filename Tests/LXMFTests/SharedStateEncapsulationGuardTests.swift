@@ -86,7 +86,9 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
         }
     }
 
-    /// The guard must be seen to fail. This runs its own logic against a synthetic source rather
+    /// The guard must be seen to fail.
+    ///
+    /// This runs its own logic against a synthetic source rather
     /// than mutating the real one, so the demonstration is part of the suite instead of a note
     /// somebody has to trust.
     func testTheGuardActuallyFiresOnAPubliclySettableProperty() {

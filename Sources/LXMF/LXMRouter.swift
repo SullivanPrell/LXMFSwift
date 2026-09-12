@@ -22,6 +22,7 @@ public enum LXMRouterError: Error, Equatable {
 // MARK: - PropagationTransferState
 
 /// State machine for inbound propagation node sync.
+///
 /// Mirrors Python `LXMRouter.PR_*` constants.
 public enum PropagationTransferState: Equatable {
     /// No sync in progress.
@@ -44,7 +45,9 @@ public enum PropagationTransferState: Equatable {
 
 // MARK: - LXMRouter
 
-/// LXMF message router. Manages outbound delivery and inbound reception
+/// LXMF message router.
+///
+/// Manages outbound delivery and inbound reception
 /// for one or more registered delivery identities.
 ///
 /// Mirrors the core delivery loop of Python's `LXMRouter`:
@@ -56,7 +59,9 @@ public final class LXMRouter {
 
     // MARK: - Constants
 
-    /// Python: `LXMRouter.MAX_DELIVERY_ATTEMPTS = 5` (`LXMRouter.py:30`). The delivery gates
+    /// Python: `LXMRouter.MAX_DELIVERY_ATTEMPTS = 5` (`LXMRouter.py:30`).
+    ///
+    /// The delivery gates
     /// compare with `<=` (`LXMRouter.py:2736,:2766,:2853`), so a message is really attempted
     /// `maxDeliveryAttempts + 1` times before `failMessage`.
     public static let maxDeliveryAttempts = 5
@@ -68,44 +73,61 @@ public final class LXMRouter {
     public static let pathRequestWait: TimeInterval   = 7
 
     /// RNS request path for fetching/delivering messages to/from a propagation node.
+    ///
     /// Mirrors Python `LXMPeer.MESSAGE_GET_PATH = "/get"`.
     public static let messageGetPath = LXMPeer.messageGetPath
     /// Timeout when waiting for a path to a propagation node.
+    ///
     /// Mirrors Python `LXMRouter.PR_PATH_TIMEOUT`.
     public static let prPathTimeout: TimeInterval = 10.0
 
-    /// Whether a node peers automatically by default. Python: `LXMRouter.AUTOPEER = True` (`:44`).
+    /// Whether a node peers automatically by default.
+    ///
+    /// Python: `LXMRouter.AUTOPEER = True` (`:44`).
     public static let defaultAutopeer = true
     /// Default automatic peering depth, in hops.
+    ///
     /// Python: `LXMRouter.AUTOPEER_MAXDEPTH = 4` (`:45`).
     public static let defaultAutopeerMaxdepth = 4
-    /// Default ceiling on the peer table. Python: `LXMRouter.MAX_PEERS = 20` (`:43`).
+    /// Default ceiling on the peer table.
+    ///
+    /// Python: `LXMRouter.MAX_PEERS = 20` (`:43`).
     public static let defaultMaxPeers = 20
     /// Default ceiling on a remote's peering cost.
+    ///
     /// Python: `LXMRouter.MAX_PEERING_COST = 26` (`:51`).
     public static let defaultMaxPeeringCost = 26
 
     /// Default proof-of-work cost this node charges to peer with it.
+    ///
     /// Python: `LXMRouter.PEERING_COST = 18` (`:50`).
     public static let defaultPeeringCost = 18
     /// Default stamp cost this node demands of messages offered to it.
+    ///
     /// Python: `LXMRouter.PROPAGATION_COST = 16` (`:54`).
     public static let defaultPropagationStampCost = 16
-    /// Default tolerance on that demand. Python: `LXMRouter.PROPAGATION_COST_FLEX = 3` (`:53`).
+    /// Default tolerance on that demand.
+    ///
+    /// Python: `LXMRouter.PROPAGATION_COST_FLEX = 3` (`:53`).
     public static let defaultPropagationStampCostFlexibility = 3
     /// Floor under the demanded stamp cost, applied on assignment.
+    ///
     /// Python: `LXMRouter.PROPAGATION_COST_MIN = 13` (`:52`), enforced at `:136`.
     public static let propagationStampCostMin = 13
     /// Fraction of `maxPeers` rotation tries to keep free.
+    ///
     /// Python: `LXMRouter.ROTATION_HEADROOM_PCT = 10` (`:47`).
     public static let rotationHeadroomPct = 10
     /// Acceptance rate at or above which a peer is never rotated out.
+    ///
     /// Python: `LXMRouter.ROTATION_AR_MAX = 0.5` (`:48`).
     public static let rotationAcceptanceRateMax = 0.5
     /// How many of the fastest waiting peers form the sync-selection pool.
+    ///
     /// Python: `LXMRouter.FASTEST_N_RANDOM_POOL = 2` (`:46`).
     public static let fastestNRandomPool = 2
     /// How long a remote is refused after sending messages with invalid stamps.
+    ///
     /// Python: `LXMRouter.PN_STAMP_THROTTLE = 180` (`:63`).
     public static let pnStampThrottle: TimeInterval = 180
 
@@ -123,7 +145,9 @@ public final class LXMRouter {
     /// Active outbound direct links, keyed by the remote destination hash.
     private(set) var directLinks: [Data: Link] = [:]
 
-    /// Messages awaiting delivery. Python: `LXMRouter.pending_outbound`.
+    /// Messages awaiting delivery.
+    ///
+    /// Python: `LXMRouter.pending_outbound`.
     ///
     /// Read-only, for the reasons on `propagationEntries` (`swift_devel/bugs/055`): the router
     /// mutates the array under `lock` on the send, process and cancel paths, so an unlocked read
@@ -139,21 +163,26 @@ public final class LXMRouter {
     public var onMessageReceived: ((LXMessage) -> Void)?
 
     /// Hash of the propagation node to use for outbound propagated delivery.
+    ///
     /// Mirrors Python's `LXMRouter.outbound_propagation_node`.
     public var outboundPropagationNode: Data?
 
-    /// Active link to the propagation node. Reused across messages.
+    /// Active link to the propagation node.
+    ///
+    /// Reused across messages.
     var outboundPropagationLink: Link?
 
     // MARK: - Propagation sync state
 
     /// Current state of an in-progress propagation sync transfer.
+    ///
     /// Mirrors Python's `LXMRouter.propagation_transfer_state`.
     public var propagationTransferState: PropagationTransferState = .idle {
         didSet { propagationTransferLastActivity = Date().timeIntervalSince1970 }
     }
 
     /// Progress of the current propagation sync (0.0–1.0).
+    ///
     /// Mirrors Python's `LXMRouter.propagation_transfer_progress`.
     public var propagationTransferProgress: Double = 0.0 {
         didSet { propagationTransferLastActivity = Date().timeIntervalSince1970 }
@@ -167,46 +196,58 @@ public final class LXMRouter {
     private(set) var propagationTransferLastActivity: TimeInterval = 0
 
     /// Size in bytes of the in-flight propagation-node message-get response, or
-    /// `nil` when no sync is running. Lets a UI render "x of y bytes" instead of
+    /// `nil` when no sync is running.
+    ///
+    /// Lets a UI render "x of y bytes" instead of
     /// only a fraction. Reset on every new sync request and on completion or
     /// failure. Mirrors Python's `LXMRouter.propagation_transfer_size`.
     public var propagationTransferSize: Int? = nil
 
     /// Maximum messages to fetch (nil = all).
+    ///
     /// Mirrors Python's `LXMRouter.propagation_transfer_max_messages` (PR_ALL_MESSAGES = -1 → nil).
     public var propagationTransferMaxMessages: Int? = nil
 
     /// Maximum messages per single GET transfer (nil = no limit).
+    ///
     /// Mirrors Python's `LXMRouter.delivery_per_transfer_limit`.
     public var deliveryPerTransferLimit: Int? = nil
 
     /// Whether to keep messages on the propagation node after confirming receipt.
+    ///
     /// Mirrors Python's `LXMRouter.retain_synced_on_node`.
     public var retainSyncedOnNode: Bool = false
 
     /// Propagation node we're waiting to get a path to, before re-attempting sync.
+    ///
     /// Mirrors Python's `LXMRouter.wants_download_on_path_available_from`.
     public var wantsDownloadOnPathAvailableFrom: Data? = nil
 
     // MARK: - Auth and allow/disallow lists
 
     /// Whether authentication is required for inbound messages.
+    ///
     /// Python: `LXMRouter.auth_required`.
     private var authRequired: Bool = false
 
     /// Whitelist of identity hashes allowed to send messages when auth is required.
+    ///
     /// Python: `LXMRouter.allowed_list`.
     private var allowedList: Set<Data> = []
 
     /// Locally delivered transient IDs, mapped to when they were delivered
-    /// (for `has_message`). The timestamp is what lets `cleanTransientIDCaches`
+    /// (for `has_message`).
+    ///
+    /// The timestamp is what lets `cleanTransientIDCaches`
     /// expire them — without it the cache grows for the lifetime of the install
     /// and is persisted to disk in full on every save.
     /// Mirrors Python's `locally_delivered_transient_ids` dict.
     var locallyDeliveredTransientIDs: [Data: TimeInterval] = [:]
 
     /// Transient IDs a propagation node has already handled and since dropped
-    /// from `propagationEntries`. Acts as a tombstone set so a message that was
+    /// from `propagationEntries`.
+    ///
+    /// Acts as a tombstone set so a message that was
     /// delivered and pruned is not silently re-ingested the next time a peer
     /// offers it. Mapped to when it was processed, and expired on the same
     /// schedule as the delivered cache.
@@ -214,10 +255,12 @@ public final class LXMRouter {
     var locallyProcessedTransientIDs: [Data: TimeInterval] = [:]
 
     /// How long a transient ID stays in the delivered/processed caches.
+    ///
     /// Mirrors Python's `MESSAGE_EXPIRY * 6.0` (30 days x 6 = 180 days).
     static let transientIDCacheExpiry: TimeInterval = 30 * 24 * 60 * 60 * 6.0
 
     /// Job ticks between transient-ID cache reaps.
+    ///
     /// Mirrors Python's `LXMRouter.JOB_TRANSIENT_INTERVAL = 60`.
     static let jobTransientInterval = 60
 
@@ -236,13 +279,17 @@ public final class LXMRouter {
     static let jobSaveInterval       = 30
 
     /// Seconds a direct delivery link may sit idle before it is torn down.
+    ///
     /// Python: `LXMRouter.LINK_MAX_INACTIVITY = 600` (`LXMRouter.py:36`).
     public static let linkMaxInactivity: TimeInterval = 600
     /// Seconds a propagation link may sit idle before it is torn down.
+    ///
     /// Python: `LXMRouter.P_LINK_MAX_INACTIVITY = 180` (`:37`).
     public static let propagationLinkMaxInactivity: TimeInterval = 180
     /// Seconds a client sync may sit with no state transition and no progress before
-    /// `cleanLinks` fails it and tears its link down. **Port-only** (design D5, `bugs/020`):
+    /// `cleanLinks` fails it and tears its link down.
+    ///
+    /// **Port-only** (design D5, `bugs/020`):
     /// the reference has no bound for a live-but-stuck transfer. Sized above
     /// `propagationLinkMaxInactivity` so the RNS inactivity teardown — whose closure the state
     /// machine maps — gets the first move, and the stall bound only ever catches a link that
@@ -252,20 +299,24 @@ public final class LXMRouter {
     // MARK: - Priority and ignore lists
 
     /// Destinations that should receive priority delivery.
+    ///
     /// Mirrors Python's `LXMRouter.prioritised_list`.
     private var prioritisedList: [Data] = []
 
     /// Whether stamp enforcement is enabled for inbound messages.
+    ///
     /// Mirrors Python's `LXMRouter.enforce_stamps` flag.
     private var stampsEnforced: Bool = false
 
     /// Destinations whose inbound messages should be silently ignored.
+    ///
     /// Mirrors Python's `LXMRouter.ignored_list`.
     private var ignoredList: [Data] = []
 
     // MARK: - Delivery destination display names
 
     /// Display name per registered delivery destination hash.
+    ///
     /// Set at `register(identity:transport:displayName:)` time.
     /// Mirrors Python's `delivery_destination.display_name`.
     private var deliveryDestinationNames: [Data: String] = [:]
@@ -273,7 +324,9 @@ public final class LXMRouter {
     // MARK: - Pending signature validation
 
     /// Inbound messages waiting for the source identity to arrive (via announce)
-    /// before their signature can be validated. Keyed entry holds the received
+    /// before their signature can be validated.
+    ///
+    /// Keyed entry holds the received
     /// message and the time it arrived (for diagnostics / timeout ordering).
     ///
     /// The `DeliveryAnnounceHandler` fires when the source's lxmf.delivery
@@ -290,14 +343,17 @@ public final class LXMRouter {
     // MARK: - Ticket store
 
     /// Outbound tickets received from remote routers: [destHash: (expiry, ticket)].
+    ///
     /// Mirrors Python's `available_tickets["outbound"]`.
     private var outboundTickets: [Data: (expiry: TimeInterval, ticket: Data)] = [:]
 
     /// Inbound tickets we generated for remote peers: [destHash: [ticket: expiry]].
+    ///
     /// Mirrors Python's `available_tickets["inbound"]`.
     private var inboundTickets: [Data: [Data: TimeInterval]] = [:]
 
     /// Timestamps of the last ticket delivered to each destination.
+    ///
     /// Mirrors Python's `available_tickets["last_deliveries"]`.
     private var lastDeliveries: [Data: TimeInterval] = [:]
 
@@ -312,6 +368,7 @@ public final class LXMRouter {
     // MARK: - Propagation node server state
 
     /// Whether this router is currently acting as a propagation node.
+    ///
     /// Python: `LXMRouter.propagation_node`.
     public private(set) var isPropagationNode: Bool = false
 
@@ -319,11 +376,13 @@ public final class LXMRouter {
     public private(set) var propagationNodeStartTime: TimeInterval? = nil
 
     /// The local LXMF propagation destination (lxmf.propagation, direction IN).
+    ///
     /// Created once on the first `register(identity:transport:)` call, mirroring
     /// Python's `__init__`: `self.propagation_destination = RNS.Destination(self.identity, IN, SINGLE, APP_NAME, "propagation")`.
     public private(set) var propagationDestination: Destination? = nil
 
     /// All stored messages, keyed by transient ID.
+    ///
     /// Python: `LXMRouter.propagation_entries` (`LXMRouter.py:222`).
     ///
     /// Read-only in public. Every write inside the router happens under `lock`, and a
@@ -344,6 +403,7 @@ public final class LXMRouter {
     private var unsafePropagationEntries: [Data: PropagationEntry] = [:]
 
     /// All known propagation peers, keyed by destination hash.
+    ///
     /// Python: `LXMRouter.peers`.
     ///
     /// Read-only in public, for the reasons on `propagationEntries` (`swift_devel/bugs/055`).
@@ -359,6 +419,7 @@ public final class LXMRouter {
     private var unsafePeers: [Data: LXMPeer] = [:]
 
     /// Whether to enforce ratchet usage on registered delivery destinations.
+    ///
     /// When true, register() calls enforceRatchets() on the delivery destination
     /// after enabling ratchets. Mirrors Python `LXMRouter.__init__(enforce_ratchets=False)`.
     public var enforceRatchets: Bool = false
@@ -377,6 +438,7 @@ public final class LXMRouter {
     public var messagePath: String? = nil
 
     /// Maximum total bytes for the message store. nil = unlimited.
+    ///
     /// Python: `LXMRouter.message_storage_limit`.
     public var messageStorageLimit: Int? = nil
 
@@ -396,6 +458,7 @@ public final class LXMRouter {
     public var propagationStampCost: Int = LXMRouter.defaultPropagationStampCost
 
     /// Flexibility (±) on the stamp cost requirement.
+    ///
     /// Python: `LXMRouter.PROPAGATION_COST_FLEX = 3` (`:53`).
     public var propagationStampCostFlexibility: Int = LXMRouter.defaultPropagationStampCostFlexibility
 
@@ -407,10 +470,12 @@ public final class LXMRouter {
     public var peeringCost: Int = LXMRouter.defaultPeeringCost
 
     /// Whether to peer automatically with propagation nodes discovered through incoming syncs.
+    ///
     /// Python: `LXMRouter.AUTOPEER = True` (`LXMRouter.py:44`), consulted at `:2365`.
     public var autopeer: Bool = LXMRouter.defaultAutopeer
 
     /// The greatest number of peers this node will hold.
+    ///
     /// Python: `LXMRouter.MAX_PEERS = 20` (`LXMRouter.py:43`), per-node at `:206`.
     public var maxPeers: Int {
         lock.lock(); defer { lock.unlock() }
@@ -419,6 +484,7 @@ public final class LXMRouter {
     private var unsafeMaxPeers: Int = LXMRouter.defaultMaxPeers
 
     /// The highest peering cost this node is willing to pay to peer with a remote.
+    ///
     /// Python: `LXMRouter.max_peering_cost` (`:150`), applied at `:2005`.
     public var maxPeeringCost: Int = LXMRouter.defaultMaxPeeringCost
 
@@ -435,6 +501,7 @@ public final class LXMRouter {
 
     /// Whether rotation drops only unreachable peers when any exist, rather than considering
     /// merely-waiting ones alongside them.
+    ///
     /// Python: `LXMRouter.prioritise_rotating_unreachable_peers` (`:167`), consumed at `:2104`.
     public var prioritiseRotatingUnreachablePeers: Bool = false
 
@@ -446,7 +513,9 @@ public final class LXMRouter {
     public var autopeerMaxdepth: Int = LXMRouter.defaultAutopeerMaxdepth
 
     /// Remotes whose offers are refused until the recorded time, keyed by propagation destination
-    /// hash. Python: `LXMRouter.throttled_peers` (`LXMRouter.py:154`).
+    /// hash.
+    ///
+    /// Python: `LXMRouter.throttled_peers` (`LXMRouter.py:154`).
     public var throttledPeers: [Data: TimeInterval] {
         lock.lock(); defer { lock.unlock() }
         return unsafeThrottledPeers
@@ -468,6 +537,7 @@ public final class LXMRouter {
     private var unsafeValidatedPeerLinks: [ObjectIdentifier: Bool] = [:]
 
     /// Queue of transient IDs waiting to be distributed to peers.
+    ///
     /// Transient IDs awaiting fan-out to peers, each with the peer it arrived from.
     ///
     /// The origin is not decoration: Python queues `[transient_id, from_peer]` and skips that peer
@@ -515,20 +585,25 @@ public final class LXMRouter {
     private var jobTimer: DispatchSourceTimer?
 
     /// How many job ticks between reaps of `incomingDeliveryResources`.
+    ///
     /// Mirrors Python's `LXMRouter.JOB_RESOURCE_INTERVAL = 2` (so every 8 s at
     /// the 4 s processing interval).
     static let jobResourceInterval = 2
 
     /// Job-loop tick counter, used to phase the resource reap.
+    ///
     /// Mirrors Python's `LXMRouter.processing_count`.
     private var processingCount = 0
 
     /// In-flight inbound message resource transfers, keyed by resource hash.
+    ///
     /// Lets a UI show what is currently arriving and cancel it mid-transfer.
     /// Mirrors Python's `LXMRouter.incoming_delivery_resources`.
     private var incomingDeliveryResources: [Data: ResourceTransfer] = [:]
 
-    /// Guards `incomingDeliveryResources`. Kept separate from the router's main
+    /// Guards `incomingDeliveryResources`.
+    ///
+    /// Kept separate from the router's main
     /// `lock` so a resource callback firing on a link's receive thread never
     /// contends with outbound processing.
     /// Mirrors Python's `incoming_delivery_resource_lock`.
@@ -586,7 +661,9 @@ public final class LXMRouter {
 
     // MARK: - Destination registration
 
-    /// Register a local LXMF delivery destination. Inbound messages
+    /// Register a local LXMF delivery destination.
+    ///
+    /// Inbound messages
     /// addressed to this destination will be decoded and delivered via
     /// `onMessageReceived`. Mirrors Python's `LXMRouter.register_delivery_identity`.
     ///
@@ -879,7 +956,9 @@ public final class LXMRouter {
     }
 
     /// Generate (or reuse) an inbound ticket for `destinationHash` with `expiry` seconds
-    /// of validity. Returns `(expiry, ticket)` or `nil` if a ticket was recently delivered.
+    /// of validity.
+    ///
+    /// Returns `(expiry, ticket)` or `nil` if a ticket was recently delivered.
     ///
     /// Reuses an existing ticket when it has more than `LXMessage.ticketRenew` seconds left.
     ///
@@ -955,14 +1034,17 @@ public final class LXMRouter {
     // MARK: - Authentication API
 
     /// Returns whether authentication is required for inbound messages.
+    ///
     /// Mirrors Python's `LXMRouter.requires_authentication()`.
     public func requiresAuthentication() -> Bool { authRequired }
 
     /// Set whether authentication is required.
+    ///
     /// Mirrors Python's `LXMRouter.set_authentication(required)`.
     public func setAuthentication(required: Bool) { authRequired = required }
 
     /// Add an identity hash to the allow-list.
+    ///
     /// Mirrors Python's `LXMRouter.allow(identity_hash)`.
     public func allow(identityHash: Data) {
         lock.lock(); defer { lock.unlock() }
@@ -970,6 +1052,7 @@ public final class LXMRouter {
     }
 
     /// Remove an identity hash from the allow-list.
+    ///
     /// Mirrors Python's `LXMRouter.disallow(identity_hash)`.
     public func disallow(identityHash: Data) {
         lock.lock(); defer { lock.unlock() }
@@ -985,6 +1068,7 @@ public final class LXMRouter {
     // MARK: - Stamp cost management
 
     /// Store per-destination inbound stamp cost.
+    ///
     /// Mirrors Python's `LXMRouter.set_inbound_stamp_cost(destination_hash, stamp_cost)`.
     @discardableResult
     public func setInboundStampCost(destinationHash: Data, stampCost: Int?) -> Bool {
@@ -994,6 +1078,7 @@ public final class LXMRouter {
     }
 
     /// Return the outbound stamp cost for a destination, or `nil` if unknown.
+    ///
     /// Mirrors Python's `LXMRouter.get_outbound_stamp_cost(destination_hash)`.
     public func getOutboundStampCost(destinationHash: Data) -> Int? {
         lock.lock(); defer { lock.unlock() }
@@ -1011,12 +1096,14 @@ public final class LXMRouter {
     // MARK: - Priority list API
 
     /// Add a destination hash to the priority delivery list.
+    ///
     /// Mirrors Python's `LXMRouter.prioritise(destination_hash)`.
     public func prioritise(destinationHash: Data) {
         if !prioritisedList.contains(destinationHash) { prioritisedList.append(destinationHash) }
     }
 
     /// Remove a destination hash from the priority delivery list.
+    ///
     /// Mirrors Python's `LXMRouter.unprioritise(destination_hash)`.
     public func unprioritise(destinationHash: Data) {
         prioritisedList.removeAll { $0 == destinationHash }
@@ -1030,10 +1117,12 @@ public final class LXMRouter {
     // MARK: - Stamp enforcement API
 
     /// Enable stamp enforcement for inbound messages.
+    ///
     /// Mirrors Python's `LXMRouter.enforce_stamps()`.
     public func enforceStamps() { stampsEnforced = true }
 
     /// Disable stamp enforcement for inbound messages.
+    ///
     /// Mirrors Python's `LXMRouter.ignore_stamps()`.
     public func ignoreStamps()  { stampsEnforced = false }
 
@@ -1043,12 +1132,14 @@ public final class LXMRouter {
     // MARK: - Ignore list API
 
     /// Add a destination hash to the ignore list (inbound messages are silently dropped).
+    ///
     /// Mirrors Python's `LXMRouter.ignore(destination_hash)`.
     public func ignoreDestination(destinationHash: Data) {
         if !ignoredList.contains(destinationHash) { ignoredList.append(destinationHash) }
     }
 
     /// Remove a destination hash from the ignore list.
+    ///
     /// Mirrors Python's `LXMRouter.unignore(destination_hash)`.
     public func unignoreDestination(destinationHash: Data) {
         ignoredList.removeAll { $0 == destinationHash }
@@ -1062,6 +1153,7 @@ public final class LXMRouter {
     // MARK: - Message lifecycle
 
     /// Returns `true` if a message with the given transient ID has been delivered locally.
+    ///
     /// Mirrors Python's `LXMRouter.has_message(transient_id)`.
     public func hasMessage(transientID: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
@@ -1085,6 +1177,7 @@ public final class LXMRouter {
     }
 
     /// Record an inbound delivery resource as it starts transferring.
+    ///
     /// Mirrors Python's `delivery_resource_transfer_began`.
     private func trackIncomingDeliveryResource(_ transfer: ResourceTransfer) {
         incomingDeliveryResourceLock.lock()
@@ -1093,6 +1186,7 @@ public final class LXMRouter {
     }
 
     /// The keys currently in the in-flight registry, snapshot under the lock.
+    ///
     /// Test hook: `inboundResources()` filters to active transfers and so cannot
     /// tell "two transfers filed under one key" apart from "one transfer".
     func inboundRegistryKeys() -> [Data] {
@@ -1100,7 +1194,9 @@ public final class LXMRouter {
         return Array(incomingDeliveryResources.keys)
     }
 
-    /// Drop concluded entries from the in-flight registry. Without this the
+    /// Drop concluded entries from the in-flight registry.
+    ///
+    /// Without this the
     /// registry grows for the lifetime of the router.
     /// Mirrors Python's `LXMRouter.clean_resource_tracking()`.
     func cleanResourceTracking() {
@@ -1112,6 +1208,7 @@ public final class LXMRouter {
     }
 
     /// Number of inbound message transfers currently in progress.
+    ///
     /// Mirrors Python's `LXMRouter.inbound_count()`.
     public func inboundCount() -> Int {
         incomingDeliveryResourceLock.lock(); defer { incomingDeliveryResourceLock.unlock() }
@@ -1119,6 +1216,7 @@ public final class LXMRouter {
     }
 
     /// The inbound message transfers currently in progress.
+    ///
     /// Mirrors Python's `LXMRouter.inbound_resources()`.
     public func inboundResources() -> [ResourceTransfer] {
         incomingDeliveryResourceLock.lock(); defer { incomingDeliveryResourceLock.unlock() }
@@ -1153,6 +1251,7 @@ public final class LXMRouter {
     }
 
     /// Cancel a pending outbound message by its `messageID`.
+    ///
     /// Sets state to `.cancelled` and removes it from the pending queue.
     /// Mirrors Python's `LXMRouter.cancel_outbound(message_id)`.
     public func cancelOutbound(messageID: Data) {
@@ -1166,6 +1265,7 @@ public final class LXMRouter {
 
     /// Returns the delivery progress (0.0–1.0) for a pending message identified by hash,
     /// or `nil` if no such message is pending.
+    ///
     /// Mirrors Python's `LXMRouter.get_outbound_progress(lxm_hash)`.
     public func getOutboundProgress(lxmHash: Data) -> Double? {
         lock.lock(); defer { lock.unlock() }
@@ -1215,7 +1315,9 @@ public final class LXMRouter {
 
     // MARK: - Outbound
 
-    /// Enqueue a message for delivery. Call `processOutbound()` to attempt
+    /// Enqueue a message for delivery.
+    ///
+    /// Call `processOutbound()` to attempt
     /// sending, or set up a periodic timer to drive delivery retries.
     ///
     /// Throws an `IOError` if the message's desired method is `.propagated` but
@@ -1276,7 +1378,9 @@ public final class LXMRouter {
         processOutbound()
     }
 
-    /// Drive the outbound delivery queue. Safe to call from any thread.
+    /// Drive the outbound delivery queue.
+    ///
+    /// Safe to call from any thread.
     /// Mirrors Python's `LXMRouter.process_outbound()`.
     public func processOutbound() {
         lock.lock()
@@ -1650,6 +1754,7 @@ public final class LXMRouter {
     // MARK: - Propagation sync (inbound)
 
     /// Request messages from the configured propagation node.
+    ///
     /// Establishes a link if not already active; requests a path if needed.
     /// Mirrors Python `LXMRouter.request_messages_from_propagation_node()`.
     public func requestMessagesFromPropagationNode(identity: Identity, maxMessages: Int? = nil) {
@@ -1717,6 +1822,7 @@ public final class LXMRouter {
     }
 
     /// Cancel any in-progress propagation sync, tear down the link, and reset state.
+    ///
     /// Mirrors Python `LXMRouter.cancel_propagation_node_requests()`.
     public func cancelPropagationNodeRequests() {
         lock.lock()
@@ -1962,7 +2068,9 @@ public final class LXMRouter {
 
     // MARK: - Inbound resource messages
 
-    /// Deliver a fully-assembled LXMF resource payload. The `data` argument is the
+    /// Deliver a fully-assembled LXMF resource payload.
+    ///
+    /// The `data` argument is the
     /// raw bytes as received from `ResourceTransfer.onPayloadReceived` — for LXMF
     /// this is the full packed message (including leading destination hash).
     /// Called by `delivery.onLinkEstablished → link.onResourceConcluded`.
@@ -2014,7 +2122,9 @@ public final class LXMRouter {
         }
     }
 
-    /// Inject a pre-established link into the router's direct-link table. Useful in
+    /// Inject a pre-established link into the router's direct-link table.
+    ///
+    /// Useful in
     /// tests and when a caller manages link lifecycle externally.
     public func injectDirectLink(_ link: Link, for destinationHash: Data) {
         lock.lock(); directLinks[destinationHash] = link; lock.unlock()
@@ -2176,7 +2286,9 @@ public final class LXMRouter {
     }
 
     /// Collect pending messages addressed to `destinationHash` and reset
-    /// their delivery timer. Called by the announce handler when a peer
+    /// their delivery timer.
+    ///
+    /// Called by the announce handler when a peer
     /// announces its presence, triggering an immediate delivery attempt.
     internal func handleAnnounceForDestination(_ destinationHash: Data) {
         lock.lock()
@@ -2554,7 +2666,9 @@ public final class LXMRouter {
     }
 
     /// The remote's propagation destination hash for a link it identified on, or nil if it has
-    /// not identified. Python: `RNS.Destination(remote_identity, OUT, SINGLE, APP_NAME,
+    /// not identified.
+    ///
+    /// Python: `RNS.Destination(remote_identity, OUT, SINGLE, APP_NAME,
     /// "propagation").hash` (`LXMRouter.py:2350-2351`).
     func remotePropagationHash(of link: Link) -> Data? {
         guard let remoteIdentity = link.remoteIdentity else { return nil }
@@ -2565,6 +2679,7 @@ public final class LXMRouter {
     // MARK: - Message store
 
     /// Total bytes currently used by the message store.
+    ///
     /// Returns nil when not acting as a propagation node.
     /// Python: `LXMRouter.message_storage_size()`.
     public func messageStorageSize() -> Int? {
@@ -2574,6 +2689,7 @@ public final class LXMRouter {
     }
 
     /// Set the maximum total bytes for the message store.
+    ///
     /// Mirrors Python `LXMRouter.set_message_storage_limit()`.
     public func setMessageStorageLimit(kilobytes: Int? = nil,
                                        megabytes: Int? = nil,
@@ -2655,6 +2771,7 @@ public final class LXMRouter {
     }
 
     /// Remove a message from the store (delete file + entry).
+    ///
     /// Python: `os.unlink(filepath)` + `propagation_entries.pop(transient_id)`.
     public func removeFromMessageStore(transientID: Data) {
         // Remove the entry under the lock; snapshot its file path and unlink OUTSIDE.
@@ -2668,6 +2785,7 @@ public final class LXMRouter {
     }
 
     /// Clean the message store, removing the oldest messages when over the storage limit.
+    ///
     /// Mirrors Python's `LXMRouter.clean_message_store()`.
     public func cleanMessageStore() {
         guard isPropagationNode else { return }
@@ -2710,7 +2828,9 @@ public final class LXMRouter {
         lock.lock(); defer { lock.unlock() }
         return unsafePropagationEntries.compactMap { $0.value.unhandledPeers.contains(destinationHash) ? $0.key : nil }
     }
-    /// Add `destinationHash` to the entry's handledPeers. Returns true iff the entry
+    /// Add `destinationHash` to the entry's handledPeers.
+    ///
+    /// Returns true iff the entry
     /// existed and the peer was newly added (so the caller can invalidate its count cache).
     @discardableResult
     func peerAddHandled(_ transientID: Data, destinationHash: Data) -> Bool {
@@ -2728,7 +2848,9 @@ public final class LXMRouter {
         unsafePropagationEntries[transientID]?.unhandledPeers.append(destinationHash)
         return true
     }
-    /// Remove `destinationHash` from the entry's handledPeers. Returns true iff the entry existed.
+    /// Remove `destinationHash` from the entry's handledPeers.
+    ///
+    /// Returns true iff the entry existed.
     @discardableResult
     func peerRemoveHandled(_ transientID: Data, destinationHash: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
@@ -2756,13 +2878,17 @@ public final class LXMRouter {
     // application cannot reach them at all. Each takes `lock` exactly like the production path it
     // stands in for, so a seeded store is built the same way a received one is.
 
-    /// Insert or remove a message-store entry. Passing `nil` removes it.
+    /// Insert or remove a message-store entry.
+    ///
+    /// Passing `nil` removes it.
     func seedPropagationEntry(_ transientID: Data, _ entry: PropagationEntry?) {
         lock.lock(); defer { lock.unlock() }
         unsafePropagationEntries[transientID] = entry
     }
 
-    /// Insert or remove a peer-table entry. Passing `nil` removes it.
+    /// Insert or remove a peer-table entry.
+    ///
+    /// Passing `nil` removes it.
     ///
     /// Prefer `addPeer(destinationHash:)` where the test does not need a pre-built peer object —
     /// it is the production path and applies the peering conditions this bypasses.
@@ -2820,7 +2946,9 @@ public final class LXMRouter {
         unsafeMaxPeers = count
     }
 
-    /// Stop treating `destinationHash` as static. Does not unpeer it.
+    /// Stop treating `destinationHash` as static.
+    ///
+    /// Does not unpeer it.
     public func removeStaticPeer(_ destinationHash: Data) {
         lock.lock(); defer { lock.unlock() }
         unsafeStaticPeers.remove(destinationHash)
@@ -3105,7 +3233,9 @@ public final class LXMRouter {
     public struct Job {
         /// The routine's name, matching the Swift method it dispatches.
         public let name: String
-        /// How many ticks apart it runs. Python's `JOB_*_INTERVAL`.
+        /// How many ticks apart it runs.
+        ///
+        /// Python's `JOB_*_INTERVAL`.
         public let interval: Int
         /// Whether the reference runs it only on a propagation node.
         public let propagationNodeOnly: Bool
@@ -3153,7 +3283,9 @@ public final class LXMRouter {
         covers the daemon case; disablePropagation still saves immediately.
         """
 
-    /// The reference's `jobs()` as a schedule. Mirrors `LXMRouter.py:880-911`.
+    /// The reference's `jobs()` as a schedule.
+    ///
+    /// Mirrors `LXMRouter.py:880-911`.
     public static let jobSchedule: [Job] = [
         .init("processOutbound", every: jobOutboundInterval) { $0.processOutbound() },
 
@@ -3316,6 +3448,7 @@ public final class LXMRouter {
     }
 
     /// Drop throttle records that have expired.
+    ///
     /// Mirrors Python's `LXMRouter.clean_throttled_peers()` (`LXMRouter.py:1136-1142`).
     public func cleanThrottledPeers(now: TimeInterval = Date().timeIntervalSince1970) {
         lock.lock(); defer { lock.unlock() }
@@ -3427,6 +3560,7 @@ public final class LXMRouter {
     // MARK: - Distribution queue
 
     /// Notify all peers that a new message has arrived and queue it for distribution.
+    ///
     /// Python: `LXMRouter.peer_distribution_queue.append(transient_id)` + per-peer queue.
     public func enqueueForPeerDistribution(transientID: Data, fromPeer: LXMPeer? = nil) {
         lock.lock(); defer { lock.unlock() }
@@ -3435,6 +3569,7 @@ public final class LXMRouter {
     }
 
     /// Flush the peer distribution queue — mark new messages as unhandled for all peers.
+    ///
     /// Python: `LXMRouter.flush_peer_distribution_queue()`.
     public func flushPeerDistributionQueue() {
         guard isPropagationNode else { return }
@@ -3455,6 +3590,7 @@ public final class LXMRouter {
     }
 
     /// Attempt to sync with all peers.
+    ///
     /// Python: `LXMRouter.sync_peers()`.
     public func syncPeers() {
         var generator = SystemRandomNumberGenerator()
@@ -3793,7 +3929,9 @@ public final class LXMRouter {
     // than byte-compatible with Python's files — the goal is restart durability,
     // and these files are always local to a single node. All writes are atomic.
 
-    /// Load all persisted client state. Called automatically when `storagePath`
+    /// Load all persisted client state.
+    ///
+    /// Called automatically when `storagePath`
     /// is set. Safe to call repeatedly; missing/corrupt files are ignored.
     public func loadPersistedClientState() {
         loadLocallyDeliveredTransientIDs()
@@ -3803,7 +3941,9 @@ public final class LXMRouter {
     }
 
     /// Persist the set of transient ids we've already delivered locally, so a
-    /// restart doesn't re-deliver duplicates. Python: `local_deliveries`.
+    /// restart doesn't re-deliver duplicates.
+    ///
+    /// Python: `local_deliveries`.
     public func saveLocallyDeliveredTransientIDs() {
         guard let sp = storagePath else { return }
         lock.lock(); let snapshot = locallyDeliveredTransientIDs; lock.unlock()
@@ -3843,6 +3983,7 @@ public final class LXMRouter {
     }
 
     /// Persist the propagation-node tombstone cache.
+    ///
     /// Python: `save_locally_processed_transient_ids`.
     public func saveLocallyProcessedTransientIDs() {
         guard let sp = storagePath else { return }
@@ -3865,7 +4006,9 @@ public final class LXMRouter {
     }
 
     /// Expire transient IDs older than `transientIDCacheExpiry` from both
-    /// caches. Mirrors Python's `LXMRouter.clean_transient_id_caches()`.
+    /// caches.
+    ///
+    /// Mirrors Python's `LXMRouter.clean_transient_id_caches()`.
     func cleanTransientIDCaches() {
         let now = Date().timeIntervalSince1970
         let cutoff = now - LXMRouter.transientIDCacheExpiry
@@ -3876,6 +4019,7 @@ public final class LXMRouter {
     }
 
     /// Persist learned outbound stamp costs, so they survive a restart.
+    ///
     /// Python: `outbound_stamp_costs`.
     public func saveOutboundStampCosts() {
         guard let sp = storagePath else { return }
@@ -3902,6 +4046,7 @@ public final class LXMRouter {
     }
 
     /// Persist available inbound/outbound tickets and last-delivery timestamps.
+    ///
     /// Python: `available_tickets` (`{outbound, inbound, last_deliveries}`).
     public func saveAvailableTickets() {
         guard let sp = storagePath else { return }
@@ -4009,7 +4154,9 @@ public final class LXMRouter {
     }
 
     /// Reset delivery timers for all pending propagated messages and trigger
-    /// outbound processing. Called when the configured propagation node announces.
+    /// outbound processing.
+    ///
+    /// Called when the configured propagation node announces.
     /// Mirrors Python `Handlers.PropagationNodeAnnounceHandler` (LXMF 0.9.9).
     internal func triggerPropagatedOutbound() {
         lock.lock()
@@ -4049,7 +4196,9 @@ private final class DeliveryAnnounceHandler: AnnounceHandler {
 /// calls — see `swift_devel/bugs/046` for what having two copies of it cost.
 private final class PropagationNodeAnnounceHandler: AnnounceHandler {
     let aspectFilter: String? = appName + ".propagation"
-    /// `Handlers.py:38`. The peering branch needs to *see* path responses in order to distinguish
+    /// `Handlers.
+    ///
+    /// py:38`. The peering branch needs to *see* path responses in order to distinguish
     /// them — a static peer takes its terms from one, and autopeering must refuse one.
     let receivePathResponses: Bool = true
     weak var router: LXMRouter?
@@ -4068,7 +4217,9 @@ private final class PropagationNodeAnnounceHandler: AnnounceHandler {
 
 extension MsgPack.Value {
     /// Read a msgpack number as a `Double`, regardless of whether the encoder
-    /// wrote it as a float, a signed int, or an unsigned int. Timestamps
+    /// wrote it as a float, a signed int, or an unsigned int.
+    ///
+    /// Timestamps
     /// round-trip through all three depending on the writer, so every reader of
     /// a persisted timestamp needs this.
     var asDouble: Double? {

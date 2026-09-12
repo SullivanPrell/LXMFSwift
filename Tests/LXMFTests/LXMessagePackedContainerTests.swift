@@ -123,6 +123,7 @@ final class LXMessagePackedContainerTests: XCTestCase {
     }
 
     /// Test 7: unpackFromFile on raw packed bytes (legacy) falls back gracefully.
+    ///
     /// Files written by earlier Swift versions contain raw bytes — we must read them too.
     func testUnpackFromFileHandlesLegacyRawBytes() throws {
         let msg = try makeMessage(content: "Legacy bytes")

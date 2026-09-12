@@ -44,7 +44,9 @@ final class ConsumerWriteParityTests: XCTestCase {
     }
 
     /// **Observed red before the fix** — as a compile error, `value of type 'LXMPeer' has no
-    /// member 'requestImmediateSync'`, which is the strongest red an API-addition test gets. There
+    /// member 'requestImmediateSync'`, which is the strongest red an API-addition test gets.
+    ///
+    /// There
     /// is no way to write this test against the previous revision that both fails and compiles:
     /// the capability it asks for did not exist under any name.
     ///

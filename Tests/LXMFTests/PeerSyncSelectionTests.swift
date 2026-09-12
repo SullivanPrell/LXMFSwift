@@ -285,7 +285,9 @@ final class PeerSyncSelectionTests: XCTestCase {
 }
 
 /// A deterministic `RandomNumberGenerator`, so the pool's *membership* can be asserted without
-/// pinning production to a fixed choice (design D5). Selection stays genuinely random; a test that
+/// pinning production to a fixed choice (design D5).
+///
+/// Selection stays genuinely random; a test that
 /// pinned it would be testing the pin, and "always the fastest" is a different algorithm that
 /// starves peers that have never been tried.
 struct SeededGenerator: RandomNumberGenerator {

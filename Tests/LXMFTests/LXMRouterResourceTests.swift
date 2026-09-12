@@ -328,6 +328,7 @@ extension LXMRouterResourceTests {
     }
 
     /// Establish a fully-active loopback link pair (A initiates to B).
+    ///
     /// Returns (aTransport, bTransport, aLink, bLink).
     private func establishLoopbackLinks() throws -> (Transport, Transport, Link, Link) {
         let aTransport = Transport()

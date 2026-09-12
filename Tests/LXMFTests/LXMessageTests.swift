@@ -44,6 +44,7 @@ final class LXMessageTests: XCTestCase {
     }
 
     /// `unpack` must restore the `fields` dictionary, not silently drop it.
+    ///
     /// Mirrors Python's `unpack_from_bytes`, which assigns `fields =
     /// unpacked_payload[3]`. Regression guard: the inbound init defaults
     /// `fields` to empty, so before the fix every received message lost all of
@@ -94,6 +95,7 @@ final class LXMessageTests: XCTestCase {
 
     /// Newly-unpacked messages default to `sourceBlackholed = false`.
     /// `Reticulum.shared` is nil in unit tests, so the check short-circuits.
+    ///
     /// Mirrors Python's `LXMessage.source_blackholed` default (LXMF commit 2ac2b10).
     func testSourceBlackholedDefaultsFalse() throws {
         let srcIdentity = Identity()

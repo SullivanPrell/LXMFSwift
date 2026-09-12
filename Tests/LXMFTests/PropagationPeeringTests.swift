@@ -219,7 +219,9 @@ final class PropagationPeeringTests: XCTestCase {
         let uploadLink: Link
         unowned let test: PropagationPeeringTests
 
-        /// Seed what the node would hold from having heard the remote's announce. Recalling
+        /// Seed what the node would hold from having heard the remote's announce.
+        ///
+        /// Recalling
         /// non-nil app data is exactly what tells the reference the remote is a propagation node
         /// (`LXMRouter.py:2352,2357`).
         func announceRemoteAsPropagationNode(nodeState: Bool = true,

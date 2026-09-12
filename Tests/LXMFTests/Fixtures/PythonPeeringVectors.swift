@@ -32,7 +32,9 @@ enum PythonPeeringVectors {
 
     /// The peering material: a 16-byte receiver identity hash followed by a 16-byte sender's.
     /// `bytes(range(16)) * 2` — deliberately two identical halves, so a test that swapped the
-    /// operands would still pass here. Operand *order* is pinned separately, against real
+    /// operands would still pass here.
+    ///
+    /// Operand *order* is pinned separately, against real
     /// identities, by `testPeeringIDIsReceiverThenSenderAndIs32Bytes`.
     static let peeringID = Data([
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -56,7 +58,9 @@ enum PythonPeeringVectors {
     /// `WORKBLOCK_EXPAND_ROUNDS_PEERING` × 256 bytes.
     static let workblockLength = 6400
 
-    /// SHA-256 of the whole 6400-byte workblock. This is the single assertion in the package that
+    /// SHA-256 of the whole 6400-byte workblock.
+    ///
+    /// This is the single assertion in the package that
     /// can catch an expand-rounds, HKDF or msgpack-salt divergence from the reference.
     static let workblockDigest = Data([
         0xee, 0x18, 0x4e, 0xf3, 0xdc, 0x25, 0x29, 0xea,
@@ -67,6 +71,7 @@ enum PythonPeeringVectors {
 
     /// `msgpack.packb([peering_key, [tid_a1, tid_a2]])` — the exact offer-request payload a Python
     /// propagation node emits (`LXMPeer.py:385`), with `key` above and two 32-byte transient IDs.
+    ///
     /// Decodes a hex literal from this file. A nil result means a typo in the literal
     /// below, so the empty fallback fails the test that reads it rather than trapping.
     private static func hex(_ string: String) -> Data { Data(hex: string) ?? Data() }
@@ -86,7 +91,9 @@ enum PythonPeeringVectors {
     static let resourceTimestamp = 1234567890.5
     static let resourceBodies    = [Data([0xde, 0xad, 0xbe, 0xef]), Data([0xca, 0xfe])]
 
-    /// Every `LXMPeer.ERROR_*` as Python's umsgpack writes it. All eight are above 127, so all
+    /// Every `LXMPeer.ERROR_*` as Python's umsgpack writes it.
+    ///
+    /// All eight are above 127, so all
     /// eight are `uint8` (`0xCC`) — none of them is a msgpack `int`.
     static let errorCodeWireForms: [(name: String, code: UInt8, wire: Data)] = [
         ("ERROR_NO_IDENTITY",   0xF0, Data([0xCC, 0xF0])),

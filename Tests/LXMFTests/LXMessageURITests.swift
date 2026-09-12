@@ -68,7 +68,9 @@ final class LXMessageURITests: XCTestCase {
                              "asURI() must throw for non-paper delivery method")
     }
 
-    /// Rebuilt for `bugs/026`. The previous version decoded the URI and asserted only that
+    /// Rebuilt for `bugs/026`.
+    ///
+    /// The previous version decoded the URI and asserted only that
     /// the destination hash survived — which a plaintext payload satisfies just as well as
     /// an encrypted one, so it could not fail while the payload was cleartext. A round trip
     /// is only evidence if it carries the *content* through the decryption step.
@@ -106,7 +108,9 @@ final class LXMessageURITests: XCTestCase {
 
     // MARK: - LXMRouter.ingestLXMURI()
 
-    /// Rebuilt for `bugs/026`. The previous version built the router with no registered
+    /// Rebuilt for `bugs/026`.
+    ///
+    /// The previous version built the router with no registered
     /// delivery destination and asserted the destination hash of whatever came back — which
     /// the old plaintext path could satisfy without ever decrypting anything. Ingesting a
     /// paper message now requires the router to host the addressed destination and hold its

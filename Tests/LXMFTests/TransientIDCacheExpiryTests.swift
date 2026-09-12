@@ -14,7 +14,9 @@ import ReticulumSwift
 
 /// The transient-ID caches used to be timestamp-less `Set`s, so nothing could
 /// ever expire from them: they grew for the lifetime of the install and were
-/// rewritten to disk in full on every save. These tests pin the Python
+/// rewritten to disk in full on every save.
+///
+/// These tests pin the Python
 /// behaviour — timestamped entries, expiry at `MESSAGE_EXPIRY * 6`, and a
 /// propagation-node tombstone that survives the message being pruned.
 final class TransientIDCacheExpiryTests: XCTestCase {
@@ -90,7 +92,9 @@ final class TransientIDCacheExpiryTests: XCTestCase {
                        "the timestamp must survive the round trip, or nothing can ever expire")
     }
 
-    /// An existing install has a bare msgpack array on disk. Loading it must
+    /// An existing install has a bare msgpack array on disk.
+    ///
+    /// Loading it must
     /// migrate rather than discard — discarding would make the node re-deliver
     /// every message it had already seen.
     func testLegacyArrayFormatIsMigratedNotDiscarded() throws {

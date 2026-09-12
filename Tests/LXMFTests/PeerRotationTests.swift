@@ -27,7 +27,9 @@ import ReticulumSwift
 final class PeerRotationTests: XCTestCase {
 
     /// Ten peers with a bound of ten: headroom is `max(1, floor(10 × 0.10))` = 1, so
-    /// `required_drops` = 10 − (10 − 1) = **1**, and `10 − 1 > 1` holds. Exactly one peer goes,
+    /// `required_drops` = 10 − (10 − 1) = **1**, and `10 − 1 > 1` holds.
+    ///
+    /// Exactly one peer goes,
     /// which is what makes "which one" assertable.
     private static let bound = 10
 
@@ -44,7 +46,9 @@ final class PeerRotationTests: XCTestCase {
     }
 
     /// A peer that has been tried, is reachable and idle, and has been offered messages — the
-    /// shape rotation considers. Anything a test wants different, it sets afterwards.
+    /// shape rotation considers.
+    ///
+    /// Anything a test wants different, it sets afterwards.
     @discardableResult
     private func addCandidate(_ router: LXMRouter, _ index: Int,
                               offered: Int = 10, outgoing: Int = 9) -> LXMPeer {

@@ -109,7 +109,9 @@ enum SharedStateInventory {
         init(_ name: String, _ note: String) { self.name = name; self.note = note }
     }
 
-    /// **Empty, and that is the result.** Task 4.3 replaced all thirteen cross-object writes with
+    /// **Empty, and that is the result.
+    ///
+    /// ** Task 4.3 replaced all thirteen cross-object writes with
     /// three `peerLock`-taking mutators — `adoptAnnouncedTerms`, `clearSyncBackoff`,
     /// `creditInbound` — so the router no longer names any peer property on the left of an
     /// assignment.

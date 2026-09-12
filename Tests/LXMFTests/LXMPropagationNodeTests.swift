@@ -311,7 +311,9 @@ final class LXMPropagationNodeTests: XCTestCase {
     }
 
     /// Inverted 2026-07-31: this asserted that a new peer is seeded with the whole store, which
-    /// is a divergence, not a requirement. Python's `peer()` constructs the peer, sets its
+    /// is a divergence, not a requirement.
+    ///
+    /// Python's `peer()` constructs the peer, sets its
     /// advertised terms and stops (`LXMRouter.py:2032-2045`); `unhandled_messages` is derived from
     /// the store's per-entry peer lists (`LXMPeer.py:583-588`), and a peer created now appears in
     /// none of them. See `swift_devel/bugs/050` for what the back-fill cost.

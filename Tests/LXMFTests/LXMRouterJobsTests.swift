@@ -178,7 +178,9 @@ final class LXMRouterJobsTests: XCTestCase {
 
     /// `jobs()` returns the names of the routines it dispatched, and every other test in this file
     /// reads that return value — so all of them would stay green if a routine's *body* were
-    /// emptied. The name is reported by the schedule, not by the work.
+    /// emptied.
+    ///
+    /// The name is reported by the schedule, not by the work.
     ///
     /// This one asserts an observable effect instead: `cleanThrottledPeers` is the cheapest
     /// routine to set up state for and is dispatched on a plain client, so it needs no propagation

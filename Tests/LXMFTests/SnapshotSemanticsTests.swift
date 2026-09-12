@@ -58,7 +58,9 @@ final class SnapshotSemanticsTests: XCTestCase {
         return (router, ids)
     }
 
-    /// **Observed red before the fix.** Against the stored `public var` this is a race on the live
+    /// **Observed red before the fix.
+    ///
+    /// ** Against the stored `public var` this is a race on the live
     /// dictionary, and the whole suite took SIGSEGV — an unguarded read hitting a rehash is a
     /// crash, not a stale value. Recorded in task 1.2's notes with the ThreadSanitizer report.
     func testIteratingAMessageStoreSnapshotDuringConcurrentMutationCompletes() throws {
@@ -100,7 +102,9 @@ final class SnapshotSemanticsTests: XCTestCase {
     }
 
     /// **This would pass against the pre-fix stored `public var` too**, and saying otherwise would
-    /// be claiming a proof this does not give. Swift's copy-on-write makes it true of any
+    /// be claiming a proof this does not give.
+    ///
+    /// Swift's copy-on-write makes it true of any
     /// `Dictionary`-valued property, locked or not.
     ///
     /// It is here for a different regression: someone deciding the accessor should hand back the

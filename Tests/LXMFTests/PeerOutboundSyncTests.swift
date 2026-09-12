@@ -36,7 +36,9 @@ final class PeerOutboundSyncTests: XCTestCase {
 
     // MARK: - The harness itself
 
-    /// Not a test of the port — a test that the fixture below it means anything. If A never peers
+    /// Not a test of the port — a test that the fixture below it means anything.
+    ///
+    /// If A never peers
     /// with B, every sync assertion in this file passes or fails for reasons unrelated to sync.
     func testTheHarnessPeersAWithBOverTheWire() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
@@ -74,7 +76,9 @@ final class PeerOutboundSyncTests: XCTestCase {
     }
 
     /// T3 — the generated key is checked by the **real inbound validator**, not by the generator's
-    /// own idea of validity. Both halves live in this package; only a receiver can refute a key.
+    /// own idea of validity.
+    ///
+    /// Both halves live in this package; only a receiver can refute a key.
     func testAGeneratedKeyIsAcceptedByARealReceiver() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
@@ -99,7 +103,9 @@ final class PeerOutboundSyncTests: XCTestCase {
                           """)
     }
 
-    /// T5 — a peering cost of 0 is permanently unsatisfiable, not "free". Python's `if not
+    /// T5 — a peering cost of 0 is permanently unsatisfiable, not "free".
+    ///
+    /// Python's `if not
     /// self.peering_cost: return False` (`LXMPeer.py:228`) is a falsy test, and 0 is falsy.
     func testAPeeringCostOfZeroNeverBecomesReady() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
@@ -143,7 +149,9 @@ final class PeerOutboundSyncTests: XCTestCase {
                           "a key worth more must be different bytes")
     }
 
-    /// T20 — one generation, not one per caller. Python starts an unbounded daemon thread per
+    /// T20 — one generation, not one per caller.
+    ///
+    /// Python starts an unbounded daemon thread per
     /// postponed pass (`LXMPeer.py:285-286`), all serialising on a lock through a multi-second
     /// proof of work; at cost 18 the job loop can queue them faster than they retire.
     ///
@@ -188,7 +196,9 @@ final class PeerOutboundSyncTests: XCTestCase {
 
     // MARK: - The sync itself (design STEPS 5-8)
 
-    /// T1 — **the defect test.** A message stored on A reaches B's store.
+    /// T1 — **the defect test.
+    ///
+    /// ** A message stored on A reaches B's store.
     ///
     /// Everything else in this file is a detail of how; this is the thing that did not happen.
     func testSyncDeliversAStoredMessageToThePeerNode() throws {
@@ -216,7 +226,9 @@ final class PeerOutboundSyncTests: XCTestCase {
         XCTAssertEqual(peer.state, .idle, "and the peer must be ready for the next pass")
     }
 
-    /// T0 — **the ordering invariant.** Over this synchronous wire the whole machine runs inside
+    /// T0 — **the ordering invariant.
+    ///
+    /// ** Over this synchronous wire the whole machine runs inside
     /// `Link.initiate`; a state write after any callout stomps a later transition, and `syncPeers`
     /// only ever selects `.idle`, so the peer is then ineligible forever.
     func testTheSyncCommitsItsStateBeforeEveryCallout() throws {
@@ -270,6 +282,7 @@ final class PeerOutboundSyncTests: XCTestCase {
     }
 
     /// T18 — a peer with no path gets a path request, and **does not** burn sync backoff for it.
+    ///
     /// Python bumps the backoff at `:321`, after the path gate, not before.
     func testAMissingPathRequestsOneWithoutBurningBackoff() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
@@ -510,7 +523,9 @@ final class PeerOutboundSyncTests: XCTestCase {
     // MARK: - The resource (design STEP 8)
 
     /// T13 — the resource carries `[timestamp, [fileBytes…]]` with the on-disk bytes **verbatim**,
-    /// propagation stamp included. The client `/get` path deliberately strips it; this one must not.
+    /// propagation stamp included.
+    ///
+    /// The client `/get` path deliberately strips it; this one must not.
     func testTheResourcePayloadIsATimestampAndVerbatimFileBytes() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
@@ -644,7 +659,9 @@ final class PeerOutboundSyncTests: XCTestCase {
     // MARK: - Reaping a stalled sync link (design STEP 11)
 
     /// A peer's own sync link is in neither `directLinks` nor `activePropagationLinks`, so before
-    /// this nothing collected it. Python leaves these to the RNS watchdog; without an equivalent a
+    /// this nothing collected it.
+    ///
+    /// Python leaves these to the RNS watchdog; without an equivalent a
     /// stalled peer never returns to `.idle` and `syncPeers` never selects it again.
     func testCleanLinksReapsAStalledOutboundSyncLink() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
@@ -700,7 +717,9 @@ final class PeerOutboundSyncTests: XCTestCase {
     // MARK: - Persistence (design STEP 10)
 
     /// T19 — the peering key survives a restart, so a node does not redo the proof of work for
-    /// every peer each time it starts. At the default cost of 18 that is minutes per peer.
+    /// every peer each time it starts.
+    ///
+    /// At the default cost of 18 that is minutes per peer.
     func testThePeeringKeySurvivesARestart() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
@@ -722,7 +741,9 @@ final class PeerOutboundSyncTests: XCTestCase {
                        "and the value with it, or `peeringKeyReady` cannot judge the restored key")
     }
 
-    /// Python writes the key as a two-element list, and reads back whatever is there. A shape
+    /// Python writes the key as a two-element list, and reads back whatever is there.
+    ///
+    /// A shape
     /// this port invented would load as nothing on a Python node reading the same file.
     func testThePeeringKeyIsPersistedInThePythonShape() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
@@ -753,7 +774,9 @@ final class PeerOutboundSyncTests: XCTestCase {
     }
 
     /// `propagation_sync_limit` falls back to `propagation_transfer_limit` when absent
-    /// (`LXMPeer.py:76-79`). The announce path already applies this; the restore path did not, so
+    /// (`LXMPeer.py:76-79`).
+    ///
+    /// The announce path already applies this; the restore path did not, so
     /// a peer reloaded from disk had no per-sync budget at all.
     func testAMissingSyncLimitFallsBackToTheTransferLimit() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
@@ -832,7 +855,9 @@ final class PeerOutboundSyncTests: XCTestCase {
     // MARK: - Helpers
 
     /// Run one full sync against a peer that answers the offer with `response`, and return A's
-    /// peer entry. Used by the offer-response branch tests, which differ only in that value.
+    /// peer entry.
+    ///
+    /// Used by the offer-response branch tests, which differ only in that value.
     @discardableResult
     private func syncAgainst(response: MsgPack.Value) throws -> LXMPeer {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)

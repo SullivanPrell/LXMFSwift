@@ -80,7 +80,9 @@ final class OutboundRetryParityTests: XCTestCase {
     // MARK: - The <= gate: six real attempts, then fail_message
 
     /// `LXMRouter.py:2736` gates with `<=`, so attempts run 1...6 before `fail_message`
-    /// (`:2761`). Failing fast on `>=` grants five.
+    /// (`:2761`).
+    ///
+    /// Failing fast on `>=` grants five.
     func testOpportunisticMessageGetsSixAttemptsBeforeFailing() throws {
         let net = try SingleNode()
         let msg = try net.enqueueMessage(method: .opportunistic)
@@ -131,7 +133,9 @@ final class OutboundRetryParityTests: XCTestCase {
     /// A path that exists but keeps failing to deliver is stale: at
     /// `delivery_attempts == MAX_PATHLESS_TRIES + 1` the reference drops it and re-requests
     /// half a second later (`LXMRouter.py:2743-2752`, `rediscover_job`), instead of retrying
-    /// into the dead path until the message fails. This is the only branch that can recover
+    /// into the dead path until the message fails.
+    ///
+    /// This is the only branch that can recover
     /// a message whose path entry outlived the route.
     func testStalePathIsDroppedAndRediscovered() throws {
         // Two transports on a synchronous wire: B announces a delivery destination, so A

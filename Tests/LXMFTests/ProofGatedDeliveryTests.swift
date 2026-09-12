@@ -293,7 +293,9 @@ private final class GatedInterface: Interface {
     var inboundHandler: ((Packet, any Interface) -> Void)?
     weak var paired: GatedInterface?
 
-    /// Packets matching this are discarded, as a lossy hop would discard them. The link stays up.
+    /// Packets matching this are discarded, as a lossy hop would discard them.
+    ///
+    /// The link stays up.
     var dropOutbound: ((Packet) -> Bool)?
     /// Packets matching this are queued instead of delivered, until `releaseHeld()`.
     var holdOutbound: ((Packet) -> Bool)?

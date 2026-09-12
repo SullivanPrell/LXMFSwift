@@ -88,7 +88,9 @@ public final class LXMessage {
     public var sourceHash: Data
 
     /// The Destination the message was sent from (outbound) or implied by
-    /// `sourceHash` (inbound). May be nil for received messages whose
+    /// `sourceHash` (inbound).
+    ///
+    /// May be nil for received messages whose
     /// source identity is not locally known.
     public private(set) var destination: Destination?
     public private(set) var source: Destination?
@@ -104,11 +106,13 @@ public final class LXMessage {
     public private(set) var packed: Data?
 
     /// Propagation-node wire format: msgpack([timestamp_f64, [lxmf_bytes]]).
+    ///
     /// Matches Python's `LXMessage.propagation_packed`.
     /// Set by `pack()` alongside `packed`.
     public private(set) var propagationPacked: Data?
 
     /// Paper-delivery wire format: `packed[:16] + destination.encrypt(packed[16:])`.
+    ///
     /// Matches Python's `LXMessage.paper_packed` (`LXMessage.py:449-451`).
     ///
     /// Set by `pack()` when `desiredMethod == .paper`, and it is this — never `packed` —
@@ -118,7 +122,9 @@ public final class LXMessage {
     /// only by the addressee (`bugs/026`).
     public private(set) var paperPacked: Data?
 
-    /// Proof-of-work stamp (32 bytes). Set by `pack()` when `stampCost != nil`.
+    /// Proof-of-work stamp (32 bytes).
+    ///
+    /// Set by `pack()` when `stampCost != nil`.
     /// Appended as index 4 of the msgpack payload array (after fields).
     /// Matches Python `LXMessage.stamp`.
     public private(set) var stamp: Data?
@@ -127,12 +133,16 @@ public final class LXMessage {
     /// nil means no stamp is required/generated.
     public var stampCost: Int?
 
-    /// HKDF expand rounds for stamp workblock. Defaults to `LXStamper.defaultExpandRounds`.
+    /// HKDF expand rounds for stamp workblock.
+    ///
+    /// Defaults to `LXStamper.defaultExpandRounds`.
     public var stampExpandRounds: Int = LXStamper.defaultExpandRounds
 
     /// True if the stamp has been validated against `stampCost`.
     public private(set) var stampValid: Bool = false
-    /// Leading zero bit count of the stamp (its "value"). Set by `validateStamp`.
+    /// Leading zero bit count of the stamp (its "value").
+    ///
+    /// Set by `validateStamp`.
     public private(set) var stampValue: Int?
 
     /// Delivery state, and the one place a change to it is announced.
@@ -177,6 +187,7 @@ public final class LXMessage {
     public var transportEncrypted: Bool = false
 
     /// Human-readable description of the transport encryption in use.
+    ///
     /// Mirrors Python's `LXMessage.transport_encryption` string attribute.
     /// Possible values: `"Curve25519"`, `"AES-128"`, `"Unencrypted"`, or `nil`.
     public var transportEncryptionDescription: String?
@@ -218,6 +229,7 @@ public final class LXMessage {
     public var progress: Double = 0
 
     /// An outbound ticket (`ticketLength` bytes) received from the destination router.
+    ///
     /// When set and valid, `pack()` uses it to generate a cheap ticket-based stamp
     /// (`truncatedHash(ticket + messageID)`) instead of a full proof-of-work stamp.
     ///
@@ -232,6 +244,7 @@ public final class LXMessage {
     public var includeTicket: Bool = false
 
     /// Instance-level cache for the propagation-node PoW stamp.
+    ///
     /// Must live in the class body (not an extension) since Swift extensions cannot
     /// hold stored properties. Using a static cache keyed by ObjectIdentifier was
     /// unsafe because Swift reuses memory addresses for newly-allocated objects,
@@ -240,11 +253,14 @@ public final class LXMessage {
     private var propagationStamp: Data?
 
     /// Whether to auto-compress the resource when sending via RNS.Resource.
+    ///
     /// Mirrors Python's `LXMessage.auto_compress`.
     public var autoCompress: Bool = true
 
     /// Whether this message originated from a source identity that is currently
-    /// on the local blackhole list. Set during `unpack(_:)` after the source
+    /// on the local blackhole list.
+    ///
+    /// Set during `unpack(_:)` after the source
     /// identity is recalled. The router drops blackholed messages before
     /// delivering them to the application.
     /// Mirrors Python's `LXMessage.source_blackholed`.
@@ -331,7 +347,9 @@ public final class LXMessage {
 
     // MARK: - Packing (outbound)
 
-    /// Pack the message into wire bytes. Sets `self.packed`, `self.hash`,
+    /// Pack the message into wire bytes.
+    ///
+    /// Sets `self.packed`, `self.hash`,
     /// `self.signature`, and selects `self.method`/`self.representation`.
     /// Mirrors Python's `LXMessage.pack()`.
     public func pack() throws {
@@ -461,7 +479,9 @@ public final class LXMessage {
     // MARK: - Field decoding (inbound)
 
     /// Convert a decoded msgpack map (payload element index 3) into the
-    /// `[Int: Any]` representation used by `fields`. Inverse of the pack-side
+    /// `[Int: Any]` representation used by `fields`.
+    ///
+    /// Inverse of the pack-side
     /// encoding in `buildPayload` (`(.int(Int64(k)), msgpackValue(v))`). Keys
     /// that aren't integers are skipped; values are decoded recursively.
     private static func decodeFields(_ pairs: [(MsgPack.Value, MsgPack.Value)]) -> [Int: Any] {
@@ -474,7 +494,9 @@ public final class LXMessage {
     }
 
     /// Field keys are LXMF field IDs (`Field` raw values), packed as msgpack
-    /// ints. Small positive ints decode as `.uint`, so both cases are handled.
+    /// ints.
+    ///
+    /// Small positive ints decode as `.uint`, so both cases are handled.
     private static func decodeFieldKey(_ v: MsgPack.Value) -> Int? {
         switch v {
         case .int(let n):  return Int(exactly: n)
@@ -511,7 +533,9 @@ public final class LXMessage {
     }
 
     /// Convert a decoded msgpack value into a hashable key for nested field
-    /// maps. Skips array/map/nil keys, which LXMF never uses as map keys.
+    /// maps.
+    ///
+    /// Skips array/map/nil keys, which LXMF never uses as map keys.
     private static func decodeFieldMapKey(_ v: MsgPack.Value) -> AnyHashable? {
         switch v {
         case .int(let n):    return Int(n)
@@ -584,7 +608,9 @@ public final class LXMessage {
         case noMatchingDeliveryDestination
     }
 
-    /// Unpack a received wire blob into an LXMessage. Does NOT verify the
+    /// Unpack a received wire blob into an LXMessage.
+    ///
+    /// Does NOT verify the
     /// signature — call `validateSignature(knownIdentity:)` afterwards.
     public static func unpack(_ data: Data) throws -> LXMessage {
         let hlen = destinationLength
@@ -680,7 +706,9 @@ public final class LXMessage {
         return msg
     }
 
-    /// Verify the signature against a known source identity. Returns true if
+    /// Verify the signature against a known source identity.
+    ///
+    /// Returns true if
     /// valid, false if the signature doesn't match.
     @discardableResult
     public func validateSignature(knownIdentity: Identity) -> Bool {
@@ -712,7 +740,9 @@ public final class LXMessage {
         return valid
     }
 
-    /// Validate the stamp against `targetCost`. Sets `stampValid` and `stampValue`.
+    /// Validate the stamp against `targetCost`.
+    ///
+    /// Sets `stampValid` and `stampValue`.
     /// Uses `hash` (message_id) to reconstruct the workblock.
     /// Matches Python `LXMessage.validate_stamp`.
     @discardableResult
@@ -782,7 +812,9 @@ public extension LXMessage {
 
     // MARK: Constants
 
-    /// URI scheme for paper-delivery LXMs. Python: `LXMessage.URI_SCHEMA = "lxm"`.
+    /// URI scheme for paper-delivery LXMs.
+    ///
+    /// Python: `LXMessage.URI_SCHEMA = "lxm"`.
     static let uriSchema = "lxm"
 
     // MARK: QR code constants (Python: QR_MAX_STORAGE, QR_ERROR_CORRECTION, PAPER_MDU)
@@ -1086,7 +1118,9 @@ public extension LXMessage {
     }
 
     /// Read a packed LXMF message from a `FileHandle` and return the decoded
-    /// `LXMessage`. The handle is read from its current position to EOF.
+    /// `LXMessage`.
+    ///
+    /// The handle is read from its current position to EOF.
     ///
     /// Supports two on-disk formats:
     /// 1. **Container format** (Python-compatible): msgpack dict with `lxmf_bytes`,
@@ -1107,6 +1141,7 @@ public extension LXMessage {
     }
 
     /// Attempt to decode a Python-style packed container.
+    ///
     /// Returns nil if `data` is not a msgpack map with `lxmf_bytes`.
     private static func tryUnpackContainer(_ data: Data) -> LXMessage? {
         guard case .map(let pairs) = (try? MsgPack.decode(data)) else { return nil }

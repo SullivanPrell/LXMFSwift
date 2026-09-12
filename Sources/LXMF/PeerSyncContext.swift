@@ -43,7 +43,9 @@ struct PeerSyncContext {
     /// The peer's propagation destination, the one the sync link is opened to.
     let destination: Destination
 
-    /// The transport the link is dialled on. LXMF is constructed with an explicit transport, so
+    /// The transport the link is dialled on.
+    ///
+    /// LXMF is constructed with an explicit transport, so
     /// this is never `Reticulum.shared`.
     let transport: Transport
 
@@ -55,7 +57,9 @@ struct PeerSyncContext {
     /// validate it. `nil` when the file has vanished, which Python skips silently (`:459-464`).
     let messageBytes: (Data) -> Data?
 
-    /// Whether the message store still holds this transient ID. Python indexes
+    /// Whether the message store still holds this transient ID.
+    ///
+    /// Python indexes
     /// `propagation_entries[transient_id]` directly (`:438`, `:451`) and raises if it does not.
     let entryExists: (Data) -> Bool
 
@@ -69,7 +73,9 @@ struct PeerSyncContext {
     /// tested before it is offered at all.
     let stampValue: (Data) -> Int
 
-    /// Break the peering. Called when the peer answers `ERROR_NO_ACCESS` (`LXMPeer.py:416-419`).
+    /// Break the peering.
+    ///
+    /// Called when the peer answers `ERROR_NO_ACCESS` (`LXMPeer.py:416-419`).
     let unpeer: (Data) -> Void
 
     /// How long to postpone after `ERROR_THROTTLED` — the router's `PN_STAMP_THROTTLE`.
