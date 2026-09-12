@@ -1,6 +1,6 @@
 # Contributing to LXMFSwift
 
-LXMFSwift aims for **wire compatibility with Python LXMF** — a message must
+LXMFSwift aims for **wire compatibility with Python LXMF**—a message must
 round-trip with the reference implementation (<https://github.com/markqvist/LXMF>).
 
 ## Ground rules
@@ -39,6 +39,24 @@ RETICULUM_LOCAL_DEPS=1 swift test
 - `LXMRouter` guards state with an `NSLock`; do not hold the lock when invoking
   callbacks.
 - File / type naming mirrors the Python snake_case → Swift camelCase convention.
+- Tests are XCTest, not swift-testing.
+- Style: [Google Swift Style Guide](https://google.github.io/swift/).
+
+## Style checks
+
+```sh
+make fmt      # swift format, license headers
+make check    # what CI runs: format, license headers, Vale prose lint
+```
+
+Vale lints Swift comments as prose, and finds them by scanning for `//`. A `//` inside
+a string literal therefore lints code, and acting on that finding would edit it. After
+a comment-only change, confirm the code is unchanged:
+
+```sh
+git status --porcelain | awk '{print $NF}' | grep '\.swift$' \
+    | xargs python3 .vale/tools/verify_code_unchanged.py
+```
 
 ## Submitting changes
 

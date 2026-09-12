@@ -51,7 +51,7 @@ it peers with other nodes and serves the offer/get sync protocol. See
 
 LXMF uses proof-of-work **stamps** to deter spam. A destination can advertise an
 inbound stamp cost; senders must spend that cost (CPU work) unless they hold a
-**ticket** — a token the recipient issued that lets a sender skip the PoW.
+**ticket**—a token the recipient issued that lets a sender skip the PoW.
 
 ```swift
 router.setInboundStampCost(8)              // require senders to spend cost 8

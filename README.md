@@ -1,14 +1,14 @@
 # LXMFSwift
 
 > **Reticulum and LXMF are the work of [Mark Qvist](https://github.com/markqvist).** This is an
-> independent, community Swift implementation of LXMF — **not an official Reticulum project**.
+> independent, community Swift implementation of LXMF—**not an official Reticulum project**.
 > The canonical project and reference (Python) implementation live at
 > **[github.com/markqvist/LXMF](https://github.com/markqvist/LXMF)**, part of the broader
 > **[Reticulum](https://github.com/markqvist/Reticulum)** network created by Mark; please look
 > there first to understand the protocol itself.
 
-A Swift port of [LXMF](https://github.com/markqvist/LXMF) — the **Lightweight
-Extensible Message Format** — wire-compatible with the Python reference
+A Swift port of [LXMF](https://github.com/markqvist/LXMF)—the **Lightweight
+Extensible Message Format**—wire-compatible with the Python reference
 implementation.
 
 [![Platforms](https://img.shields.io/badge/platforms-iOS%2016%2B%20%7C%20macOS%2013%2B-blue)](#requirements)
@@ -17,7 +17,7 @@ implementation.
 [![Coverage](https://img.shields.io/badge/coverage-77%25-green)](#testing)
 [![License](https://img.shields.io/badge/license-Reticulum-lightgrey)](LICENSE)
 
-LXMF is the messaging layer of the Reticulum ecosystem — the format behind apps
+LXMF is the messaging layer of the Reticulum ecosystem—the format behind apps
 like Sideband and NomadNet. It provides store-and-forward, end-to-end encrypted
 messages that can travel opportunistically, over a direct link, or be parked on a
 **propagation node** for later pickup, all without any central server.
@@ -31,8 +31,8 @@ This is part of the [ReticulumSwift stack](https://github.com/SullivanPrell/Reti
 
 ## Status
 
-LXMFSwift implements the full LXMF 0.9.9 message format and router — both a
-client and a propagation-node server — and is wire-compatible with the Python
+LXMFSwift implements the full LXMF 0.9.9 message format and router—both a
+client and a propagation-node server—and is wire-compatible with the Python
 reference. Covered by 434 unit tests (~77% line coverage).
 
 - LXMessage: wire-compatible pack/unpack, packed-container files, URI, QR, compression.
@@ -100,8 +100,8 @@ tickets, and the message store.
 
 ## Documentation
 
-- [docs/USAGE.md](docs/USAGE.md) — delivery methods, propagation, stamps, tickets
-- [CONTRIBUTING.md](CONTRIBUTING.md) — dev workflow and conventions
+- [docs/USAGE.md](docs/USAGE.md)—delivery methods, propagation, stamps, tickets
+- [CONTRIBUTING.md](CONTRIBUTING.md)—dev workflow and conventions
 
 ## Testing
 

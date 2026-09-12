@@ -10,3 +10,4 @@ DerivedData/
 .netrc
 .claude/
 .build-linux/
+__pycache__/

@@ -1,80 +1,99 @@
-import Foundation
+//===----------------------------------------------------------------------===//
+// Copyright (c) 2026 LXMFSwift contributors.
+//
+// Licensed under the Reticulum License. See LICENSE in the repository root for
+// the full license text, and NOTICE for attribution of the upstream project
+// this file is derived from.
+//
+// SPDX-License-Identifier: LicenseRef-Reticulum
+//===----------------------------------------------------------------------===//
 
-/// LXMF application name — used for Destination naming.
-public let APP_NAME = "lxmf"
+import Foundation
+// Publicly re-export ReticulumSwift types so callers can write
+// `import LXMF` without also importing ReticulumSwift.
+@_exported import ReticulumSwift
+
+/// LXMF application name—used for Destination naming.
+/// Python: `LXMF.APP_NAME = "lxmf"`
+public let appName = "lxmf"
 
 // MARK: - Field identifiers (mirrors LXMF/LXMF.py)
 
+/// Field identifiers carried in a message's field map.
 public enum Field: UInt8 {
-    case embeddedLXMs       = 0x01
-    case telemetry          = 0x02
-    case telemetryStream    = 0x03
-    case iconAppearance     = 0x04
-    case fileAttachments    = 0x05
-    case image              = 0x06
-    case audio              = 0x07
-    case thread             = 0x08  // Bytes, full thread ID hash
-    case commands           = 0x09
-    case results            = 0x0A
-    case group              = 0x0B
-    case ticket             = 0x0C
-    case event              = 0x0D
-    case rnrRefs            = 0x0E
-    case renderer           = 0x0F
-    case replyTo            = 0x30  // Bytes, full LXMessage.hash
-    case replyQuote         = 0x31  // Bytes, quoted content in UTF-8 encoding
-    case reaction           = 0x40  // Dict, see ReactionField indices
-    case comment            = 0x41  // Dict, see CommentField indices
-    case continuation       = 0x42  // Dict, see ContinuationField indices
-    case customType         = 0xFB
-    case customData         = 0xFC
-    case customMeta         = 0xFD
-    case nonSpecific        = 0xFE
-    case debug              = 0xFF
+  case embeddedLXMs = 0x01
+  case telemetry = 0x02
+  case telemetryStream = 0x03
+  case iconAppearance = 0x04
+  case fileAttachments = 0x05
+  case image = 0x06
+  case audio = 0x07
+  case thread = 0x08  // Bytes, full thread ID hash
+  case commands = 0x09
+  case results = 0x0A
+  case group = 0x0B
+  case ticket = 0x0C
+  case event = 0x0D
+  case rnrRefs = 0x0E
+  case renderer = 0x0F
+  case replyTo = 0x30  // Bytes, full LXMessage.hash
+  case replyQuote = 0x31  // Bytes, quoted content in UTF-8 encoding
+  case reaction = 0x40  // Dict, see ReactionField indices
+  case comment = 0x41  // Dict, see CommentField indices
+  case continuation = 0x42  // Dict, see ContinuationField indices
+  case customType = 0xFB
+  case customData = 0xFC
+  case customMeta = 0xFD
+  case nonSpecific = 0xFE
+  case debug = 0xFF
 }
 
 // MARK: - Reaction dict indices (mirrors LXMF.py REACTION_TO / REACTION_CONTENT)
 
+/// Keys of the reaction field's map.
 public enum ReactionField: UInt8 {
-    case reactionTo      = 0x00  // Python: REACTION_TO — Bytes, full LXMessage.hash
-    case reactionContent = 0x01  // Python: REACTION_CONTENT — Bytes, reaction content in UTF-8
+  case reactionTo = 0x00  // Python: REACTION_TO—Bytes, full LXMessage.hash
+  case reactionContent = 0x01  // Python: REACTION_CONTENT—Bytes, reaction content in UTF-8
 }
 
 // MARK: - Comment dict indices (mirrors LXMF.py COMMENT_FOR)
 
+/// Keys of the comment field's map.
 public enum CommentField: UInt8 {
-    case commentFor = 0x00  // Python: COMMENT_FOR — Bytes, full LXMessage.hash
+  case commentFor = 0x00  // Python: COMMENT_FOR—Bytes, full LXMessage.hash
 }
 
 // MARK: - Continuation dict indices (mirrors LXMF.py CONTINUATION_OF)
 
+/// Keys of the continuation field's map.
 public enum ContinuationField: UInt8 {
-    case continuationOf = 0x00  // Python: CONTINUATION_OF — Bytes, full LXMessage.hash
+  case continuationOf = 0x00  // Python: CONTINUATION_OF—Bytes, full LXMessage.hash
 }
 
 // MARK: - Audio mode identifiers
 
+/// Codec and mode an audio field was encoded with.
 public enum AudioMode: UInt8 {
-    case codec2_450PWB  = 0x01
-    case codec2_450     = 0x02
-    case codec2_700C    = 0x03
-    case codec2_1200    = 0x04
-    case codec2_1300    = 0x05
-    case codec2_1400    = 0x06
-    case codec2_1600    = 0x07
-    case codec2_2400    = 0x08
-    case codec2_3200    = 0x09
-    case opusOgg        = 0x10
-    case opusLBW        = 0x11
-    case opusMBW        = 0x12
-    case opusPTT        = 0x13
-    case opusRTHDX      = 0x14
-    case opusRTFDX      = 0x15
-    case opusStandard   = 0x16
-    case opusHQ         = 0x17
-    case opusBroadcast  = 0x18
-    case opusLossless   = 0x19
-    case custom         = 0xFF
+  case codec2Mode450PWB = 0x01  // Python: AM_CODEC2_450PWB
+  case codec2Mode450 = 0x02  // Python: AM_CODEC2_450
+  case codec2Mode700C = 0x03  // Python: AM_CODEC2_700C
+  case codec2Mode1200 = 0x04  // Python: AM_CODEC2_1200
+  case codec2Mode1300 = 0x05  // Python: AM_CODEC2_1300
+  case codec2Mode1400 = 0x06  // Python: AM_CODEC2_1400
+  case codec2Mode1600 = 0x07  // Python: AM_CODEC2_1600
+  case codec2Mode2400 = 0x08  // Python: AM_CODEC2_2400
+  case codec2Mode3200 = 0x09  // Python: AM_CODEC2_3200
+  case opusOgg = 0x10
+  case opusLBW = 0x11
+  case opusMBW = 0x12
+  case opusPTT = 0x13
+  case opusRTHDX = 0x14
+  case opusRTFDX = 0x15
+  case opusStandard = 0x16
+  case opusHQ = 0x17
+  case opusBroadcast = 0x18
+  case opusLossless = 0x19
+  case custom = 0xFF
 }
 
 /// Decode a display name from LXMF announcement `appData`.
@@ -87,32 +106,33 @@ public enum AudioMode: UInt8 {
 ///
 /// Returns `nil` when `appData` is absent, empty, or cannot be decoded.
 public func displayNameFromAppData(_ appData: Data?) -> String? {
-    guard let appData, !appData.isEmpty else { return nil }
-    // Version 0.5.0+ announce format: msgpack array, first element is display name
-    if (appData[0] >= 0x90 && appData[0] <= 0x9F) || appData[0] == 0xDC {
-        guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)),
-              let first = items.first else { return nil }
-        // Accept both bin (.bytes) and str (.string) — Python 3 sends bin,
-        // Python 2 / compatibility-mode senders use the legacy str type.
-        let rawBytes: Data
-        switch first {
-        case .bytes(let b) where !b.isEmpty: rawBytes = b
-        case .string(let s) where !s.isEmpty:
-            guard let d = s.data(using: .utf8) else { return nil }
-            rawBytes = d
-        default: return nil
-        }
-        return String(bytes: rawBytes, encoding: .utf8)?
-            .replacingOccurrences(of: "\0", with: "")
-            .trimmingCharacters(in: .whitespaces)
-            .nilIfEmpty
+  guard let appData, !appData.isEmpty else { return nil }
+  // Version 0.5.0+ announce format: msgpack array, first element is display name
+  if (appData[0] >= 0x90 && appData[0] <= 0x9F) || appData[0] == 0xDC {
+    guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)),
+      let first = items.first
+    else { return nil }
+    // Accept both bin (.bytes) and str (.string)—Python 3 sends bin,
+    // Python 2 / compatibility-mode senders use the legacy str type.
+    let rawBytes: Data
+    switch first {
+    case .bytes(let b) where !b.isEmpty: rawBytes = b
+    case .string(let s) where !s.isEmpty:
+      guard let d = s.data(using: .utf8) else { return nil }
+      rawBytes = d
+    default: return nil
     }
-    // Original announce format: raw UTF-8 bytes
-    return String(bytes: appData, encoding: .utf8)?.nilIfEmpty
+    return String(bytes: rawBytes, encoding: .utf8)?
+      .replacingOccurrences(of: "\0", with: "")
+      .trimmingCharacters(in: .whitespaces)
+      .nilIfEmpty
+  }
+  // Original announce format: raw UTF-8 bytes
+  return String(bytes: appData, encoding: .utf8)?.nilIfEmpty
 }
 
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
+extension String {
+  fileprivate var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 /// Decode `stamp_cost` from LXMF delivery announcement `appData`.
@@ -122,83 +142,103 @@ private extension String {
 ///
 /// Mirrors Python's `stamp_cost_from_app_data` which returns `peer_data[1]`.
 public func stampCostFromAppData(_ appData: Data?) -> Int? {
-    guard let appData, !appData.isEmpty else { return nil }
-    guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)),
-          items.count >= 2 else { return nil }
-    switch items[1] {
-    case .int(let n):  return Int(n)
-    case .uint(let n): return Int(n)
-    default: return nil
-    }
+  guard let appData, !appData.isEmpty else { return nil }
+  guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)),
+    items.count >= 2
+  else { return nil }
+  switch items[1] {
+  case .int(let n): return Int(n)
+  case .uint(let n): return Int(n)
+  default: return nil
+  }
 }
 
 /// Validate that propagation node announce data is a well-formed msgpack array
 /// with the expected minimum element count.
+///
 /// Mirrors Python's `pn_announce_data_is_valid`.
 public func propagationNodeAnnounceDataIsValid(_ appData: Data?) -> Bool {
-    guard let appData else { return false }
-    guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)),
-          items.count >= 7 else { return false }
-    return true
+  guard let appData else { return false }
+  guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)),
+    items.count >= 7
+  else { return false }
+  return true
 }
 
 /// Whether auto-compression is advertised in the announce `appData`.
+///
 /// Mirrors Python's `compression_support_from_app_data`. Defaults to `true`
 /// when the appData is absent, empty, or uses the legacy raw-UTF-8 format.
 /// For 0.5.0+ msgpack format: returns `true` when the array has fewer than 3
 /// elements, when `items[2]` is not an array, or when `items[2]` contains
-/// `SF_COMPRESSION`.
+/// `sfCompression`.
 public func compressionSupportFromAppData(_ appData: Data?) -> Bool {
-    guard let appData, !appData.isEmpty else { return true }
-    let firstByte = appData[appData.startIndex]
-    // Version 0.5.0+ announce format: msgpack array
-    if (firstByte >= 0x90 && firstByte <= 0x9F) || firstByte == 0xDC {
-        guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)) else { return true }
-        if items.count < 3 { return true }
-        guard case .array(let funcs) = items[2] else { return true }
-        return funcs.contains { value in
-            switch value {
-            case .uint(let n): return n == UInt64(SF_COMPRESSION)
-            case .int(let n):  return n == Int64(SF_COMPRESSION)
-            default: return false
-            }
-        }
+  guard let appData, !appData.isEmpty else { return true }
+  let firstByte = appData[appData.startIndex]
+  // Version 0.5.0+ announce format: msgpack array
+  if (firstByte >= 0x90 && firstByte <= 0x9F) || firstByte == 0xDC {
+    guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)) else {
+      return true
     }
-    // Original (pre-0.5.0) announce format: raw UTF-8 — always supported
-    return true
+    if items.count < 3 { return true }
+    guard case .array(let funcs) = items[2] else { return true }
+    return funcs.contains { value in
+      switch value {
+      case .uint(let n): return n == UInt64(sfCompression)
+      case .int(let n): return n == Int64(sfCompression)
+      default: return false
+      }
+    }
+  }
+  // Original (pre-0.5.0) announce format: raw UTF-8—always supported
+  return true
 }
 
 // MARK: - Supported functionality codes (mirrors LXMF.py SF_* constants)
 
 /// Supported functionality code indicating bzip2 compression support.
 /// Python: `SF_COMPRESSION = 0x00`
-public let SF_COMPRESSION: UInt8 = 0x00
+public let sfCompression: UInt8 = 0x00
 
 // MARK: - Propagation Node metadata keys (mirrors LXMF.py PN_META_* constants)
 
+/// Metadata key holding the propagation-node protocol version.
+///
 /// Python: `PN_META_VERSION = 0x00`
-public let PN_META_VERSION:       UInt8 = 0x00
+public let pnMetaVersion: UInt8 = 0x00
+/// Metadata key holding the propagation node's name.
+///
 /// Python: `PN_META_NAME = 0x01`
-public let PN_META_NAME:          UInt8 = 0x01
+public let pnMetaName: UInt8 = 0x01
+/// Metadata key holding the node's sync stratum.
+///
 /// Python: `PN_META_SYNC_STRATUM = 0x02`
-public let PN_META_SYNC_STRATUM:  UInt8 = 0x02
+public let pnMetaSyncStratum: UInt8 = 0x02
+/// Metadata key holding the node's sync throttle.
+///
 /// Python: `PN_META_SYNC_THROTTLE = 0x03`
-public let PN_META_SYNC_THROTTLE: UInt8 = 0x03
+public let pnMetaSyncThrottle: UInt8 = 0x03
+/// Metadata key holding the node's authentication band.
+///
 /// Python: `PN_META_AUTH_BAND = 0x04`
-public let PN_META_AUTH_BAND:     UInt8 = 0x04
+public let pnMetaAuthBand: UInt8 = 0x04
+/// Metadata key holding the node's utilisation pressure.
+///
 /// Python: `PN_META_UTIL_PRESSURE = 0x05`
-public let PN_META_UTIL_PRESSURE: UInt8 = 0x05
+public let pnMetaUtilPressure: UInt8 = 0x05
+/// Metadata key reserved for node-specific data.
+///
 /// Python: `PN_META_CUSTOM = 0xFF`
-public let PN_META_CUSTOM:        UInt8 = 0xFF
+public let pnMetaCustom: UInt8 = 0xFF
 
 // MARK: - Message renderer modes (mirrors LXMF.py RENDERER_* constants)
 
 /// Mirrors Python `RENDERER_PLAIN/MICRON/MARKDOWN/BBCODE` constants.
 public enum RendererMode: UInt8 {
-    case plain    = 0x00   // Python: RENDERER_PLAIN
-    case micron   = 0x01   // Python: RENDERER_MICRON
-    case markdown = 0x02   // Python: RENDERER_MARKDOWN
-    case bbCode   = 0x03   // Python: RENDERER_BBCODE
+  case plain = 0x00  // Python: RENDERER_PLAIN
+  case micron = 0x01  // Python: RENDERER_MICRON
+  case markdown = 0x02  // Python: RENDERER_MARKDOWN
+  case bbCode = 0x03  // Python: RENDERER_BBCODE
 }
 
 // MARK: - Propagation node app_data helpers
@@ -206,19 +246,23 @@ public enum RendererMode: UInt8 {
 /// Decode the propagation node's display name from its announce `appData`.
 ///
 /// Mirrors Python's `pn_name_from_app_data(app_data)`. The PN announce format
-/// is a msgpack array where `data[6]` is a metadata dict; `PN_META_NAME` (0x01)
+/// is a msgpack array where `data[6]` is a metadata dict; `pnMetaName` (0x01)
 /// holds the node name as UTF-8 bytes.
 ///
 /// Returns `nil` when `appData` is absent, malformed, or the name is not set.
 public func pnNameFromAppData(_ appData: Data?) -> String? {
-    guard let appData, !appData.isEmpty else { return nil }
-    guard propagationNodeAnnounceDataIsValid(appData),
-          case .array(let items) = (try? MsgPack.decode(appData)),
-          items.count >= 7,
-          case .map(let pairs) = items[6] else { return nil }
-    let nameEntry = pairs.first { if case .uint(let k) = $0.0 { return k == UInt64(PN_META_NAME) }; return false }
-    guard let entry = nameEntry, case .bytes(let b) = entry.1, !b.isEmpty else { return nil }
-    return String(bytes: b, encoding: .utf8)
+  guard let appData, !appData.isEmpty else { return nil }
+  guard propagationNodeAnnounceDataIsValid(appData),
+    case .array(let items) = (try? MsgPack.decode(appData)),
+    items.count >= 7,
+    case .map(let pairs) = items[6]
+  else { return nil }
+  let nameEntry = pairs.first {
+    if case .uint(let k) = $0.0 { return k == UInt64(pnMetaName) }
+    return false
+  }
+  guard let entry = nameEntry, case .bytes(let b) = entry.1, !b.isEmpty else { return nil }
+  return String(bytes: b, encoding: .utf8)
 }
 
 /// Decode the propagation node's stamp cost from its announce `appData`.
@@ -228,17 +272,18 @@ public func pnNameFromAppData(_ appData: Data?) -> String? {
 ///
 /// Returns `nil` when `appData` is absent or malformed.
 public func pnStampCostFromAppData(_ appData: Data?) -> Int? {
-    guard let appData, !appData.isEmpty else { return nil }
-    guard propagationNodeAnnounceDataIsValid(appData),
-          case .array(let items) = (try? MsgPack.decode(appData)),
-          items.count >= 6,
-          case .array(let costs) = items[5],
-          !costs.isEmpty else { return nil }
-    switch costs[0] {
-    case .int(let n):  return Int(n)
-    case .uint(let n): return Int(n)
-    default: return nil
-    }
+  guard let appData, !appData.isEmpty else { return nil }
+  guard propagationNodeAnnounceDataIsValid(appData),
+    case .array(let items) = (try? MsgPack.decode(appData)),
+    items.count >= 6,
+    case .array(let costs) = items[5],
+    !costs.isEmpty
+  else { return nil }
+  switch costs[0] {
+  case .int(let n): return Int(n)
+  case .uint(let n): return Int(n)
+  default: return nil
+  }
 }
 
 // MARK: - Propagation node announce
@@ -250,53 +295,53 @@ public func pnStampCostFromAppData(_ appData: Data?) -> Int? {
 /// `pnStampCostFromAppData` each re-decode the same array for one field; this type exists for the
 /// caller that needs most of them at once, rather than adding a third partial decoder.
 struct PropagationNodeAnnounce {
-    /// `pn_config[1]` — the node's peering timebase.
-    let timebase: TimeInterval
-    /// `pn_config[2]` — whether the node is currently acting as a propagation node.
-    let isPropagationNode: Bool
-    /// `pn_config[3]` — per-transfer limit, in KB.
-    let transferLimit: Double?
-    /// `pn_config[4]` — per-sync limit, in KB. Python falls back to the transfer limit when unset
-    /// (`:2029`, `:2044`); that fallback lives at the peering site, not here.
-    let syncLimit: Double?
-    /// `pn_config[5][0]`, `[1]`, `[2]`.
-    let stampCost: Int
-    let stampCostFlexibility: Int
-    let peeringCost: Int
-    /// `pn_config[6]` — node metadata. Only `PN_META_NAME` is carried, under the `"name"` key
-    /// `LXMPeer.name` already reads (`LXMPeer.swift:765-767`); no other key has a consumer in the
-    /// port, and inventing string keys for them would be a divergence, not a port.
-    let metadata: [String: String]?
+  /// `pn_config[1]`—the node's peering timebase.
+  let timebase: TimeInterval
+  /// `pn_config[2]`—whether the node is currently acting as a propagation node.
+  let isPropagationNode: Bool
+  /// `pn_config[3]`—per-transfer limit, in KB.
+  let transferLimit: Double?
+  /// `pn_config[4]`—per-sync limit, in KB.
+  ///
+  /// Python falls back to the transfer limit when unset
+  /// (`:2029`, `:2044`); that fallback lives at the peering site, not here.
+  let syncLimit: Double?
+  /// `pn_config[5][0]`, `[1]`, `[2]`.
+  let stampCost: Int
+  let stampCostFlexibility: Int
+  let peeringCost: Int
+  /// `pn_config[6]`—node metadata.
+  ///
+  /// Only `pnMetaName` is carried, under the `"name"` key
+  /// `LXMPeer.name` already reads (`LXMPeer.swift:765-767`); no other key has a consumer in the
+  /// port, and inventing string keys for them would be a divergence, not a port.
+  let metadata: [String: String]?
 
-    init?(appData: Data?) {
-        guard let appData, propagationNodeAnnounceDataIsValid(appData),
-              case .array(let items) = (try? MsgPack.decode(appData)), items.count >= 7
-        else { return nil }
+  init?(appData: Data?) {
+    guard let appData, propagationNodeAnnounceDataIsValid(appData),
+      case .array(let items) = (try? MsgPack.decode(appData)), items.count >= 7
+    else { return nil }
 
-        func number(_ value: MsgPack.Value) -> Double? {
-            switch value {
-            case .int(let n):    return Double(n)
-            case .uint(let n):   return Double(n)
-            case .double(let d): return d
-            default:             return nil
-            }
-        }
-
-        guard let timebase = number(items[1]) else { return nil }
-        guard case .bool(let nodeState) = items[2] else { return nil }
-        guard case .array(let costs) = items[5], costs.count >= 3 else { return nil }
-
-        self.timebase             = timebase
-        self.isPropagationNode    = nodeState
-        self.transferLimit        = number(items[3])
-        self.syncLimit            = number(items[4])
-        self.stampCost            = Int(number(costs[0]) ?? 0)
-        self.stampCostFlexibility = Int(number(costs[1]) ?? 0)
-        self.peeringCost          = Int(number(costs[2]) ?? 0)
-        self.metadata             = pnNameFromAppData(appData).map { ["name": $0] }
+    func number(_ value: MsgPack.Value) -> Double? {
+      switch value {
+      case .int(let n): return Double(n)
+      case .uint(let n): return Double(n)
+      case .double(let d): return d
+      default: return nil
+      }
     }
-}
 
-// Publicly re-export ReticulumSwift types so callers can write
-// `import LXMF` without also importing ReticulumSwift.
-@_exported import ReticulumSwift
+    guard let timebase = number(items[1]) else { return nil }
+    guard case .bool(let nodeState) = items[2] else { return nil }
+    guard case .array(let costs) = items[5], costs.count >= 3 else { return nil }
+
+    self.timebase = timebase
+    self.isPropagationNode = nodeState
+    self.transferLimit = number(items[3])
+    self.syncLimit = number(items[4])
+    self.stampCost = Int(number(costs[0]) ?? 0)
+    self.stampCostFlexibility = Int(number(costs[1]) ?? 0)
+    self.peeringCost = Int(number(costs[2]) ?? 0)
+    self.metadata = pnNameFromAppData(appData).map { ["name": $0] }
+  }
+}
