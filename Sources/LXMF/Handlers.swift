@@ -23,49 +23,51 @@ import ReticulumSwift
 /// Mirrors Python `LXMF.Handlers.LXMFDeliveryAnnounceHandler`.
 public final class LXMFDeliveryAnnounceHandler: AnnounceHandler {
 
-    // MARK: AnnounceHandler conformance
+  // MARK: AnnounceHandler conformance
 
-    /// Aspect filter that selects delivery announcements.
-    ///
-    /// Python: `self.aspect_filter = APP_NAME + ".delivery"`.
-    public let aspectFilter: String? = appName + ".delivery"
+  /// Aspect filter that selects delivery announcements.
+  ///
+  /// Python: `self.aspect_filter = APP_NAME + ".delivery"`.
+  public let aspectFilter: String? = appName + ".delivery"
 
-    /// Whether this handler should receive path-response announces.
-    ///
-    /// Python: `self.receive_path_responses = True`.
-    public let receivePathResponses: Bool = true
+  /// Whether this handler should receive path-response announces.
+  ///
+  /// Python: `self.receive_path_responses = True`.
+  public let receivePathResponses: Bool = true
 
-    // MARK: State
+  // MARK: State
 
-    /// The router whose outbound queue this handler triggers.
-    public weak var router: LXMRouter?
+  /// The router whose outbound queue this handler triggers.
+  public weak var router: LXMRouter?
 
-    // MARK: Initialisation
+  // MARK: Initialisation
 
-    /// Create a delivery announce handler associated with `router`.
-    public init(router: LXMRouter) {
-        self.router = router
+  /// Create a delivery announce handler associated with `router`.
+  public init(router: LXMRouter) {
+    self.router = router
+  }
+
+  // MARK: Handling
+
+  /// Called when a delivery destination announces.
+  ///
+  /// Mirrors `LXMFDeliveryAnnounceHandler.received_announce()` in Python:
+  /// updates the stamp cost and triggers outbound delivery for matching messages.
+  public func receivedAnnounce(
+    destinationHash: Data,
+    identity: Identity,
+    appData: Data?
+  ) {
+    guard let router else { return }
+
+    // Update the known stamp cost for this destination.
+    if let cost = stampCostFromAppData(appData) {
+      router.setOutboundStampCost(destinationHash: destinationHash, stampCost: cost)
     }
 
-    // MARK: Handling
-
-    /// Called when a delivery destination announces.
-    ///
-    /// Mirrors `LXMFDeliveryAnnounceHandler.received_announce()` in Python:
-    /// updates the stamp cost and triggers outbound delivery for matching messages.
-    public func receivedAnnounce(destinationHash: Data,
-                                  identity: Identity,
-                                  appData: Data?) {
-        guard let router else { return }
-
-        // Update the known stamp cost for this destination.
-        if let cost = stampCostFromAppData(appData) {
-            router.setOutboundStampCost(destinationHash: destinationHash, stampCost: cost)
-        }
-
-        // Trigger immediate delivery for pending outbound messages to this destination.
-        router.handleAnnounceForDestination(destinationHash)
-    }
+    // Trigger immediate delivery for pending outbound messages to this destination.
+    router.handleAnnounceForDestination(destinationHash)
+  }
 }
 
 // MARK: - LXMFPropagationAnnounceHandler
@@ -79,49 +81,52 @@ public final class LXMFDeliveryAnnounceHandler: AnnounceHandler {
 /// Mirrors Python `LXMF.Handlers.LXMFPropagationAnnounceHandler`.
 public final class LXMFPropagationAnnounceHandler: AnnounceHandler {
 
-    // MARK: AnnounceHandler conformance
+  // MARK: AnnounceHandler conformance
 
-    /// Aspect filter that selects propagation node announcements.
-    ///
-    /// Python: `self.aspect_filter = APP_NAME + ".propagation"`.
-    public let aspectFilter: String? = appName + ".propagation"
+  /// Aspect filter that selects propagation node announcements.
+  ///
+  /// Python: `self.aspect_filter = APP_NAME + ".propagation"`.
+  public let aspectFilter: String? = appName + ".propagation"
 
-    /// Whether this handler should receive path-response announces.
-    ///
-    /// Python: `self.receive_path_responses = True`.
-    public let receivePathResponses: Bool = true
+  /// Whether this handler should receive path-response announces.
+  ///
+  /// Python: `self.receive_path_responses = True`.
+  public let receivePathResponses: Bool = true
 
-    // MARK: State
+  // MARK: State
 
-    /// The router whose propagated outbound queue this handler triggers.
-    public weak var router: LXMRouter?
+  /// The router whose propagated outbound queue this handler triggers.
+  public weak var router: LXMRouter?
 
-    // MARK: Initialisation
+  // MARK: Initialisation
 
-    /// Create a propagation announce handler associated with `router`.
-    public init(router: LXMRouter) {
-        self.router = router
-    }
+  /// Create a propagation announce handler associated with `router`.
+  public init(router: LXMRouter) {
+    self.router = router
+  }
 
-    // MARK: Handling
+  // MARK: Handling
 
-    /// Called when a propagation node announces.
-    ///
-    /// Mirrors `LXMFPropagationAnnounceHandler.received_announce()` in Python whole
-    /// (`Handlers.py:41-99`): the outbound-PN trigger, and—when this router is itself a
-    /// propagation node—peering with the node that announced.
-    ///
-    /// The work is `LXMRouter.handlePropagationNodeAnnounce`, not this method. The router
-    /// registers its own handler for the same aspect, so anything implemented here rather than
-    /// behind that call would apply to consumers who register this type and to nobody else. That
-    /// asymmetry is `swift_devel/bugs/046`.
-    public func receivedAnnounce(destinationHash: Data,
-                                 identity: Identity,
-                                 appData: Data?,
-                                 announcePacketHash: Data,
-                                 isPathResponse: Bool) {
-        router?.handlePropagationNodeAnnounce(destinationHash: destinationHash,
-                                              appData: appData,
-                                              isPathResponse: isPathResponse)
-    }
+  /// Called when a propagation node announces.
+  ///
+  /// Mirrors `LXMFPropagationAnnounceHandler.received_announce()` in Python whole
+  /// (`Handlers.py:41-99`): the outbound-PN trigger, and—when this router is itself a
+  /// propagation node—peering with the node that announced.
+  ///
+  /// The work is `LXMRouter.handlePropagationNodeAnnounce`, not this method. The router
+  /// registers its own handler for the same aspect, so anything implemented here rather than
+  /// behind that call would apply to consumers who register this type and to nobody else. That
+  /// asymmetry is `swift_devel/bugs/046`.
+  public func receivedAnnounce(
+    destinationHash: Data,
+    identity: Identity,
+    appData: Data?,
+    announcePacketHash: Data,
+    isPathResponse: Bool
+  ) {
+    router?.handlePropagationNodeAnnounce(
+      destinationHash: destinationHash,
+      appData: appData,
+      isPathResponse: isPathResponse)
+  }
 }

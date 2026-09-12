@@ -16,243 +16,243 @@ import Foundation
 /// Configuration parsing for the LXMF propagation daemon.
 public enum LXMDConfig {
 
-    // MARK: - Timing constants
+  // MARK: - Timing constants
 
-    /// Seconds to wait before processing deferred jobs at startup.
-    /// Python: DEFFERED_JOBS_DELAY = 10  (note: intentional spelling in Python source)
-    public static let deferredJobsDelay: Int = 10
+  /// Seconds to wait before processing deferred jobs at startup.
+  /// Python: DEFFERED_JOBS_DELAY = 10  (note: intentional spelling in Python source)
+  public static let deferredJobsDelay: Int = 10
 
-    /// Seconds between periodic job ticks.
-    /// Python: JOBS_INTERVAL = 5
-    public static let jobsInterval: Int = 5
+  /// Seconds between periodic job ticks.
+  /// Python: JOBS_INTERVAL = 5
+  public static let jobsInterval: Int = 5
 
-    // MARK: - Peering settings ledger
+  // MARK: - Peering settings ledger
 
-    /// How a peering key in `exampleConfig` is answered by the port.
-    public enum SettingBacking: Equatable {
-        /// The name of the `LXMRouter` property that carries this key's value.
-        case setting(String)
-        /// The port does not implement this key, for the stated reason.
-        ///
-        /// Recorded rather than omitted: the standing rule is that a divergence from the reference
-        /// is documented, never left implicit, and a key that simply vanishes from this table is
-        /// indistinguishable from one nobody noticed.
-        case notImplemented(reason: String)
-    }
-
-    /// Every peering key `exampleConfig` shows an operator, and what answers it.
+  /// How a peering key in `exampleConfig` is answered by the port.
+  public enum SettingBacking: Equatable {
+    /// The name of the `LXMRouter` property that carries this key's value.
+    case setting(String)
+    /// The port does not implement this key, for the stated reason.
     ///
-    /// `autopeer` and `autopeer_maxdepth` were in the template with nothing behind them for the
-    /// life of the port (`swift_devel/bugs/042`), which is `bugs/030`'s defect at key scale. This
-    /// table is what `PeeringSettingsGuardTests` checks the template against, so a key added to
-    /// one without the other fails rather than quietly becoming decoration.
-    public static let peeringSettings: [String: SettingBacking] = [
-        "autopeer":                .setting("autopeer"),
-        "autopeer_maxdepth":       .setting("autopeerMaxdepth"),
-        "peering_cost":            .setting("peeringCost"),
+    /// Recorded rather than omitted: the standing rule is that a divergence from the reference
+    /// is documented, never left implicit, and a key that simply vanishes from this table is
+    /// indistinguishable from one nobody noticed.
+    case notImplemented(reason: String)
+  }
 
-        "max_peers":               .setting("maxPeers"),
-        "static_peers":            .setting("staticPeers"),
-        "remote_peering_cost_max": .setting("maxPeeringCost"),
-        "from_static_only": .notImplemented(
-            reason: "Out of scope, deliberately: it shares the ERROR_THROTTLED answer with the "
-                  + "stamp throttle (LXMRouter.py:2292-2295) and is a different condition. "
-                  + "Recorded in swift_devel/bugs/044 rather than folded into it."),
-    ]
+  /// Every peering key `exampleConfig` shows an operator, and what answers it.
+  ///
+  /// `autopeer` and `autopeer_maxdepth` were in the template with nothing behind them for the
+  /// life of the port (`swift_devel/bugs/042`), which is `bugs/030`'s defect at key scale. This
+  /// table is what `PeeringSettingsGuardTests` checks the template against, so a key added to
+  /// one without the other fails rather than quietly becoming decoration.
+  public static let peeringSettings: [String: SettingBacking] = [
+    "autopeer": .setting("autopeer"),
+    "autopeer_maxdepth": .setting("autopeerMaxdepth"),
+    "peering_cost": .setting("peeringCost"),
 
-    // MARK: - Example configuration
+    "max_peers": .setting("maxPeers"),
+    "static_peers": .setting("staticPeers"),
+    "remote_peering_cost_max": .setting("maxPeeringCost"),
+    "from_static_only": .notImplemented(
+      reason: "Out of scope, deliberately: it shares the ERROR_THROTTLED answer with the "
+        + "stamp throttle (LXMRouter.py:2292-2295) and is a different condition. "
+        + "Recorded in swift_devel/bugs/044 rather than folded into it."),
+  ]
 
-    /// Example lxmd configuration file contents.
-    /// Python: __default_lxmd_config__
-    public static let exampleConfig: String = """
-# This is an example LXM Daemon config file.
-# You should probably edit it to suit your
-# intended usage.
+  // MARK: - Example configuration
 
-[propagation]
+  /// Example lxmd configuration file contents.
+  /// Python: __default_lxmd_config__
+  public static let exampleConfig: String = """
+    # This is an example LXM Daemon config file.
+    # You should probably edit it to suit your
+    # intended usage.
 
-# Whether to enable propagation node
+    [propagation]
 
-enable_node = no
+    # Whether to enable propagation node
 
-# You can specify identity hashes for remotes
-# that are allowed to control and query status
-# for this propagation node.
+    enable_node = no
 
-# control_allowed = 7d7e542829b40f32364499b27438dba8, 437229f8e29598b2282b88bad5e44698
+    # You can specify identity hashes for remotes
+    # that are allowed to control and query status
+    # for this propagation node.
 
-# An optional name for this node, included
-# in announces.
+    # control_allowed = 7d7e542829b40f32364499b27438dba8, 437229f8e29598b2282b88bad5e44698
 
-# node_name = Anonymous Propagation Node
+    # An optional name for this node, included
+    # in announces.
 
-# Automatic announce interval in minutes.
-# 6 hours by default.
+    # node_name = Anonymous Propagation Node
 
-announce_interval = 360
+    # Automatic announce interval in minutes.
+    # 6 hours by default.
 
-# Whether to announce when the node starts.
+    announce_interval = 360
 
-announce_at_start = yes
+    # Whether to announce when the node starts.
 
-# Wheter to automatically peer with other
-# propagation nodes on the network.
+    announce_at_start = yes
 
-autopeer = yes
+    # Wheter to automatically peer with other
+    # propagation nodes on the network.
 
-# The maximum peering depth (in hops) for
-# automatically peered nodes.
+    autopeer = yes
 
-autopeer_maxdepth = 6
+    # The maximum peering depth (in hops) for
+    # automatically peered nodes.
 
-# The maximum amount of storage to use for
-# the LXMF Propagation Node message store,
-# specified in megabytes. When this limit
-# is reached, LXMF will periodically remove
-# messages in its message store. By default,
-# LXMF prioritises keeping messages that are
-# new and small. Large and old messages will
-# be removed first. This setting is optional
-# and defaults to 500 megabytes.
+    autopeer_maxdepth = 6
 
-# message_storage_limit = 500
+    # The maximum amount of storage to use for
+    # the LXMF Propagation Node message store,
+    # specified in megabytes. When this limit
+    # is reached, LXMF will periodically remove
+    # messages in its message store. By default,
+    # LXMF prioritises keeping messages that are
+    # new and small. Large and old messages will
+    # be removed first. This setting is optional
+    # and defaults to 500 megabytes.
 
-# The maximum accepted transfer size per in-
-# coming propagation message, in kilobytes.
-# This sets the upper limit for the size of
-# single messages accepted onto this node.
+    # message_storage_limit = 500
 
-# propagation_message_max_accepted_size = 256
+    # The maximum accepted transfer size per in-
+    # coming propagation message, in kilobytes.
+    # This sets the upper limit for the size of
+    # single messages accepted onto this node.
 
-# The maximum accepted transfer size per in-
-# coming propagation node sync.
-#
-# If a node wants to propagate a larger number
-# of messages to this node, than what can fit
-# within this limit, it will prioritise sending
-# the smallest messages first, and try again
-# with any remaining messages at a later point.
+    # propagation_message_max_accepted_size = 256
 
-# propagation_sync_max_accepted_size = 10240
+    # The maximum accepted transfer size per in-
+    # coming propagation node sync.
+    #
+    # If a node wants to propagate a larger number
+    # of messages to this node, than what can fit
+    # within this limit, it will prioritise sending
+    # the smallest messages first, and try again
+    # with any remaining messages at a later point.
 
-# You can configure the target stamp cost
-# required to deliver messages via this node.
+    # propagation_sync_max_accepted_size = 10240
 
-# propagation_stamp_cost_target = 16
+    # You can configure the target stamp cost
+    # required to deliver messages via this node.
 
-# If set higher than 0, the stamp cost flexi-
-# bility option will make this node accept
-# messages with a lower stamp cost than the
-# target from other propagation nodes (but
-# not from peers directly). This allows the
-# network to gradually adjust stamp cost.
+    # propagation_stamp_cost_target = 16
 
-# propagation_stamp_cost_flexibility = 3
+    # If set higher than 0, the stamp cost flexi-
+    # bility option will make this node accept
+    # messages with a lower stamp cost than the
+    # target from other propagation nodes (but
+    # not from peers directly). This allows the
+    # network to gradually adjust stamp cost.
 
-# The peering_cost option configures the target
-# value required for a remote node to peer with
-# and deliver messages to this node.
+    # propagation_stamp_cost_flexibility = 3
 
-# peering_cost = 18
+    # The peering_cost option configures the target
+    # value required for a remote node to peer with
+    # and deliver messages to this node.
 
-# You can configure the maximum peering cost
-# of remote nodes that this node will peer with.
-# Setting this to a higher number will allow
-# this node to peer with other nodes requiring
-# a higher peering key value, but will require
-# more computation time during initial peering
-# when generating the peering key.
+    # peering_cost = 18
 
-# remote_peering_cost_max = 26
+    # You can configure the maximum peering cost
+    # of remote nodes that this node will peer with.
+    # Setting this to a higher number will allow
+    # this node to peer with other nodes requiring
+    # a higher peering key value, but will require
+    # more computation time during initial peering
+    # when generating the peering key.
 
-# You can tell the LXMF message router to
-# prioritise storage for one or more
-# destinations. If the message store reaches
-# the specified limit, LXMF will prioritise
-# keeping messages for destinations specified
-# with this option. This setting is optional,
-# and generally you do not need to use it.
+    # remote_peering_cost_max = 26
 
-# prioritise_destinations = 41d20c727598a3fbbdf9106133a3a0ed, d924b81822ca24e68e2effea99bcb8cf
+    # You can tell the LXMF message router to
+    # prioritise storage for one or more
+    # destinations. If the message store reaches
+    # the specified limit, LXMF will prioritise
+    # keeping messages for destinations specified
+    # with this option. This setting is optional,
+    # and generally you do not need to use it.
 
-# You can configure the maximum number of other
-# propagation nodes that this node will peer
-# with automatically. The default is 20.
+    # prioritise_destinations = 41d20c727598a3fbbdf9106133a3a0ed, d924b81822ca24e68e2effea99bcb8cf
 
-# max_peers = 20
+    # You can configure the maximum number of other
+    # propagation nodes that this node will peer
+    # with automatically. The default is 20.
 
-# You can configure a list of static propagation
-# node peers, that this node will always be
-# peered with, by specifying a list of
-# destination hashes.
+    # max_peers = 20
 
-# static_peers = e17f833c4ddf8890dd3a79a6fea8161d, 5a2d0029b6e5ec87020abaea0d746da4
+    # You can configure a list of static propagation
+    # node peers, that this node will always be
+    # peered with, by specifying a list of
+    # destination hashes.
 
-# You can configure the propagation node to
-# only accept incoming propagation messages
-# from configured static peers.
+    # static_peers = e17f833c4ddf8890dd3a79a6fea8161d, 5a2d0029b6e5ec87020abaea0d746da4
 
-# from_static_only = True
+    # You can configure the propagation node to
+    # only accept incoming propagation messages
+    # from configured static peers.
 
-# By default, any destination is allowed to
-# connect and download messages, but you can
-# optionally restrict this. If you enable
-# authentication, you must provide a list of
-# allowed identity hashes in the a file named
-# "allowed" in the lxmd config directory.
+    # from_static_only = True
 
-auth_required = no
+    # By default, any destination is allowed to
+    # connect and download messages, but you can
+    # optionally restrict this. If you enable
+    # authentication, you must provide a list of
+    # allowed identity hashes in the a file named
+    # "allowed" in the lxmd config directory.
 
-
-[lxmf]
-
-# The LXM Daemon will create an LXMF destination
-# that it can receive messages on. This option sets
-# the announced display name for this destination.
-
-display_name = Anonymous Peer
-
-# It is possible to announce the internal LXMF
-# destination when the LXM Daemon starts up.
-
-announce_at_start = no
-
-# You can also announce the delivery destination
-# at a specified interval. This is not enabled by
-# default.
-
-# announce_interval = 360
-
-# The maximum accepted unpacked size for mes-
-# sages received directly from other peers,
-# specified in kilobytes. Messages larger than
-# this will be rejected before the transfer
-# begins.
-
-delivery_transfer_max_accepted_size = 1000
-
-# You can configure an external program to be run
-# every time a message is received. The program
-# will receive as an argument the full path to the
-# message saved as a file. The example below will
-# simply result in the message getting deleted as
-# soon as it has been received.
-
-# on_inbound = rm
+    auth_required = no
 
 
-[logging]
-# Valid log levels are 0 through 7:
-#   0: Log only critical information
-#   1: Log errors and lower log levels
-#   2: Log warnings and lower log levels
-#   3: Log notices and lower log levels
-#   4: Log info and lower (this is the default)
-#   5: Verbose logging
-#   6: Debug logging
-#   7: Extreme logging
+    [lxmf]
 
-loglevel = 4
+    # The LXM Daemon will create an LXMF destination
+    # that it can receive messages on. This option sets
+    # the announced display name for this destination.
 
-"""
+    display_name = Anonymous Peer
+
+    # It is possible to announce the internal LXMF
+    # destination when the LXM Daemon starts up.
+
+    announce_at_start = no
+
+    # You can also announce the delivery destination
+    # at a specified interval. This is not enabled by
+    # default.
+
+    # announce_interval = 360
+
+    # The maximum accepted unpacked size for mes-
+    # sages received directly from other peers,
+    # specified in kilobytes. Messages larger than
+    # this will be rejected before the transfer
+    # begins.
+
+    delivery_transfer_max_accepted_size = 1000
+
+    # You can configure an external program to be run
+    # every time a message is received. The program
+    # will receive as an argument the full path to the
+    # message saved as a file. The example below will
+    # simply result in the message getting deleted as
+    # soon as it has been received.
+
+    # on_inbound = rm
+
+
+    [logging]
+    # Valid log levels are 0 through 7:
+    #   0: Log only critical information
+    #   1: Log errors and lower log levels
+    #   2: Log warnings and lower log levels
+    #   3: Log notices and lower log levels
+    #   4: Log info and lower (this is the default)
+    #   5: Verbose logging
+    #   6: Debug logging
+    #   7: Extreme logging
+
+    loglevel = 4
+
+    """
 }

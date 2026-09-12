@@ -33,51 +33,51 @@ import ReticulumSwift
 /// (`LXMPeer.py:220-225`), `self.router.*` and the file reads at `:459-464`.
 struct PeerSyncContext {
 
-    /// This node's identity—the *sender* half of the peering material, and what the sync link
-    /// identifies as (`LXMPeer.py:535`).
-    let routerIdentity: Identity
+  /// This node's identity—the *sender* half of the peering material, and what the sync link
+  /// identifies as (`LXMPeer.py:535`).
+  let routerIdentity: Identity
 
-    /// The peer's identity—the *receiver* half of the peering material (`LXMPeer.py:258`).
-    let peerIdentity: Identity
+  /// The peer's identity—the *receiver* half of the peering material (`LXMPeer.py:258`).
+  let peerIdentity: Identity
 
-    /// The peer's propagation destination, the one the sync link is opened to.
-    let destination: Destination
+  /// The peer's propagation destination, the one the sync link is opened to.
+  let destination: Destination
 
-    /// The transport the link is dialled on.
-    ///
-    /// LXMF is constructed with an explicit transport, so
-    /// this is never `Reticulum.shared`.
-    let transport: Transport
+  /// The transport the link is dialled on.
+  ///
+  /// LXMF is constructed with an explicit transport, so
+  /// this is never `Reticulum.shared`.
+  let transport: Transport
 
-    /// Injected so a test can pin a timestamp without stubbing the clock globally.
-    let now: () -> TimeInterval
+  /// Injected so a test can pin a timestamp without stubbing the clock globally.
+  let now: () -> TimeInterval
 
-    /// The stored message file for a transient ID, read verbatim off disk—LXMF bytes with the
-    /// 32-byte propagation stamp still attached, because the receiver splits it back off to
-    /// validate it. `nil` when the file has vanished, which Python skips silently (`:459-464`).
-    let messageBytes: (Data) -> Data?
+  /// The stored message file for a transient ID, read verbatim off disk—LXMF bytes with the
+  /// 32-byte propagation stamp still attached, because the receiver splits it back off to
+  /// validate it. `nil` when the file has vanished, which Python skips silently (`:459-464`).
+  let messageBytes: (Data) -> Data?
 
-    /// Whether the message store still holds this transient ID.
-    ///
-    /// Python indexes
-    /// `propagation_entries[transient_id]` directly (`:438`, `:451`) and raises if it does not.
-    let entryExists: (Data) -> Bool
+  /// Whether the message store still holds this transient ID.
+  ///
+  /// Python indexes
+  /// `propagation_entries[transient_id]` directly (`:438`, `:451`) and raises if it does not.
+  let entryExists: (Data) -> Bool
 
-    /// The offer ordering key—`priorityWeight * ageWeight * size` (`LXMRouter.py:1056-1067`).
-    let weight: (Data) -> Double
+  /// The offer ordering key—`priorityWeight * ageWeight * size` (`LXMRouter.py:1056-1067`).
+  let weight: (Data) -> Double
 
-    /// Stored size in bytes, for the per-message and per-sync transfer limits.
-    let size: (Data) -> Int
+  /// Stored size in bytes, for the per-message and per-sync transfer limits.
+  let size: (Data) -> Int
 
-    /// The message's propagation stamp value, against which the peer's minimum accepted cost is
-    /// tested before it is offered at all.
-    let stampValue: (Data) -> Int
+  /// The message's propagation stamp value, against which the peer's minimum accepted cost is
+  /// tested before it is offered at all.
+  let stampValue: (Data) -> Int
 
-    /// Break the peering.
-    ///
-    /// Called when the peer answers `ERROR_NO_ACCESS` (`LXMPeer.py:416-419`).
-    let unpeer: (Data) -> Void
+  /// Break the peering.
+  ///
+  /// Called when the peer answers `ERROR_NO_ACCESS` (`LXMPeer.py:416-419`).
+  let unpeer: (Data) -> Void
 
-    /// How long to postpone after `ERROR_THROTTLED`—the router's `PN_STAMP_THROTTLE`.
-    let throttleWait: TimeInterval
+  /// How long to postpone after `ERROR_THROTTLED`—the router's `PN_STAMP_THROTTLE`.
+  let throttleWait: TimeInterval
 }
