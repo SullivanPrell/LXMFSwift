@@ -16,6 +16,7 @@ public let appName = "lxmf"
 
 // MARK: - Field identifiers (mirrors LXMF/LXMF.py)
 
+/// Field identifiers carried in a message's field map.
 public enum Field: UInt8 {
     case embeddedLXMs       = 0x01
     case telemetry          = 0x02
@@ -46,6 +47,7 @@ public enum Field: UInt8 {
 
 // MARK: - Reaction dict indices (mirrors LXMF.py REACTION_TO / REACTION_CONTENT)
 
+/// Keys of the reaction field's map.
 public enum ReactionField: UInt8 {
     case reactionTo      = 0x00  // Python: REACTION_TO — Bytes, full LXMessage.hash
     case reactionContent = 0x01  // Python: REACTION_CONTENT — Bytes, reaction content in UTF-8
@@ -53,18 +55,21 @@ public enum ReactionField: UInt8 {
 
 // MARK: - Comment dict indices (mirrors LXMF.py COMMENT_FOR)
 
+/// Keys of the comment field's map.
 public enum CommentField: UInt8 {
     case commentFor = 0x00  // Python: COMMENT_FOR — Bytes, full LXMessage.hash
 }
 
 // MARK: - Continuation dict indices (mirrors LXMF.py CONTINUATION_OF)
 
+/// Keys of the continuation field's map.
 public enum ContinuationField: UInt8 {
     case continuationOf = 0x00  // Python: CONTINUATION_OF — Bytes, full LXMessage.hash
 }
 
 // MARK: - Audio mode identifiers
 
+/// Codec and mode an audio field was encoded with.
 public enum AudioMode: UInt8 {
     case codec2Mode450PWB  = 0x01   // Python: AM_CODEC2_450PWB
     case codec2Mode450     = 0x02   // Python: AM_CODEC2_450
@@ -189,18 +194,32 @@ public let sfCompression: UInt8 = 0x00
 
 // MARK: - Propagation Node metadata keys (mirrors LXMF.py PN_META_* constants)
 
+/// Metadata key holding the propagation-node protocol version.
+///
 /// Python: `PN_META_VERSION = 0x00`
 public let pnMetaVersion:       UInt8 = 0x00
+/// Metadata key holding the propagation node's name.
+///
 /// Python: `PN_META_NAME = 0x01`
 public let pnMetaName:          UInt8 = 0x01
+/// Metadata key holding the node's sync stratum.
+///
 /// Python: `PN_META_SYNC_STRATUM = 0x02`
 public let pnMetaSyncStratum:  UInt8 = 0x02
+/// Metadata key holding the node's sync throttle.
+///
 /// Python: `PN_META_SYNC_THROTTLE = 0x03`
 public let pnMetaSyncThrottle: UInt8 = 0x03
+/// Metadata key holding the node's authentication band.
+///
 /// Python: `PN_META_AUTH_BAND = 0x04`
 public let pnMetaAuthBand:     UInt8 = 0x04
+/// Metadata key holding the node's utilisation pressure.
+///
 /// Python: `PN_META_UTIL_PRESSURE = 0x05`
 public let pnMetaUtilPressure: UInt8 = 0x05
+/// Metadata key reserved for node-specific data.
+///
 /// Python: `PN_META_CUSTOM = 0xFF`
 public let pnMetaCustom:        UInt8 = 0xFF
 

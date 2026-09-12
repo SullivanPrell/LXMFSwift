@@ -32,6 +32,7 @@ public struct PropagationEntry {
     /// [6] Proof-of-work stamp value for this message.
     public let stampValue: Int
 
+    /// Creates an entry for a stored message.
     public init(destinationHash: Data, filePath: String, received: TimeInterval,
                 msgSize: Int, handledPeers: [Data] = [], unhandledPeers: [Data] = [],
                 stampValue: Int = 0) {
@@ -441,6 +442,7 @@ public final class LXMPeer {
 
     // MARK: - Init
 
+    /// Creates a peer the router syncs with.
     public init(router: LXMRouter, destinationHash: Data,
                 syncStrategy: LXMSyncStrategy = LXMPeer.defaultSyncStrategy) {
         self.router          = router

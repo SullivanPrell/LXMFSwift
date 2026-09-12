@@ -12,7 +12,8 @@ import XCTest
 import ReticulumSwift
 @testable import LXMF
 
-/// Tests for the missing client-side API on LXMRouter:
+/// Covers the prioritisation, stamp and ignore-list API on `LXMRouter`.
+///
 ///   - prioritise / unprioritise / isPrioritised
 ///   - enforceStamps / ignoreStamps / isEnforcingStamps
 ///   - ignoreDestination / unignoreDestination / isIgnoringDestination

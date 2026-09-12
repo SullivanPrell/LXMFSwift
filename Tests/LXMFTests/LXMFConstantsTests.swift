@@ -13,7 +13,8 @@ import Foundation
 import LXMF
 import ReticulumSwift
 
-/// Tests for missing LXMF module-level constants and helper functions:
+/// Covers the LXMF module-level constants and helper functions.
+///
 ///   - sfCompression
 ///   - pnMeta* constants
 ///   - RENDERER_* constants

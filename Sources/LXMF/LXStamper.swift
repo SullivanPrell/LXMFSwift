@@ -95,8 +95,13 @@ public enum LXStamper {
     /// Both halves of the returned pair derive from one workblock, so the value can never be
     /// measured against different material than the stamp was found against.
     ///
-    /// - Parameter isCancelled: polled between candidate batches. Returns nil when it goes true.
-    ///   No production canceller is wired today; single-flight generation is what bounds the cost.
+    /// - Parameters:
+    ///   - material: the bytes the stamp is found over.
+    ///   - targetCost: the number of leading zero bits the stamp must clear.
+    ///   - expandRounds: rounds used to expand `material` into the workblock.
+    ///   - isCancelled: polled between candidate batches. Returns nil when it goes true.
+    ///     No production canceller is wired today; single-flight generation is what bounds the cost.
+    /// - Returns: The stamp and the value it reached, or `nil` when cancelled.
     public static func generateStamp(material: Data,
                                      targetCost: Int,
                                      expandRounds: Int = defaultExpandRounds,

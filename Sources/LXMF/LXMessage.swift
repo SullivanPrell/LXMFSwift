@@ -26,6 +26,7 @@ public final class LXMessage {
 
     // MARK: - State
 
+    /// Delivery state of a message.
     public enum State: UInt8 {
         case generating  = 0x00
         case outbound    = 0x01
@@ -39,6 +40,7 @@ public final class LXMessage {
 
     // MARK: - Representation
 
+    /// Wire representation a message was carried in.
     public enum Representation: UInt8 {
         case unknown  = 0x00
         case packet   = 0x01
@@ -52,6 +54,7 @@ public final class LXMessage {
 
     // MARK: - Delivery method
 
+    /// Route a message is delivered over.
     public enum Method: UInt8 {
         case unknown      = 0x00
         case opportunistic = 0x01
@@ -62,6 +65,7 @@ public final class LXMessage {
 
     // MARK: - Unverified reasons
 
+    /// Why a message's signature could not be verified.
     public enum UnverifiedReason: UInt8 {
         case sourceUnknown    = 0x01
         case signatureInvalid = 0x02
@@ -84,7 +88,9 @@ public final class LXMessage {
 
     // MARK: - Properties
 
+    /// Destination hash the message is addressed to.
     public var destinationHash: Data
+    /// Destination hash the message was sent from.
     public var sourceHash: Data
 
     /// The Destination the message was sent from (outbound) or implied by
@@ -93,16 +99,25 @@ public final class LXMessage {
     /// May be nil for received messages whose
     /// source identity is not locally known.
     public private(set) var destination: Destination?
+    /// Source destination, when the sender is known locally.
     public private(set) var source: Destination?
 
+    /// Message title bytes.
     public var title: Data
+    /// Message content bytes.
     public var content: Data
+    /// Field map carried alongside the title and content.
     public var fields: [Int: Any]
 
+    /// Unix timestamp, in seconds, the message was stamped with.
     public var timestamp: TimeInterval?
+    /// Message hash, set once the message is packed.
     public private(set) var hash: Data?
+    /// Message identifier, set once the message is packed.
     public private(set) var messageID: Data?
+    /// Sender signature, set once the message is packed.
     public private(set) var signature: Data?
+    /// Packed wire bytes, set once the message is packed.
     public private(set) var packed: Data?
 
     /// Propagation-node wire format: msgpack([timestamp_f64, [lxmf_bytes]]).
@@ -177,13 +192,20 @@ public final class LXMessage {
     private var unsafeState: State = .generating
     private let stateLock = NSLock()
 
+    /// Route the message was delivered over.
     public var method: Method = .unknown
+    /// Wire representation the message was carried in.
     public var representation: Representation = .unknown
+    /// Route the sender asked for, when one was set.
     public var desiredMethod: Method?
 
+    /// Whether the message was received rather than composed.
     public var incoming: Bool = false
+    /// Whether the sender signature verified.
     public var signatureValidated: Bool = false
+    /// Why the signature could not be verified, when it was not.
     public var unverifiedReason: UnverifiedReason?
+    /// Whether the transport leg was encrypted.
     public var transportEncrypted: Bool = false
 
     /// Human-readable description of the transport encryption in use.
@@ -194,10 +216,16 @@ public final class LXMessage {
 
     // MARK: - Encryption description constants (mirrors Python class attrs)
 
+    /// Description used for Curve25519-encrypted messages.
+    ///
     /// Python: `LXMessage.ENCRYPTION_DESCRIPTION_EC = "Curve25519"`
     public static let encryptionDescriptionEC          = "Curve25519"
+    /// Description used for AES-128-encrypted messages.
+    ///
     /// Python: `LXMessage.ENCRYPTION_DESCRIPTION_AES = "AES-128"`
     public static let encryptionDescriptionAES         = "AES-128"
+    /// Description used for unencrypted messages.
+    ///
     /// Python: `LXMessage.ENCRYPTION_DESCRIPTION_UNENCRYPTED = "Unencrypted"`
     public static let encryptionDescriptionUnencrypted = "Unencrypted"
 
@@ -224,8 +252,11 @@ public final class LXMessage {
     /// Python: `LXMessage.COST_TICKET = 0x100`
     public static let costTicket: Int = 0x100
 
+    /// Delivery attempts made so far.
     public var deliveryAttempts: Int = 0
+    /// Unix timestamp of the next delivery attempt.
     public var nextDeliveryAttempt: TimeInterval = 0
+    /// Delivery progress, from zero to one.
     public var progress: Double = 0
 
     /// An outbound ticket (`ticketLength` bytes) received from the destination router.
@@ -274,7 +305,9 @@ public final class LXMessage {
     /// `send()` returned. That inference was `bugs/014`.
     public var deliveryReceipt: PacketReceipt?
 
+    /// Fires when the message is delivered.
     public var onDelivery: ((LXMessage) -> Void)?
+    /// Fires when delivery fails for good.
     public var onFailed: ((LXMessage) -> Void)?
 
     /// Fires on every change of ``state``, from wherever the change was made.
@@ -296,6 +329,7 @@ public final class LXMessage {
 
     // MARK: - Init (outbound)
 
+    /// Creates a message from `source` to `destination`.
     public init(
         destination: Destination,
         source: Destination,
@@ -318,6 +352,7 @@ public final class LXMessage {
         self.stampExpandRounds = stampExpandRounds
     }
 
+    /// Creates a message with string content and title.
     public convenience init(
         destination: Destination,
         source: Destination,
@@ -342,7 +377,9 @@ public final class LXMessage {
 
     // MARK: - String convenience
 
+    /// Content decoded as UTF-8, or `nil` when it is not valid UTF-8.
     public var contentAsString: String? { String(bytes: content, encoding: .utf8) }
+    /// Title decoded as UTF-8, or `nil` when it is not valid UTF-8.
     public var titleAsString: String?   { String(bytes: title, encoding: .utf8) }
 
     // MARK: - Packing (outbound)
@@ -584,6 +621,7 @@ public final class LXMessage {
 
     // MARK: - Unpacking (inbound)
 
+    /// Failures raised by message packing and unpacking.
     public enum LXMessageError: Error {
         case malformed
         case missingIdentity
@@ -798,6 +836,7 @@ public final class LXMessage {
 }
 
 extension LXMessage: CustomStringConvertible {
+    /// Textual description of the message.
     public var description: String {
         if let h = hash {
             return "<LXMessage \(h.map { String(format: "%02x", $0) }.joined())>"
@@ -820,6 +859,7 @@ public extension LXMessage {
     // MARK: QR code constants (Python: QR_MAX_STORAGE, QR_ERROR_CORRECTION, PAPER_MDU)
 
     /// Maximum byte capacity of a QR code with error correction level L.
+    ///
     /// Python: `LXMessage.QR_MAX_STORAGE = 2953`
     public static let qrMaxStorage = 2953
 

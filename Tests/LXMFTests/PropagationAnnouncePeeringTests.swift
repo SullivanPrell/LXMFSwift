@@ -341,7 +341,8 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
                                      announcePacketHash: nil)
         }
 
-        /// `getPropagationNodeAppData`'s shape (`LXMRouter.py:1808-1821`).
+        /// Builds app data in the shape `getPropagationNodeAppData` produces
+        /// (`LXMRouter.py:1808-1821`).
         static func announceAppData(nodeState: Bool,
                                     peeringCost: Int64 = 0,
                                     timebase: Int64) -> Data {

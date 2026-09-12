@@ -13,7 +13,8 @@ import Foundation
 import LXMF
 import ReticulumSwift
 
-/// Tests for the LXMF ticket system parity with Python LXMF 0.9.9:
+/// Covers the LXMF ticket system.
+///
 ///   - LXMessage ticket constants (TICKET_LENGTH, TICKET_EXPIRY, etc.)
 ///   - LXMessage.outboundTicket integration in pack() → ticket-based stamp
 ///   - LXMRouter ticket API: generateTicket, rememberTicket, getOutboundTicket,

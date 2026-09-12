@@ -13,6 +13,7 @@ import Foundation
 /// Constants and example configuration for the lxmd propagation daemon.
 /// Python reference: LXMF/Utilities/lxmd.py
 
+/// Configuration parsing for the LXMF propagation daemon.
 public enum LXMDConfig {
 
     // MARK: - Timing constants

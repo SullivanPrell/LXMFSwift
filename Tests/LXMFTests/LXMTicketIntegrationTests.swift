@@ -13,7 +13,8 @@ import Foundation
 import LXMF
 import ReticulumSwift
 
-/// Tests for the ticket integration gaps:
+/// Covers ticket handling across `LXMessage` and `LXMRouter`.
+///
 ///   - LXMessage.validateStamp(targetCost:tickets:) ticket-based stamp validation
 ///   - LXMessage.includeTicket flag
 ///   - LXMRouter.send() wires outboundTicket from stored tickets before packing

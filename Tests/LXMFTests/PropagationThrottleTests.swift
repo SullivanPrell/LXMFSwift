@@ -231,9 +231,13 @@ final class PropagationThrottleTests: XCTestCase {
         }
     }
 
+    /// Builds a propagation node and a remote router pointed at it.
+    ///
     /// - Parameter stampCost: what the node demands. The invalid cases want it high, so an
     ///   arbitrary stamp cannot pass by chance; the valid case wants it low, because generating a
     ///   real stamp costs `2^cost` hashes of a 256 KB workblock.
+    /// - Returns: The node, the remote router and the transports joining them.
+    /// - Throws: An error raised while building either router.
     private func makeNodeAndRemote(stampCost: Int = 16) throws -> Network {
         let nodeTransport   = Transport()
         let remoteTransport = Transport()

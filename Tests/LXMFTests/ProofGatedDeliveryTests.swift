@@ -32,7 +32,7 @@ final class ProofGatedDeliveryTests: XCTestCase {
 
     // MARK: - A message that never arrives is not delivered
 
-    /// Spec: "A lost message is not reported delivered."
+    /// A lost message is not reported delivered.
     func testAMessageOverALinkThatDoesNotDeliverStaysSending() throws {
         let net = try LoopbackPair()
 

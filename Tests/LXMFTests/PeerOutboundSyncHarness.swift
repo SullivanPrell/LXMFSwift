@@ -46,8 +46,15 @@ final class PeerOutboundSyncNetwork {
     private let tempDir: String
     private unowned let test: XCTestCase
 
-    /// - Parameter peeringCost: the cost B advertises, which A must satisfy with real
-    ///   proof of work. Capped hard — see the `precondition` below.
+    /// Builds two routers peered with each other.
+    ///
+    /// - Parameters:
+    ///   - test: the test case the harness waits on.
+    ///   - tempDir: the directory both routers store messages under.
+    ///   - peeringCost: the cost B advertises, which A must satisfy with real
+    ///     proof of work. Capped hard — see the `precondition` below.
+    ///   - syncStrategy: the strategy B syncs with.
+    /// - Throws: An error raised while building either router.
     init(test: XCTestCase, tempDir: String, peeringCost: Int = 4,
          syncStrategy: LXMSyncStrategy = .persistent) throws {
         // A test that accidentally takes the default cost of 18 (`LXMRouter.py:50`) runs ~2^18

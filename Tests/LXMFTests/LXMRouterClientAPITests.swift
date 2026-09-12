@@ -13,8 +13,8 @@ import Foundation
 import LXMF
 import ReticulumSwift
 
-/// Tests for the LXMRouter client-side API methods added for parity with
-/// Python's LXMRouter (LXMF 0.9.9):
+/// Covers the client-side API on `LXMRouter`.
+///
 ///   - getAnnounceAppData(destinationHash:)
 ///   - announce(destinationHash:attachedInterface:)
 ///   - deliveryLinkAvailable(destinationHash:)

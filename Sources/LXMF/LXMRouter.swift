@@ -13,6 +13,7 @@ import ReticulumSwift
 
 // MARK: - LXMRouterError
 
+/// Failures raised by router operations.
 public enum LXMRouterError: Error, Equatable {
     /// Thrown when attempting to send a propagated message without a configured propagation node.
     /// Mirrors Python `IOError("Attempt to send propagated message with no outbound propagation node configured")`.
@@ -611,9 +612,14 @@ public final class LXMRouter {
 
     // MARK: - Init
 
+    /// Creates a router that sends and receives on `transport`.
+    ///
     /// - Parameters:
+    ///   - transport: the transport the router runs on.
     ///   - propagationStampCost: what this node demands of messages offered to it. Clamped up to
     ///     `propagationStampCostMin`, mirroring `LXMRouter.py:136`.
+    ///   - propagationStampCostFlexibility: how far below the demanded cost an offered stamp may
+    ///     fall and still be accepted.
     ///   - peeringCost: what this node charges to peer with it. **Never pass 0**: Python's
     ///     `peering_key_ready` treats a falsy peering cost as permanently unsatisfiable
     ///     (`LXMPeer.py:228`), so a node advertising 0 is one no Python peer can finish peering
@@ -672,6 +678,8 @@ public final class LXMRouter {
     ///   - transport: The active `Transport` instance.
     ///   - displayName: Optional human-readable name for this node, included in
     ///     announce app data. Mirrors Python's `display_name` parameter.
+    /// - Returns: The registered delivery destination.
+    /// - Throws: An error raised while constructing the destination.
     @discardableResult
     public func register(identity: Identity, transport: Transport,
                          displayName: String? = nil) throws -> Destination {
@@ -2074,9 +2082,11 @@ public final class LXMRouter {
     /// raw bytes as received from `ResourceTransfer.onPayloadReceived` — for LXMF
     /// this is the full packed message (including leading destination hash).
     /// Called by `delivery.onLinkEstablished → link.onResourceConcluded`.
-    /// - Parameter noStampEnforcement: waive stamp enforcement for a message already
-    ///   validated upstream. Python sets this for paper messages
-    ///   (`LXMRouter.py:2489`) and for messages fetched from a propagation node.
+    /// - Parameters:
+    ///   - data: the packed message bytes the resource carried.
+    ///   - noStampEnforcement: waive stamp enforcement for a message already
+    ///     validated upstream. Python sets this for paper messages
+    ///     (`LXMRouter.py:2489`) and for messages fetched from a propagation node.
     /// - Returns: `true` when the message reached the application.
     @discardableResult
     public func deliverInboundResource(_ data: Data, noStampEnforcement: Bool = false) -> Bool {
@@ -2201,10 +2211,12 @@ public final class LXMRouter {
     /// message arrived opportunistically, over a direct link, or after deferred
     /// signature validation.
     ///
-    /// - Parameter noStampEnforcement: when `true`, an invalid stamp is allowed
-    ///   through even if enforcement is enabled (mirrors Python's
-    ///   `no_stamp_enforcement` — used for messages already validated upstream,
-    ///   e.g. fetched from a propagation node).
+    /// - Parameters:
+    ///   - msg: the message to deliver.
+    ///   - noStampEnforcement: when `true`, an invalid stamp is allowed
+    ///     through even if enforcement is enabled (mirrors Python's
+    ///     `no_stamp_enforcement` — used for messages already validated upstream,
+    ///     e.g. fetched from a propagation node).
     /// - Returns: `true` if delivered, `false` if dropped.
     @discardableResult
     func finalizeInboundDelivery(_ msg: LXMessage, noStampEnforcement: Bool = false) -> Bool {
@@ -2587,6 +2599,7 @@ public final class LXMRouter {
         }
     }
 
+    /// Takes a propagation-node resource payload received on `link`.
     public func handleInboundPropagationResource(_ data: Data, on link: Link?) {
         guard case .array(let outer) = (try? MsgPack.decode(data)) ?? .nil,
               outer.count >= 2,
@@ -3870,6 +3883,7 @@ public final class LXMRouter {
     ///     excluded from the fan-out and the message is recorded as handled for it — Python does
     ///     both (`LXMRouter.py:2444-2445`, `:2484`), because a peer that just sent us a message
     ///     demonstrably has it.
+    /// - Returns: The stored entry, or `nil` when the message was a duplicate.
     @discardableResult
     public func ingestPropagatedLXM(lxmfData: Data, stampValue: Int, stamp: Data,
                                     fromPeer: LXMPeer? = nil) -> PropagationEntry? {
@@ -4196,10 +4210,10 @@ private final class DeliveryAnnounceHandler: AnnounceHandler {
 /// calls — see `swift_devel/bugs/046` for what having two copies of it cost.
 private final class PropagationNodeAnnounceHandler: AnnounceHandler {
     let aspectFilter: String? = appName + ".propagation"
-    /// `Handlers.
+    /// Whether path responses reach this handler, as in `Handlers.py:38`.
     ///
-    /// py:38`. The peering branch needs to *see* path responses in order to distinguish
-    /// them — a static peer takes its terms from one, and autopeering must refuse one.
+    /// The peering branch needs to *see* path responses in order to distinguish them — a
+    /// static peer takes its terms from one, and autopeering must refuse one.
     let receivePathResponses: Bool = true
     weak var router: LXMRouter?
 

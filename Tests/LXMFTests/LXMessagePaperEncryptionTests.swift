@@ -55,9 +55,11 @@ final class LXMessagePaperEncryptionTests: XCTestCase {
         return data
     }
 
-    /// Deterministic incompressible filler — a SHA-256 chain rendered as hex, so a
-    /// size-limit test cannot be defeated by a compressor squeezing the body away
-    /// (the mechanism that made `tri-test`'s large-resource cell unfalsifiable, §6.2).
+    /// Returns deterministic incompressible filler of `byteCount` bytes.
+    ///
+    /// The filler is a SHA-256 chain rendered as hex, so a size-limit test cannot be
+    /// defeated by a compressor squeezing the body away — the mechanism that made the
+    /// large-resource cell in `tri-test` unfalsifiable (§6.2).
     private func incompressibleBody(byteCount: Int) -> String {
         var out = ""
         var block = Data("lxmf-026-paper".utf8)

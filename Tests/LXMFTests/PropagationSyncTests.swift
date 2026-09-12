@@ -156,8 +156,8 @@ final class PropagationSyncTests: XCTestCase {
 
     /// The periodic safety net, Python's letter: `clean_links` itself maps a closed outbound
     /// link even when the closure callback never ran — here because something clobbered
-    /// `onClosed`, which is exactly how `bugs/021`'s neighbouring defect (an unchained handler)
-    /// would present.
+    /// `onClosed`, which is exactly how the neighbouring defect in `bugs/021` (an unchained
+    /// handler) would present.
     func testCleanLinksMapsAClosedOutboundLinkTheCallbackMissed() throws {
         try makeClient()
         net.interfaceB.dropOutbound = { $0.packetType != .proof }
