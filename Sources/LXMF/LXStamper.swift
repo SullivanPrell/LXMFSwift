@@ -106,10 +106,7 @@ public enum LXStamper {
                 for _ in 0 ..< 256 {
                     if found.isSet { return }
 
-                    var stamp = Data(count: stampSize)
-                    _ = stamp.withUnsafeMutableBytes {
-                        SecRandomCopyBytes(kSecRandomDefault, stampSize, $0.baseAddress!)
-                    }
+                    let stamp = SecureRandom.bytes(stampSize)
                     // Incremental hash: SHA256(workblock || stamp) without allocating the
                     // concatenation — the workblock is up to 750 KB for message stamps.
                     var hasher = SHA256()

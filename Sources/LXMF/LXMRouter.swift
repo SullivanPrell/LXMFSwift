@@ -498,8 +498,8 @@ public final class LXMRouter {
     private var _unpeeredPropagationRxBytes: Int = 0
 
     // Announce handlers kept alive so ARC doesn't release them.
-    private var deliveryAnnounceHandler: DeliveryAnnounceHandler!
-    private var propagationNodeAnnounceHandler: PropagationNodeAnnounceHandler!
+    private var deliveryAnnounceHandler: DeliveryAnnounceHandler?
+    private var propagationNodeAnnounceHandler: PropagationNodeAnnounceHandler?
 
     /// Periodic job timer — mirrors Python's `LXMRouter.jobloop()` / `PROCESSING_INTERVAL = 4`.
     private var jobTimer: DispatchSourceTimer?
@@ -541,17 +541,23 @@ public final class LXMRouter {
         self.propagationStampCostFlexibility = propagationStampCostFlexibility
         self.peeringCost = peeringCost
         self.transport = transport
-        deliveryAnnounceHandler = DeliveryAnnounceHandler(router: self)
-        propagationNodeAnnounceHandler = PropagationNodeAnnounceHandler(router: self)
-        transport.register(announceHandler: deliveryAnnounceHandler)
-        transport.register(announceHandler: propagationNodeAnnounceHandler)
+        let delivery = DeliveryAnnounceHandler(router: self)
+        let propagation = PropagationNodeAnnounceHandler(router: self)
+        deliveryAnnounceHandler = delivery
+        propagationNodeAnnounceHandler = propagation
+        transport.register(announceHandler: delivery)
+        transport.register(announceHandler: propagation)
         startJobLoop()
     }
 
     deinit {
         jobTimer?.cancel()
-        transport.deregister(announceHandler: deliveryAnnounceHandler)
-        transport.deregister(announceHandler: propagationNodeAnnounceHandler)
+        if let delivery = deliveryAnnounceHandler {
+            transport.deregister(announceHandler: delivery)
+        }
+        if let propagation = propagationNodeAnnounceHandler {
+            transport.deregister(announceHandler: propagation)
+        }
     }
 
     // MARK: - Job loop (mirrors Python LXMRouter.jobloop / PROCESSING_INTERVAL = 4 s)
@@ -895,16 +901,10 @@ public final class LXMRouter {
         }
 
         // Generate a new random ticket.
-        var newTicket = Data(count: LXMessage.ticketLength)
-        newTicket.withUnsafeMutableBytes {
-            _ = SecRandomCopyBytes(kSecRandomDefault, LXMessage.ticketLength, $0.baseAddress!)
-        }
+        let newTicket = SecureRandom.bytes(LXMessage.ticketLength)
         let newExpiry = now + expiry
 
-        if inboundTickets_[destinationHash] == nil {
-            inboundTickets_[destinationHash] = [:]
-        }
-        inboundTickets_[destinationHash]![newTicket] = newExpiry
+        inboundTickets_[destinationHash, default: [:]][newTicket] = newExpiry
         lock.unlock()
         saveAvailableTickets()   // persist the newly issued ticket across restarts
         return (expiry: newExpiry, ticket: newTicket)
@@ -1762,7 +1762,7 @@ public final class LXMRouter {
             if hasMessage(transientID: tid) {
                 if !retainSyncedOnNode { haves.append(tid) }
             } else {
-                if maxMessages == nil || wants.count < maxMessages! { wants.append(tid) }
+                if wants.count < (maxMessages ?? Int.max) { wants.append(tid) }
             }
         }
 
@@ -2705,36 +2705,32 @@ public final class LXMRouter {
     @discardableResult
     func peerAddHandled(_ transientID: Data, destinationHash: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard _propagationEntries[transientID] != nil else { return false }
-        if !_propagationEntries[transientID]!.handledPeers.contains(destinationHash) {
-            _propagationEntries[transientID]!.handledPeers.append(destinationHash)
-            return true
-        }
-        return false
+        guard let entry = _propagationEntries[transientID] else { return false }
+        guard !entry.handledPeers.contains(destinationHash) else { return false }
+        _propagationEntries[transientID]?.handledPeers.append(destinationHash)
+        return true
     }
     @discardableResult
     func peerAddUnhandled(_ transientID: Data, destinationHash: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard _propagationEntries[transientID] != nil else { return false }
-        if !_propagationEntries[transientID]!.unhandledPeers.contains(destinationHash) {
-            _propagationEntries[transientID]!.unhandledPeers.append(destinationHash)
-            return true
-        }
-        return false
+        guard let entry = _propagationEntries[transientID] else { return false }
+        guard !entry.unhandledPeers.contains(destinationHash) else { return false }
+        _propagationEntries[transientID]?.unhandledPeers.append(destinationHash)
+        return true
     }
     /// Remove `destinationHash` from the entry's handledPeers. Returns true iff the entry existed.
     @discardableResult
     func peerRemoveHandled(_ transientID: Data, destinationHash: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard _propagationEntries[transientID] != nil else { return false }
-        _propagationEntries[transientID]!.handledPeers.removeAll { $0 == destinationHash }
+        _propagationEntries[transientID]?.handledPeers.removeAll { $0 == destinationHash }
         return true
     }
     @discardableResult
     func peerRemoveUnhandled(_ transientID: Data, destinationHash: Data) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard _propagationEntries[transientID] != nil else { return false }
-        _propagationEntries[transientID]!.unhandledPeers.removeAll { $0 == destinationHash }
+        _propagationEntries[transientID]?.unhandledPeers.removeAll { $0 == destinationHash }
         return true
     }
 

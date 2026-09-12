@@ -57,17 +57,21 @@ enum PythonPeeringVectors {
 
     /// `msgpack.packb([peering_key, [tid_a1, tid_a2]])` — the exact offer-request payload a Python
     /// propagation node emits (`LXMPeer.py:385`), with `key` above and two 32-byte transient IDs.
-    static let offerPayload = Data(hex:
+    /// Decodes a hex literal from this file. A nil result means a typo in the literal
+    /// below, so the empty fallback fails the test that reads it rather than trapping.
+    private static func hex(_ string: String) -> Data { Data(hex: string) ?? Data() }
+
+    static let offerPayload = hex(
         "92c4208e7288e0fb68393d5c52bf12a24bbdd09af748a1d8e427ec81090a12edfc5218" +
         "92c420a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1" +
-        "c420a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2")!
+        "c420a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2")
 
     static let offerTransientIDs = [Data(repeating: 0xa1, count: 32),
                                     Data(repeating: 0xa2, count: 32)]
 
     /// `msgpack.packb([1234567890.5, [b"\xde\xad\xbe\xef", b"\xca\xfe"]])` — the sync resource
     /// payload shape (`LXMPeer.py:466`): a float timestamp then a list of whole message files.
-    static let resourcePayload = Data(hex: "92cb41d26580b4a0000092c404deadbeefc402cafe")!
+    static let resourcePayload = hex("92cb41d26580b4a0000092c404deadbeefc402cafe")
 
     static let resourceTimestamp = 1234567890.5
     static let resourceBodies    = [Data([0xde, 0xad, 0xbe, 0xef]), Data([0xca, 0xfe])]

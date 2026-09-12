@@ -368,7 +368,8 @@ public final class LXMessage {
 
         var signedPart = hashedPart
         signedPart.append(msgHash)
-        self.signature = try srcIdentity.sign(signedPart)
+        let signature = try srcIdentity.sign(signedPart)
+        self.signature = signature
         self.signatureValidated = true
 
         // Wire payload includes stamp as 5th element if present.
@@ -377,7 +378,7 @@ public final class LXMessage {
         var wire = Data()
         wire.append(destination.hash)
         wire.append(source.hash)
-        wire.append(self.signature!)
+        wire.append(signature)
         wire.append(wirePayload)
         self.packed = wire
 
@@ -1159,9 +1160,7 @@ public extension LXMessage {
         // to the same hash (e.g. from different threads or processes) cannot
         // collide. Mirrors Python's `write_to_directory` tmp name in LXMF
         // commit 5be161c: `name + ".tmp." + pid + "." + hex(urandom(8))`.
-        var rndBytes = [UInt8](repeating: 0, count: 8)
-        _ = SecRandomCopyBytes(kSecRandomDefault, rndBytes.count, &rndBytes)
-        let rndHex = rndBytes.map { String(format: "%02x", $0) }.joined()
+        let rndHex = SecureRandom.bytes(8).map { String(format: "%02x", $0) }.joined()
         let tmpURL  = directory.appendingPathComponent(
             "\(name).tmp.\(ProcessInfo.processInfo.processIdentifier).\(rndHex)"
         )
