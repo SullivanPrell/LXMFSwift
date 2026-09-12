@@ -52,8 +52,8 @@ public enum PropagationTransferState: Equatable {
 /// for one or more registered delivery identities.
 ///
 /// Mirrors the core delivery loop of Python's `LXMRouter`:
-///   * Opportunistic — send as a plain RNS Packet without establishing a link.
-///   * Direct        — establish an RNS Link and deliver as a packet (small
+///   * Opportunistic—send as a plain RNS Packet without establishing a link.
+///   * Direct—establish an RNS Link and deliver as a packet (small
 ///                     messages) or Resource (large messages).
 ///
 public final class LXMRouter {
@@ -192,7 +192,7 @@ public final class LXMRouter {
     /// When the sync machine last moved: any state transition or progress update refreshes it.
     ///
     /// Port-only, feeding the stall bound in `cleanLinks(syncStallTimeout:)`. The reference has
-    /// no equivalent because it has no bound for a live-but-stuck transfer — its watchdog only
+    /// no equivalent because it has no bound for a live-but-stuck transfer—its watchdog only
     /// catches links that die (`swift_devel/bugs/020`, design D5).
     private(set) var propagationTransferLastActivity: TimeInterval = 0
 
@@ -219,7 +219,7 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.retain_synced_on_node`.
     public var retainSyncedOnNode: Bool = false
 
-    /// Propagation node we're waiting to get a path to, before re-attempting sync.
+    /// Propagation node awaiting a path, before sync is re-attempted.
     ///
     /// Mirrors Python's `LXMRouter.wants_download_on_path_available_from`.
     public var wantsDownloadOnPathAvailableFrom: Data? = nil
@@ -240,7 +240,7 @@ public final class LXMRouter {
     /// (for `has_message`).
     ///
     /// The timestamp is what lets `cleanTransientIDCaches`
-    /// expire them — without it the cache grows for the lifetime of the install
+    /// expire them—without it the cache grows for the lifetime of the install
     /// and is persisted to disk in full on every save.
     /// Mirrors Python's `locally_delivered_transient_ids` dict.
     var locallyDeliveredTransientIDs: [Data: TimeInterval] = [:]
@@ -274,7 +274,7 @@ public final class LXMRouter {
     static let jobPeerSyncInterval   = 6        // JOB_PEERSYNC_INTERVAL
     static let jobPeerIngestInterval = 6        // JOB_PEERINGEST_INTERVAL = JOB_PEERSYNC_INTERVAL
     static let jobRotateInterval     = 56 * jobPeerIngestInterval   // JOB_ROTATE_INTERVAL
-    /// Not a reference interval — see the `savePeers` entry's `addedBecause`. 30 ticks is two
+    /// Not a reference interval—see the `savePeers` entry's `addedBecause`. 30 ticks is two
     /// minutes at the 4 s processing interval: frequent enough that an unannounced termination
     /// loses little, rare enough that it is not rewriting the peer file behind every sync.
     static let jobSaveInterval       = 30
@@ -292,8 +292,8 @@ public final class LXMRouter {
     ///
     /// **Port-only** (design D5, `bugs/020`):
     /// the reference has no bound for a live-but-stuck transfer. Sized above
-    /// `propagationLinkMaxInactivity` so the RNS inactivity teardown — whose closure the state
-    /// machine maps — gets the first move, and the stall bound only ever catches a link that
+    /// `propagationLinkMaxInactivity` so the RNS inactivity teardown—whose closure the state
+    /// machine maps—gets the first move, and the stall bound only ever catches a link that
     /// stayed nominally busy (keepalives count as data) while its transfer went nowhere.
     public static let propagationSyncStallTimeout: TimeInterval = 240
 
@@ -331,11 +331,11 @@ public final class LXMRouter {
     /// message and the time it arrived (for diagnostics / timeout ordering).
     ///
     /// The `DeliveryAnnounceHandler` fires when the source's lxmf.delivery
-    /// announce is processed — at that point `transport.recall(identity:)` already
+    /// announce is processed—at that point `transport.recall(identity:)` already
     /// has the identity, so validation is immediate rather than poll-based.
     ///
-    /// NOTE: Inbound delivery no longer *defers* messages from unknown sources —
-    /// they are delivered immediately as unverified, matching Python (bug 006), so
+    /// NOTE: Inbound delivery no longer *defers* messages from unknown sources—they
+    /// are delivered immediately as unverified, matching Python (bug 006), so
     /// this queue is normally empty. `notifyAnnounced` still drains it (a harmless
     /// no-op) and remains as a public hook for callers that queue messages here
     /// through some other path.
@@ -348,7 +348,7 @@ public final class LXMRouter {
     /// Mirrors Python's `available_tickets["outbound"]`.
     private var outboundTickets: [Data: (expiry: TimeInterval, ticket: Data)] = [:]
 
-    /// Inbound tickets we generated for remote peers: [destHash: [ticket: expiry]].
+    /// Inbound tickets generated for remote peers: [destHash: [ticket: expiry]].
     ///
     /// Mirrors Python's `available_tickets["inbound"]`.
     private var inboundTickets: [Data: [Data: TimeInterval]] = [:]
@@ -387,7 +387,7 @@ public final class LXMRouter {
     /// Python: `LXMRouter.propagation_entries` (`LXMRouter.py:222`).
     ///
     /// Read-only in public. Every write inside the router happens under `lock`, and a
-    /// `Dictionary` write is not atomic — a consumer reading the stored property directly could
+    /// `Dictionary` write is not atomic—a consumer reading the stored property directly could
     /// observe a partially rehashed table rather than a merely stale value, which is a segfault
     /// and not a wrong answer (`swift_devel/bugs/055`).
     ///
@@ -411,7 +411,7 @@ public final class LXMRouter {
     ///
     /// The snapshot is of the *dictionary*, not of the peers. Its elements are class references to
     /// objects whose own state is guarded by `LXMPeer.peerLock`, so a synchronized read of this
-    /// table followed by an unsynchronized read of a peer would be a false reassurance — which is
+    /// table followed by an unsynchronized read of a peer would be a false reassurance—which is
     /// why `LXMPeer`'s own properties are in scope for the same change.
     public var peers: [Data: LXMPeer] {
         lock.lock(); defer { lock.unlock() }
@@ -427,7 +427,7 @@ public final class LXMRouter {
 
     /// Root storage path for LXMF data (storagepath/lxmf).
     ///
-    /// Setting this loads any persisted client state (locally-delivered transient
+    /// Setting this loads any persisted client state (locally delivered transient
     /// ids, outbound stamp costs, available tickets) from disk, mirroring Python
     /// `LXMRouter.__init__`, which reads these files at startup. Subsequent
     /// mutations write them back atomically.
@@ -451,7 +451,7 @@ public final class LXMRouter {
 
     /// Minimum proof-of-work stamp cost required for messages accepted by this node.
     ///
-    /// The floor is applied to the **initialiser argument**, not to this property — the reference
+    /// The floor is applied to the **initialiser argument**, not to this property—the reference
     /// clamps `propagation_cost` in `__init__` (`LXMRouter.py:136`) and leaves later attribute
     /// assignment alone. A node cheaper to flood than the network assumes any node is undermines
     /// every other node's spam control, not just its own, so the configured value is clamped;
@@ -467,7 +467,7 @@ public final class LXMRouter {
     ///
     /// **Not zero.** Python's `peering_key_ready` opens with `if not self.peering_cost: return
     /// False` (`LXMPeer.py:228`), so a node advertising 0 is one no Python peer can ever finish
-    /// peering with — it postpones every sync pass, silently, with no error on either side.
+    /// peering with—it postpones every sync pass, silently, with no error on either side.
     public var peeringCost: Int = LXMRouter.defaultPeeringCost
 
     /// Whether to peer automatically with propagation nodes discovered through incoming syncs.
@@ -475,7 +475,7 @@ public final class LXMRouter {
     /// Python: `LXMRouter.AUTOPEER = True` (`LXMRouter.py:44`), consulted at `:2365`.
     public var autopeer: Bool = LXMRouter.defaultAutopeer
 
-    /// The greatest number of peers this node will hold.
+    /// The greatest number of peers this node holds.
     ///
     /// Python: `LXMRouter.MAX_PEERS = 20` (`LXMRouter.py:43`), per-node at `:206`.
     public var maxPeers: Int {
@@ -493,7 +493,7 @@ public final class LXMRouter {
     ///
     /// Python: `LXMRouter.static_peers` (`:211-219`). A static peer is the operator's declared
     /// upstream rather than a discovered one, so it is exempt from rotation (`:2092`) and from the
-    /// unreachability cull (`:2140`) — losing it is not something discovery can repair.
+    /// unreachability cull (`:2140`)—losing it is not something discovery can repair.
     public var staticPeers: Set<Data> {
         lock.lock(); defer { lock.unlock() }
         return unsafeStaticPeers
@@ -501,7 +501,7 @@ public final class LXMRouter {
     private var unsafeStaticPeers: Set<Data> = []
 
     /// Whether rotation drops only unreachable peers when any exist, rather than considering
-    /// merely-waiting ones alongside them.
+    /// merely waiting ones alongside them.
     ///
     /// Python: `LXMRouter.prioritise_rotating_unreachable_peers` (`:167`), consumed at `:2104`.
     public var prioritiseRotatingUnreachablePeers: Bool = false
@@ -509,7 +509,7 @@ public final class LXMRouter {
     /// The furthest, in hops, a node may be and still be peered with automatically.
     ///
     /// Python: `LXMRouter.AUTOPEER_MAXDEPTH = 4` (`:45`). Note that `lxmd`'s example configuration
-    /// suggests 6 (`Utilities/lxmd.py:995`) — that is the daemon's suggestion to an operator, not
+    /// suggests 6 (`Utilities/lxmd.py:995`)—that is the daemon's suggestion to an operator, not
     /// the router's default, and the port keeps both as the reference has them.
     public var autopeerMaxdepth: Int = LXMRouter.defaultAutopeerMaxdepth
 
@@ -582,7 +582,7 @@ public final class LXMRouter {
     private var deliveryAnnounceHandler: DeliveryAnnounceHandler?
     private var propagationNodeAnnounceHandler: PropagationNodeAnnounceHandler?
 
-    /// Periodic job timer — mirrors Python's `LXMRouter.jobloop()` / `PROCESSING_INTERVAL = 4`.
+    /// Periodic job timer—mirrors Python's `LXMRouter.jobloop()` / `PROCESSING_INTERVAL = 4`.
     private var jobTimer: DispatchSourceTimer?
 
     /// How many job ticks between reaps of `incomingDeliveryResources`.
@@ -623,7 +623,7 @@ public final class LXMRouter {
     ///   - peeringCost: what this node charges to peer with it. **Never pass 0**: Python's
     ///     `peering_key_ready` treats a falsy peering cost as permanently unsatisfiable
     ///     (`LXMPeer.py:228`), so a node advertising 0 is one no Python peer can finish peering
-    ///     with — it postpones every sync pass forever, with no error on either side.
+    ///     with—it postpones every sync pass forever, with no error on either side.
     public init(transport: Transport,
                 propagationStampCost: Int = LXMRouter.defaultPropagationStampCost,
                 propagationStampCostFlexibility: Int = LXMRouter.defaultPropagationStampCostFlexibility,
@@ -670,7 +670,7 @@ public final class LXMRouter {
     /// Register a local LXMF delivery destination.
     ///
     /// Inbound messages
-    /// addressed to this destination will be decoded and delivered via
+    /// addressed to this destination is decoded and delivered via
     /// `onMessageReceived`. Mirrors Python's `LXMRouter.register_delivery_identity`.
     ///
     /// - Parameters:
@@ -724,7 +724,7 @@ public final class LXMRouter {
             self?.handleInboundPacket(packet, destination: dest)
         }
 
-        // When a remote peer establishes a delivery link to us, configure it to handle
+        // When a remote peer establishes a delivery link to this router, configure it to handle
         // both small messages (link DATA packets) and large messages (Resource).
         delivery.onLinkEstablished = { [weak self] link in
             guard let self else { return }
@@ -732,15 +732,15 @@ public final class LXMRouter {
             // Small message: plain data packet on the link.
             //
             // Python wire format differences by delivery method:
-            //   DIRECT     — sender puts self.packed (FULL bytes, dest hash included) on the link.
-            //                 Receiver's delivery_packet: `lxmf_data = data` — no prefix added.
-            //   OPPORTUNISTIC — sender strips dest hash: `packed[DESTINATION_LENGTH:]`.
+            //   DIRECT—sender puts self.packed (FULL bytes, dest hash included) on the link.
+            //                 Receiver's delivery_packet: `lxmf_data = data`—no prefix added.
+            //   OPPORTUNISTIC—sender strips dest hash: `packed[DESTINATION_LENGTH:]`.
             //                   Receiver's delivery_packet: prepends `packet.destination.hash + data`.
             //
             // For link-based (DIRECT) delivery, `data` already contains the full packed message.
-            // Do NOT prepend destHash — it's already the first 16 bytes of `data`.
+            // Do NOT prepend destHash—it's already the first 16 bytes of `data`.
             link.onDataReceived = { [weak self] data, inboundLink in
-                // Prove receipt immediately — mirrors Python LXMRouter.delivery_packet
+                // Prove receipt immediately—mirrors Python LXMRouter.delivery_packet
                 // which calls `packet.prove()` before any other processing (line 1825).
                 // Without this, the sender's PacketReceipt times out and the message
                 // is retransmitted in a loop.
@@ -757,7 +757,7 @@ public final class LXMRouter {
 
                 // Validate the signature if the source identity is known;
                 // otherwise deliver immediately as unverified (SOURCE_UNKNOWN),
-                // matching Python — never hold the message back. See bug 006.
+                // matching Python—never hold the message back. See bug 006.
                 if let srcIdentity = self.transport.recall(identity: msg.sourceHash) {
                     msg.validateSignature(knownIdentity: srcIdentity)
                     self.finalizeInboundDelivery(msg)
@@ -854,7 +854,7 @@ public final class LXMRouter {
     public func getPropagationNodeAppData() -> Data {
         let ts = Int64(Date().timeIntervalSince1970)
         let nodeState = isPropagationNode
-        // Python validation requires int(data[3]) and int(data[4]) to succeed — nil is rejected.
+        // Python validation requires int(data[3]) and int(data[4]) to succeed—nil is rejected.
         // Use Python's default PROPAGATION_LIMIT=256 and SYNC_LIMIT=10240 when unset.
         let perTransferLimit: MsgPack.Value = .int(Int64(propagationPerTransferLimit ?? 256))
         let perSyncLimit: MsgPack.Value     = .int(Int64(propagationPerSyncLimit ?? 10240))
@@ -976,7 +976,7 @@ public final class LXMRouter {
                                expiry: TimeInterval = LXMessage.ticketExpiry)
         -> (expiry: TimeInterval, ticket: Data)? {
         // Note: manual unlock (not `defer`) so a new ticket can be persisted
-        // outside the lock — `NSLock` is not reentrant and `saveAvailableTickets`
+        // outside the lock—`NSLock` is not reentrant and `saveAvailableTickets`
         // reacquires it.
         lock.lock()
         let now = Date().timeIntervalSince1970
@@ -1243,7 +1243,7 @@ public final class LXMRouter {
         guard let transfer else { return false }
         guard LXMRouter.isActive(transfer) else { return false }
         // cancel() is called outside the lock: it reaches into the link to emit
-        // a cancel packet and may re-enter our own resource callbacks.
+        // a cancel packet and may re-enter this router's own resource callbacks.
         transfer.cancel()
         return true
     }
@@ -1291,7 +1291,7 @@ public final class LXMRouter {
     /// ingest, the ignore list and duplicate suppression all apply. Stamp enforcement is
     /// waived for paper messages (`:2489`, `is_paper_message → no_stamp_enforcement`).
     ///
-    /// Calling the application callback directly instead — as this did — skipped all of
+    /// Calling the application callback directly instead—as this did—skipped all of
     /// it, so an ignored sender's paper message was delivered and a re-scanned QR was
     /// delivered twice (`bugs/026`).
     ///
@@ -1310,7 +1310,7 @@ public final class LXMRouter {
         guard let destination else {
             // Python returns True here having done nothing (it would queue the message for
             // propagation, which a paper message never is). Reporting a failure the caller
-            // can act on is the point of this change — a scanned QR addressed elsewhere is
+            // can act on is the point of this change—a scanned QR addressed elsewhere is
             // not an ingest that succeeded.
             throw LXMessage.LXMessageError.noMatchingDeliveryDestination
         }
@@ -1435,7 +1435,7 @@ public final class LXMRouter {
     private func deliverOpportunistically(_ msg: LXMessage) {
         let destHash = msg.destinationHash
 
-        // LXMRouter.py:2736 — the gate is `<=`, so the message is attempted
+        // LXMRouter.py:2736—the gate is `<=`, so the message is attempted
         // maxDeliveryAttempts + 1 times before fail_message (LXMRouter.py:2760-2761).
         guard msg.deliveryAttempts <= LXMRouter.maxDeliveryAttempts else {
             failMessage(msg)
@@ -1450,7 +1450,7 @@ public final class LXMRouter {
             return
         }
 
-        // LXMRouter.py:2743-2752 — a path that exists but has not delivered by
+        // LXMRouter.py:2743-2752—a path that exists but has not delivered by
         // MAX_PATHLESS_TRIES + 1 attempts is treated as stale: drop it and rediscover,
         // rather than retrying into the dead path until the message fails.
         if msg.deliveryAttempts == LXMRouter.maxPathlessTries + 1 && transport.hasPath(to: destHash) {
@@ -1464,7 +1464,7 @@ public final class LXMRouter {
             return
         }
 
-        // LXMRouter.py:2754-2756 — the attempt is counted and spaced before the send,
+        // LXMRouter.py:2754-2756—the attempt is counted and spaced before the send,
         // whether or not the send itself can proceed.
         msg.deliveryAttempts += 1
         msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
@@ -1501,7 +1501,7 @@ public final class LXMRouter {
     private func deliverDirect(_ msg: LXMessage) {
         let destHash = msg.destinationHash
 
-        // LXMRouter.py:2766 — `<=`, mirrored from the opportunistic gate; fail at :2841-2842.
+        // LXMRouter.py:2766—`<=`, mirrored from the opportunistic gate; fail at :2841-2842.
         guard msg.deliveryAttempts <= LXMRouter.maxDeliveryAttempts else {
             failMessage(msg)
             return
@@ -1516,7 +1516,7 @@ public final class LXMRouter {
             case .active:
                 sendOverLink(msg, link: link)
             case .closed, .failed:
-                // Link died — open a new one after requesting the path.
+                // Link died—open a new one after requesting the path.
                 lock.lock(); directLinks.removeValue(forKey: destHash); lock.unlock()
                 try? transport.requestPath(for: destHash)
                 msg.deliveryAttempts += 1
@@ -1528,12 +1528,12 @@ public final class LXMRouter {
                 // promotes it back to active (`Link.py:753-755`, `:939`). ReticulumSwift 1.10.2
                 // ported exactly that, so abandoning the link here would burn a delivery attempt
                 // and orphan a session the stack is still keeping alive.
-                break // still establishing or recoverable — wait
+                break // still establishing or recoverable—wait
             }
             return
         }
 
-        // No link — check for a path and open one.
+        // No link—check for a path and open one.
         guard transport.hasPath(to: destHash) else {
             try? transport.requestPath(for: destHash)
             msg.deliveryAttempts += 1
@@ -1577,7 +1577,7 @@ public final class LXMRouter {
             return
         }
 
-        // LXMRouter.py:2853 — `<=`, mirrored from the opportunistic gate; fail at :2898-2899.
+        // LXMRouter.py:2853—`<=`, mirrored from the opportunistic gate; fail at :2898-2899.
         guard msg.deliveryAttempts <= LXMRouter.maxDeliveryAttempts else {
             failMessage(msg)
             return
@@ -1673,7 +1673,7 @@ public final class LXMRouter {
 
         if msg.representation == .resource {
             // Large message: send as Resource. The resource carries the FULL packed bytes
-            // (including the leading destination hash) — matches Python LXMessage.__as_resource().
+            // (including the leading destination hash)—matches Python LXMessage.__as_resource().
             msg.state = .sending
             let transfer = ResourceTransfer(link: link)
             transfer.onComplete = { [weak self, weak msg] _ in
@@ -1704,7 +1704,7 @@ public final class LXMRouter {
             //
             // `bugs/014`. This used to set `.delivered` and fire `onDelivery` on the line after
             // `link.send(...)` returned. Returning from a send call means the bytes were handed
-            // to an interface, not that anyone received them — so a message dropped by the very
+            // to an interface, not that anyone received them—so a message dropped by the very
             // next hop was reported delivered, and the recipient never saw it. The reference
             // reaches DELIVERED only from the receipt's delivery callback
             // (`LXMessage.py:479-483`, `__mark_delivered` at `:563-568`).
@@ -1714,7 +1714,7 @@ public final class LXMRouter {
 
                 guard let receipt else {
                     // Python tears the delivery destination down when no receipt came back
-                    // (`LXMessage.py:484-486`) — without one there is no way to ever learn
+                    // (`LXMessage.py:484-486`)—without one there is no way to ever learn
                     // whether the message arrived, so the link is not worth keeping.
                     try? link.teardown()
                     msg.state = .outbound
@@ -1780,12 +1780,12 @@ public final class LXMRouter {
             propagationTransferState = .linkEstablished
             try? link.identify(as: identity)
             // `.requestSent` is set BEFORE the callout, not after as the reference does
-            // (`LXMRouter.py:520`): the response callback can run *inside* `request(...)` — it
-            // does, deterministically, on a synchronous wire — and a state write placed after
+            // (`LXMRouter.py:520`): the response callback can run *inside* `request(...)`—it
+            // does, deterministically, on a synchronous wire—and a state write placed after
             // the callout stomps the `.done` or `.failed` the callback just set. The reference
             // carries the same latent race; its network merely never resolves a request inline.
             propagationTransferState = .requestSent
-            // [nil, nil] = "give me everything" (want=nil, have=nil) — use nativeValue:
+            // [nil, nil] = "send everything" (want=nil, have=nil)—use nativeValue:
             // so Python propagation nodes receive a native msgpack array, not bytes.
             _ = try? link.request(
                 path: LXMPeer.messageGetPath,
@@ -1826,7 +1826,7 @@ public final class LXMRouter {
                 try? transport.requestPath(for: nodeHash)
             }
         }
-        // else: link is establishing — wait for onEstablished callback
+        // else: link is establishing—wait for onEstablished callback
     }
 
     /// Cancel any in-progress propagation sync, tear down the link, and reset state.
@@ -1916,7 +1916,7 @@ public final class LXMRouter {
     /// Track a running message-get transfer so a UI can render live progress and
     /// the total transfer size while the response resource is still arriving.
     ///
-    /// Only this request carries a progress callback — Python attaches
+    /// Only this request carries a progress callback—Python attaches
     /// `progress_callback=self.message_get_progress` to the message *fetch*
     /// (LXMRouter.py:1590-1595) and to neither the initial list request nor the
     /// receipt-confirmation request. Without it `propagationTransferSize` was
@@ -1947,7 +1947,7 @@ public final class LXMRouter {
     /// Mirrors Python's `LXMRouter.acknowledge_sync_completion(reset_state, failure_state)`.
     public func acknowledgeSyncCompletion(resetState: Bool = false,
                                           failureState: PropagationTransferState? = nil) {
-        // Python's `propagation_transfer_state <= PR_COMPLETE (0x07)` — every
+        // Python's `propagation_transfer_state <= PR_COMPLETE (0x07)`—every
         // failure code is 0xf0 or above, so this reads as "not a failure".
         if resetState || propagationTransferState != .failed {
             propagationTransferState = failureState ?? .idle
@@ -1957,15 +1957,15 @@ public final class LXMRouter {
         wantsDownloadOnPathAvailableFrom = nil
     }
 
-    /// The sync state machine's answer to its outbound propagation link closing — the outbound
+    /// The sync state machine's answer to its outbound propagation link closing—the outbound
     /// half of the reference's `clean_links` (`LXMRouter.py:991-1000`), mapped through
     /// `acknowledgeSyncCompletion` exactly as `acknowledge_sync_completion` (`:1656`) is:
     /// a completed sync acknowledges to `.idle`; anything still in flight fails (the reference
     /// distinguishes `PR_LINK_FAILED` from `PR_TRANSFER_FAILED`; this port's enum carries one
     /// `.failed`); an existing failure state is left in place.
     ///
-    /// One method, called from every closure path — the `onClosed` handlers for immediacy and
-    /// `cleanLinks` as the periodic safety net — so a third dial site cannot appear without it
+    /// One method, called from every closure path—the `onClosed` handlers for immediacy and
+    /// `cleanLinks` as the periodic safety net—so a third dial site cannot appear without it
     /// (`swift_devel/bugs/020`).
     ///
     /// Does nothing unless the *current* link has actually reached a terminal status. That guard
@@ -2043,7 +2043,7 @@ public final class LXMRouter {
         // Persist the updated delivered-id set once per sync batch (not per id).
         saveLocallyDeliveredTransientIDs()
 
-        // Confirm receipt — propagation node deletes confirmed messages
+        // Confirm receipt—propagation node deletes confirmed messages
         if !haves.isEmpty {
             lock.lock(); let link = outboundPropagationLink; lock.unlock()
             _ = try? link?.request(
@@ -2076,10 +2076,10 @@ public final class LXMRouter {
 
     // MARK: - Inbound resource messages
 
-    /// Deliver a fully-assembled LXMF resource payload.
+    /// Deliver a fully assembled LXMF resource payload.
     ///
     /// The `data` argument is the
-    /// raw bytes as received from `ResourceTransfer.onPayloadReceived` — for LXMF
+    /// raw bytes as received from `ResourceTransfer.onPayloadReceived`—for LXMF
     /// this is the full packed message (including leading destination hash).
     /// Called by `delivery.onLinkEstablished → link.onResourceConcluded`.
     /// - Parameters:
@@ -2113,7 +2113,7 @@ public final class LXMRouter {
     /// If there are inbound messages in `pendingSignatureValidation` with that
     /// `sourceHash`, they are validated with the supplied identity and delivered
     /// via `onMessageReceived`. This is a low-level hook for callers that observe
-    /// announces through a separate mechanism (e.g. `transport.onAnnounceReceived`)
+    /// announces through a separate mechanism (for example, `transport.onAnnounceReceived`)
     /// and want to trigger deferred validation without relying on the announce
     /// handler dispatch chain.
     ///
@@ -2147,13 +2147,13 @@ public final class LXMRouter {
     /// Mirrors Python `LXMessage.unpack_from_bytes` → `LXMRouter.lxmf_delivery`:
     /// when `RNS.Identity.recall(source_hash)` returns `None`, Python still
     /// builds and **delivers** the message, marking it `signature_validated =
-    /// False`, `unverified_reason = SOURCE_UNKNOWN` — it does **not** hold the
+    /// False`, `unverified_reason = SOURCE_UNKNOWN`—it does **not** hold the
     /// message back waiting for the source's announce.
     ///
     /// The previous Swift behavior *deferred* delivery until the source announce
     /// arrived (or a 60 s fallback fired). That diverged from Python and, worse,
-    /// **dropped** the message whenever the source announce did not reach us
-    /// within the application's receive window — the announce is forwarded on a
+    /// **dropped** the message whenever the source announce did not reach this router
+    /// within the application's receive window—the announce is forwarded on a
     /// separate backbone thread and can lag the data packet, so opportunistic
     /// delivery from a not-yet-announced sender became a race (flaky). Delivering
     /// immediately (unverified) matches Python and removes the race. Re-delivery
@@ -2193,7 +2193,7 @@ public final class LXMRouter {
             msg.validateSignature(knownIdentity: srcIdentity)
             finalizeInboundDelivery(msg)
         } else {
-            // Source identity not yet known — deliver immediately as unverified
+            // Source identity not yet known—deliver immediately as unverified
             // (matching Python), rather than deferring until the announce arrives.
             deliverWithUnknownSource(msg)
         }
@@ -2205,8 +2205,8 @@ public final class LXMRouter {
     ///
     /// Runs, in order: ticket ingest (so future outbound messages to this source
     /// can skip proof-of-work), stamp validation + enforcement, ignore-list
-    /// filtering, and duplicate suppression — then fires `onMessageReceived`.
-    /// All previously-direct `onMessageReceived?(msg)` inbound calls funnel
+    /// filtering, and duplicate suppression—then fires `onMessageReceived`.
+    /// All previously direct `onMessageReceived?(msg)` inbound calls funnel
     /// through here so the policy is applied uniformly regardless of whether the
     /// message arrived opportunistically, over a direct link, or after deferred
     /// signature validation.
@@ -2215,8 +2215,8 @@ public final class LXMRouter {
     ///   - msg: the message to deliver.
     ///   - noStampEnforcement: when `true`, an invalid stamp is allowed
     ///     through even if enforcement is enabled (mirrors Python's
-    ///     `no_stamp_enforcement` — used for messages already validated upstream,
-    ///     e.g. fetched from a propagation node).
+    ///     `no_stamp_enforcement`—used for messages already validated upstream,
+    ///     for example, fetched from a propagation node).
     /// - Returns: `true` if delivered, `false` if dropped.
     @discardableResult
     func finalizeInboundDelivery(_ msg: LXMessage, noStampEnforcement: Bool = false) -> Bool {
@@ -2280,7 +2280,7 @@ public final class LXMRouter {
         lock.lock(); unsafePendingOutbound.removeAll { $0 === msg }; lock.unlock()
     }
 
-    /// LXMRouter.py:2564-2571 (`fail_message`) — the one place a delivery gives up:
+    /// LXMRouter.py:2564-2571 (`fail_message`)—the one place a delivery gives up:
     /// dequeue, mark failed (a rejection stands), tell the application.
     private func failMessage(_ msg: LXMessage) {
         msg.progress = 0
@@ -2354,8 +2354,8 @@ public final class LXMRouter {
         self.storagePath = rootPath
         self.messagePath = msgPath
 
-        // Index existing messages in the store. (Setup-time; guarded for consistency —
-        // LXMPeer.from below self-locks via the accessors, so it must NOT run under
+        // Index existing messages in the store. (Setup-time; guarded for consistency—LXMPeer.from
+        // below self-locks via the accessors, so it must NOT run under
         // the lock, hence the per-write locking rather than one wide critical section.)
         lock.lock(); unsafePropagationEntries.removeAll(); lock.unlock()
         let fm = FileManager.default
@@ -2414,14 +2414,14 @@ public final class LXMRouter {
         //
         // Python does this immediately after rebuilding the saved peers (`LXMRouter.py:633-641`):
         // any static peer not already restored gets an entry, and one that has never been heard
-        // from gets a path request, because a peer that was offline at startup will not announce
+        // from gets a path request, because a peer that was offline at startup does not announce
         // on its own and the solicited path response is the only way its terms are ever learned.
         //
         // Without it `staticPeers` was a set the sync path filtered against and nothing ever put
-        // a peer into — an operator could configure a peering that silently never happened.
+        // a peer into—an operator could configure a peering that silently never happened.
         for staticPeer in unsafeStaticPeers {
             // `addPeer` returns the existing entry when there is one, which is what supplies
-            // Python's `if not static_peer in self.peers` (`:635`) — a peer restored from disk
+            // Python's `if not static_peer in self.peers` (`:635`)—a peer restored from disk
             // keeps its terms and sync history rather than being replaced with a blank one.
             let peer = addPeer(destinationHash: staticPeer)
             if peer.lastHeard == 0 { try? transport.requestPath(for: staticPeer) }
@@ -2484,7 +2484,7 @@ public final class LXMRouter {
         }
 
         // Set up the link callbacks to accept uploads from clients/peers.
-        // Mirrors Python's propagation_link_established() callback — which sets BOTH the packet
+        // Mirrors Python's propagation_link_established() callback—which sets BOTH the packet
         // callback and the resource callbacks (`LXMRouter.py:2189-2193`). The packet half is the
         // path an ordinary short message takes (`LXMessage.py:439-441` chooses the PACKET
         // representation whenever the container fits 319 bytes), so leaving it unwired lost the
@@ -2544,20 +2544,20 @@ public final class LXMRouter {
     ///
     /// `link` is the link the resource concluded on, and is what identifies the sender. Python
     /// derives the remote's propagation destination from `resource.link.get_remote_identity()`
-    /// (`LXMRouter.py:2348-2352`) and every decision that depends on *who* uploaded — autopeering
-    /// (`:2366-2375`) and stamp throttling (`:2449-2454`) — reads it from there. Pass the link
+    /// (`LXMRouter.py:2348-2352`) and every decision that depends on *who* uploaded—autopeering
+    /// (`:2366-2375`) and stamp throttling (`:2449-2454`)—reads it from there. Pass the link
     /// whenever one exists.
     /// A single-packet propagated upload on an inbound propagation link.
     ///
     /// Mirrors Python's `propagation_packet` (`LXMRouter.py:2234-2260`): unpack
     /// `msgpack([timestamp, [lxmf_data ‖ stamp]])`, validate every propagation stamp, ingest the
-    /// valid ones, and **prove the packet only when the whole set validated** — the proof is the
-    /// client's delivery confirmation, and proving a partially-discarded upload would tell the
+    /// valid ones, and **prove the packet only when the whole set validated**—the proof is the
+    /// client's delivery confirmation, and proving a partially discarded upload would tell the
     /// client the node accepted what it dropped. On any invalid stamp the reference answers
     /// `ERROR_INVALID_STAMP` on the link and tears it down (`:2253-2256`).
     ///
     /// Deliberately narrower than the resource path (`handleInboundPropagationResource`): the
-    /// reference's packet path does no autopeering, no peer crediting and no throttling — every
+    /// reference's packet path does no autopeering, no peer crediting and no throttling—every
     /// counter it touches is the *client* one (`:2248`), because peers move messages through the
     /// offer/get protocol and never through bare packets. Ingestion converges with the resource
     /// path at `ingestPropagatedLXM`, so stamp validation, duplicate suppression and the store
@@ -2586,7 +2586,7 @@ public final class LXMRouter {
         // Against `messages.count`, not `transientList.count`: a non-bytes element is an invalid
         // entry, and folding it out of the denominator would prove an upload the reference rejects.
         if validated.count == messages.count {
-            // Synchronous with the data callback, as `proveInboundData` requires — the proof is
+            // Synchronous with the data callback, as `proveInboundData` requires—the proof is
             // for the packet that just fired it.
             link.proveInboundData()
         } else {
@@ -2629,7 +2629,7 @@ public final class LXMRouter {
         let minCost = max(0, propagationStampCost - propagationStampCostFlexibility)
         let validated = LXStamper.validatePNStamps(transientList: transientList, targetCost: minCost)
         for entry in validated {
-            // `LXMRouter.py:2434-2436` — a sync from a peer counts against that peer, not against
+            // `LXMRouter.py:2434-2436`—a sync from a peer counts against that peer, not against
             // the client tally.
             //
             // The peer credit happens OUTSIDE `lock`. `creditInbound` takes `peerLock`, and taking
@@ -2670,7 +2670,7 @@ public final class LXMRouter {
 
     /// Ingest a propagation payload with no sender attached.
     ///
-    /// **Does not peer and does not throttle** — both need to know who uploaded, and this entry
+    /// **Does not peer and does not throttle**—both need to know who uploaded, and this entry
     /// point does not. It exists for callers that genuinely have no link (tests driving the store,
     /// and re-ingest from disk); anything reached from a propagation link must use the variant
     /// above.
@@ -2748,18 +2748,18 @@ public final class LXMRouter {
         let filename  = "\(hexID)_\(received)_\(stampValue)"
         let filePath  = mp + "/" + filename
 
-        // Write lxmfData + stamp to disk — OUTSIDE the lock (blocking I/O).
+        // Write lxmfData + stamp to disk—OUTSIDE the lock (blocking I/O).
         var fileBytes = lxmfData
         fileBytes.append(stamp)
         guard (try? fileBytes.write(to: URL(fileURLWithPath: filePath))) != nil else { return nil }
 
         let destHash = Data(lxmfData.prefix(LXMessage.destinationLength))
         // Re-check dedup + construct the entry under the lock. A concurrent add of the same
-        // transientID that won while we wrote the file is honoured — we return its entry.
+        // transientID that won while the file was written is honored, and its entry is returned.
         lock.lock()
         if let existing = unsafePropagationEntries[transientID] {
             lock.unlock()
-            // A concurrent add won the race; drop the file we just wrote so it isn't orphaned.
+            // A concurrent add won the race; drop the file just written so it isn't orphaned.
             try? FileManager.default.removeItem(atPath: filePath)
             return existing
         }
@@ -2772,7 +2772,7 @@ public final class LXMRouter {
             // Empty, as the reference constructs it (`LXMRouter.py:2518`, and `:586-587` on load
             // from disk). Populating it with every peer here made the store the *first* writer of
             // the unhandled set and left the distribution queue's origin exclusion
-            // (`:2484`, `if peer != from_peer`) with nothing to exclude — the peer that uploaded a
+            // (`:2484`, `if peer != from_peer`) with nothing to exclude—the peer that uploaded a
             // message was already recorded as needing it before the queue was ever consulted.
             // `flushPeerDistributionQueue` is now the single writer.
             unhandledPeers: [],
@@ -2787,10 +2787,10 @@ public final class LXMRouter {
     ///
     /// Python: `os.unlink(filepath)` + `propagation_entries.pop(transient_id)`.
     public func removeFromMessageStore(transientID: Data) {
-        // Remove the entry under the lock; snapshot its file path and unlink OUTSIDE.
+        // Remove the entry under the lock; snapshot its path and unlink OUTSIDE.
         lock.lock()
         guard let entry = unsafePropagationEntries.removeValue(forKey: transientID) else { lock.unlock(); return }
-        // Remember that we handled it, so it is not re-ingested after the entry
+        // Remember that it was handled, so it is not re-ingested after the entry
         // is gone. Expired on the same schedule as the delivered cache.
         locallyProcessedTransientIDs[transientID] = Date().timeIntervalSince1970
         lock.unlock()
@@ -2821,7 +2821,7 @@ public final class LXMRouter {
 
     // MARK: - Synchronized propagationEntries accessors (used by LXMPeer)
     //
-    // LXMPeer must NOT touch `propagationEntries` directly — the in-place value
+    // LXMPeer must NOT touch `propagationEntries` directly—the in-place value
     // mutations (handledPeers/unhandledPeers) and reads run on link-callback / sync
     // threads concurrently with the router's own PN handlers. These accessors serialize
     // every such access under the router `lock`. Each is a leaf operation (no callout),
@@ -2887,7 +2887,7 @@ public final class LXMRouter {
     // router's state was normal. They are unsynchronized in the same way the application-side
     // reads were, and there were 24 of them.
     //
-    // These are `internal`, not `public` — a test can reach them through `@testable import`, an
+    // These are `internal`, not `public`—a test can reach them through `@testable import`, an
     // application cannot reach them at all. Each takes `lock` exactly like the production path it
     // stands in for, so a seeded store is built the same way a received one is.
 
@@ -2903,8 +2903,8 @@ public final class LXMRouter {
     ///
     /// Passing `nil` removes it.
     ///
-    /// Prefer `addPeer(destinationHash:)` where the test does not need a pre-built peer object —
-    /// it is the production path and applies the peering conditions this bypasses.
+    /// Prefer `addPeer(destinationHash:)` where the test does not need a pre-built peer object—it
+    /// is the production path and applies the peering conditions this bypasses.
     func seedPeer(_ destinationHash: Data, _ peer: LXMPeer?) {
         lock.lock(); defer { lock.unlock() }
         unsafePeers[destinationHash] = peer
@@ -2932,7 +2932,7 @@ public final class LXMRouter {
 
     /// Declare the propagation destinations this node is always peered with.
     ///
-    /// The operator's configuration, not discovered state — Python takes it as a constructor
+    /// The operator's configuration, not discovered state—Python takes it as a constructor
     /// argument (`LXMRouter.py:211-219`). It is the one entry in the lock-guarded set that a
     /// consumer legitimately writes, so unlike the rest it keeps a write path; what it loses is
     /// the *unsynchronized* one. The router reads it under `lock` on every use (`:2689`, `:2962`,
@@ -2948,9 +2948,9 @@ public final class LXMRouter {
         unsafeStaticPeers.insert(destinationHash)
     }
 
-    /// Set the maximum number of peers this node will hold.
+    /// Set the maximum number of peers this node holds.
     ///
-    /// Configuration, like `staticPeers` — but the router reads it under `lock` on both of its use
+    /// Configuration, like `staticPeers`—but the router reads it under `lock` on both of its use
     /// sites (the peering admission check and the rotation bound), so a consumer assigning to it
     /// raced those reads. Found by the `bugs/055` audit, which noticed it had been exempted from
     /// the guard as "configuration the owner never locks" when the owner does lock it.
@@ -2969,7 +2969,7 @@ public final class LXMRouter {
 
     // MARK: - Outbound sync seam
 
-    /// Build the context an outbound sync to `peer` needs — the **only** place the outbound path
+    /// Build the context an outbound sync to `peer` needs—the **only** place the outbound path
     /// touches the outside world (`swift_devel/bugs/054`).
     ///
     /// It lives here, beside the peer accessors, because it is the one method that has to read
@@ -2977,7 +2977,7 @@ public final class LXMRouter {
     /// router in it, so nothing on the outbound path can reach back for a dependency that was not
     /// declared on `PeerSyncContext`.
     ///
-    /// Returns `nil` — and the caller postpones — when the router has no identity, when the peer's
+    /// Returns `nil`—and the caller postpones—when the router has no identity, when the peer's
     /// identity cannot be recalled from the transport, or when its propagation destination cannot
     /// be built. Python logs the same three conditions and returns (`LXMPeer.py:392-393`,
     /// `:248-256`).
@@ -2988,7 +2988,7 @@ public final class LXMRouter {
         guard let routerIdentity else { return nil }
 
         // Always from the peer's own destination hash. `Identity.recall(destinationHash:)` is the
-        // wrong call here — it routes through `Reticulum.shared`, and LXMF is constructed with an
+        // wrong call here—it routes through `Reticulum.shared`, and LXMF is constructed with an
         // explicit transport.
         guard let peerIdentity = transport.recall(identity: peer.destinationHash) else {
             return nil
@@ -3044,7 +3044,7 @@ public final class LXMRouter {
 
         // The ceiling is about what the remote *demands*, so it is checked before anything else
         // and applies to an existing peering too: a peer that raises its cost past what this node
-        // will pay has the peering broken, not merely a new one declined (`LXMRouter.py:2005-2010`).
+        // pays has the peering broken, not merely a new one declined (`LXMRouter.py:2005-2010`).
         guard peeringCost <= maxPeeringCost else {
             if existing != nil { unpeer(destinationHash: destinationHash, timestamp: timestamp) }
             return
@@ -3063,8 +3063,8 @@ public final class LXMRouter {
             return
         }
 
-        // The bound applies to admitting a *new* peer only — an existing peer's negotiated limits
-        // are still updated above, or a full node stops tracking what its peers will accept.
+        // The bound applies to admitting a *new* peer only—an existing peer's negotiated limits
+        // are still updated above, or a full node stops tracking what its peers accept.
         guard !tableIsFull else { return }
 
         let peer = addPeer(destinationHash: destinationHash)
@@ -3075,7 +3075,7 @@ public final class LXMRouter {
     }
 
     /// The field assignments Python makes identically in both branches of `peer()`
-    /// (`:2014-2029` and `:2035-2046`) — shared so the two cannot drift apart.
+    /// (`:2014-2029` and `:2035-2046`)—shared so the two cannot drift apart.
     private func apply(announcedTimestamp: TimeInterval,
                        transferLimit: Double?,
                        syncLimit: Double?,
@@ -3085,7 +3085,7 @@ public final class LXMRouter {
                        metadata: [String: String]?,
                        to peer: LXMPeer) {
         // One `peerLock` acquisition for the whole set, inside the peer. `lock` is NOT held here
-        // — one lock order, `lock` then `peerLock`, never the reverse (`swift_devel/bugs/055`).
+        //—one lock order, `lock` then `peerLock`, never the reverse (`swift_devel/bugs/055`).
         peer.adoptAnnouncedTerms(announcedTimestamp: announcedTimestamp,
                                  transferLimit: transferLimit,
                                  syncLimit: syncLimit,
@@ -3132,7 +3132,7 @@ public final class LXMRouter {
 
     /// Everything a propagation-node announce means to this router.
     ///
-    /// `swift_devel/bugs/046`. The single seam behind both registered announce handlers — the
+    /// `swift_devel/bugs/046`. The single seam behind both registered announce handlers—the
     /// public `LXMFPropagationAnnounceHandler` a consumer may register itself, and the private
     /// `PropagationNodeAnnounceHandler` that `init` always registers. They are two registrations of
     /// one decision; giving each its own copy is how a fix reaches one and not the other.
@@ -3140,19 +3140,19 @@ public final class LXMRouter {
     /// Mirrors `LXMF/Handlers.py:41-99` whole: the outbound-PN trigger, then peering.
     ///
     /// This is the **proactive** half of autopeering, and the half that starts the relationship.
-    /// `considerAutopeering(with:)` is the reactive half, on the incoming-sync path — it can only
-    /// fire for a remote that has already synced to us, which no remote does until someone peers.
+    /// `considerAutopeering(with:)` is the reactive half, on the incoming-sync path—it can only
+    /// fire for a remote that has already synced to this router, which no remote does until someone peers.
     func handlePropagationNodeAnnounce(destinationHash: Data,
                                        appData: Data?,
                                        isPathResponse: Bool) {
-        // `Handlers.py:44-54` — our configured outbound PN is back; retry propagated messages now
+        // `Handlers.py:44-54`—the configured outbound PN is back; retry propagated messages now
         // rather than at the next delivery attempt.
         if outboundPropagationNode == destinationHash,
            propagationNodeAnnounceDataIsValid(appData) {
             triggerPropagatedOutbound()
         }
 
-        // `Handlers.py:56` — the rest is a propagation node's business only. A client has no peer
+        // `Handlers.py:56`—the rest is a propagation node's business only. A client has no peer
         // table to put anything in.
         guard isPropagationNode else { return }
         guard let announce = PropagationNodeAnnounce(appData: appData) else { return }
@@ -3162,7 +3162,7 @@ public final class LXMRouter {
         let existingPeer = unsafePeers[destinationHash]
         lock.unlock()
         // `lastHeard` became a `peerLock`-taking accessor in `swift_devel/bugs/055`, so it is read
-        // after `lock` is released — reading it inside would nest `lock` → `peerLock`.
+        // after `lock` is released—reading it inside would nest `lock` → `peerLock`.
         let lastHeard = existingPeer?.lastHeard
 
         func adoptTerms() {
@@ -3179,8 +3179,8 @@ public final class LXMRouter {
         if isStatic {
             // `Handlers.py:68-78`. A static peering is the operator's decision, so it does not
             // consult `autopeer` or the depth limit. It accepts a path response only when the peer
-            // has never been heard from — which is how a peer that was offline at startup is
-            // learned at all, since a solicited path response is the only announce it will produce.
+            // has never been heard from—which is how a peer that was offline at startup is
+            // learned at all, since a solicited path response is the only announce it produces.
             guard !isPathResponse || (lastHeard ?? 0) == 0 else { return }
             adoptTerms()
             return
@@ -3192,16 +3192,16 @@ public final class LXMRouter {
         guard autopeer, !isPathResponse else { return }
 
         guard announce.isPropagationNode else {
-            // `:98-99` — it says it has stopped propagating. Take it at its word rather than
+            // `:98-99`—it says it has stopped propagating. Take it at its word rather than
             // waiting for MAX_UNREACHABLE failed syncs to cull it.
             unpeer(destinationHash: destinationHash, timestamp: announce.timebase)
             return
         }
 
-        // `:83`. An unknown hop count is out of range, not zero hops — Python gets that from
+        // `:83`. An unknown hop count is out of range, not zero hops—Python gets that from
         // `hops_to` answering `PATHFINDER_M`; `hopsTo` answers nil, so it is a decision here.
         guard let hops = transport.hopsTo(destinationHash), Int(hops) <= autopeerMaxdepth else {
-            // `:93-96` — an existing peer that has moved out of range is dropped, so the depth
+            // `:93-96`—an existing peer that has moved out of range is dropped, so the depth
             // limit bounds which peers are *held* and not merely which are acquired.
             unpeer(destinationHash: destinationHash, timestamp: announce.timebase)
             return
@@ -3227,7 +3227,7 @@ public final class LXMRouter {
         // sets its advertised terms, and stops (`LXMRouter.py:2032-2045`); `unhandled_messages` is
         // derived from the store's per-entry peer lists (`LXMPeer.py:583-588`), so a peer created
         // now appears in none of them and starts empty. Back-filling made a node's first act after
-        // autopeering be to offer the new peer its entire store — including, because autopeering
+        // autopeering be to offer the new peer its entire store—including, because autopeering
         // happens after ingest, the messages that peer had just uploaded.
         //
         // Restore is the opposite case and does seed: `LXMPeer.from(bytes:router:)` re-adds the
@@ -3241,7 +3241,7 @@ public final class LXMRouter {
     ///
     /// The schedule is data rather than a chain of `if processingCount % … == 0` blocks so that
     /// "which routines run, and how often" is a value a test can compare against the reference
-    /// (`LXMRouter.py:880-911`) — a missing routine is then a failing assertion rather than an
+    /// (`LXMRouter.py:880-911`)—a missing routine is then a failing assertion rather than an
     /// absence nobody can see, which is how `swift_devel/bugs/019` survived.
     public struct Job {
         /// The routine's name, matching the Swift method it dispatches.
@@ -3349,7 +3349,7 @@ public final class LXMRouter {
         // The tick counter is shared: `startJobLoop` dispatches this onto a queue, and a tick that
         // outruns its interval leaves two GCD workers inside `jobs()` on the same router. The
         // increment and the read must be one atomic step or two ticks can be handed the same
-        // number — which silently skips a scheduled routine, since dispatch is `tick % interval`.
+        // number—which silently skips a scheduled routine, since dispatch is `tick % interval`.
         //
         // Leaf operation, no callout: the lock is released before any `job.run(self)`, every one
         // of which takes it (`swift_devel/bugs/055`).
@@ -3385,8 +3385,8 @@ public final class LXMRouter {
     ///     budget; production always takes the default.
     ///   - syncStallTimeout: how long a client sync may sit with no state transition and no
     ///     progress before it is failed and its link torn down. Port-only (design D5): the
-    ///     reference has nothing for a live-but-stuck transfer — its watchdog only catches links
-    ///     that die — and a caller waiting on a terminal state would wait forever.
+    ///     reference has nothing for a live-but-stuck transfer—its watchdog only catches links
+    ///     that die—and a caller waiting on a terminal state would wait forever.
     public func cleanLinks(peerSyncMaxInactivity: TimeInterval =
                                 LXMRouter.propagationLinkMaxInactivity,
                            syncStallTimeout: TimeInterval =
@@ -3411,13 +3411,13 @@ public final class LXMRouter {
             try? link.teardown()
         }
 
-        // A peer's own outbound sync link is in neither collection above — `directLinks` is for
-        // delivery and `activePropagationLinks` is for links *other* nodes opened to us — so
+        // A peer's own outbound sync link is in neither collection above—`directLinks` is for
+        // delivery and `activePropagationLinks` is for links *other* nodes opened to this router—so
         // before this nothing collected it. Python leaves these to the RNS watchdog
         // (`LXMRouter.py:991-1000`, the wider mapping that `bugs/020` tracks).
         //
         // It matters because `syncPeers` selects only `state == .idle`: a peer stalled mid-sync is
-        // out of the rotation permanently. Four stalls reach here — a `.linkReady` peer whose
+        // out of the rotation permanently. Four stalls reach here—a `.linkReady` peer whose
         // offer had nothing left in it, a `.responseReceived` peer that was denied or throttled,
         // and a `.requestSent` peer whose send failed.
         for peer in peerList { peer.reapStalledSyncLink(maxInactivity: peerSyncMaxInactivity) }
@@ -3428,8 +3428,8 @@ public final class LXMRouter {
         // callback was lost or replaced.
         reapClosedOutboundPropagationLink()
 
-        // Port-only stall bound (design D5): a sync on a *live* link that has stopped moving —
-        // no closure will fire and no response will come. Activity is any state transition or
+        // Port-only stall bound (design D5): a sync on a *live* link that has stopped moving—no
+        // closure fires and no response comes. Activity is any state transition or
         // progress update; see `propagationTransferLastActivity`.
         switch propagationTransferState {
         case .pathRequested, .linkEstablishing, .linkEstablished, .requestSent, .receiving:
@@ -3474,7 +3474,7 @@ public final class LXMRouter {
     ///
     /// Mirrors Python's `LXMRouter.rotate_peers()` (`LXMRouter.py:2060-2130`), kept as one routine
     /// in the reference's order because its steps depend on each other: the postponement depends on
-    /// the untested count, the pool basis on the fully-synced set, and the drop pool on
+    /// the untested count, the pool basis on the fully synced set, and the drop pool on
     /// `prioritiseRotatingUnreachablePeers` (design D4).
     public func rotatePeers() {
         lock.lock()
@@ -3492,7 +3492,7 @@ public final class LXMRouter {
 
         // A peer that has never been synced with has no record to be judged on. While enough of
         // them are outstanding, the whole pass is postponed rather than judging them (`:2067-2075`)
-        // — otherwise rotation drops whichever peer was added most recently.
+        //—otherwise rotation drops whichever peer was added most recently.
         let untested = all.filter { $0.lastSyncAttempt == 0 }
         guard untested.count < headroom else { return }
 
@@ -3506,7 +3506,7 @@ public final class LXMRouter {
         var unresponsive: [LXMPeer] = []
         for peer in basis where !staticHashes.contains(peer.destinationHash) && peer.state == .idle {
             if peer.alive {
-                // Offered nothing, so there is no acceptance rate to judge — not a candidate,
+                // Offered nothing, so there is no acceptance rate to judge—not a candidate,
                 // rather than a candidate scoring zero (`:2095-2098`).
                 if peer.offered != 0 { waiting.append(peer) }
             } else {
@@ -3535,11 +3535,11 @@ public final class LXMRouter {
 
     /// Break peering with a node.
     ///
-    /// Mirrors Python's `LXMRouter.unpeer()` (`LXMRouter.py:2049-2057`) — the removal path used by
+    /// Mirrors Python's `LXMRouter.unpeer()` (`LXMRouter.py:2049-2057`)—the removal path used by
     /// rotation (`:2122`), by the peering-cost ceiling (`:2008`) and by the remote control verb
     /// `peer_unpeer_request` (`:864`).
     ///
-    /// `timestamp` defaults to now, which is what makes a locally-decided unpeer (rotation, the
+    /// `timestamp` defaults to now, which is what makes a locally decided unpeer (rotation, the
     /// ceiling) always take effect. An unpeer carrying a timebase *older* than the peer's is
     /// ignored: announces reorder in a mesh, and without the guard a delayed unpeer removes a peer
     /// that has since re-peered.
@@ -3562,7 +3562,7 @@ public final class LXMRouter {
         lock.lock(); defer { lock.unlock() }
         guard let peer = unsafePeers.removeValue(forKey: destinationHash) else { return }
         // Clean up that peer's references from all propagation entries (in-place value
-        // mutation, no callout — safe to hold the lock). Snapshot the keys first to
+        // mutation, no callout—safe to hold the lock). Snapshot the keys first to
         // avoid mutating-during-iteration of the dictionary.
         for tid in Array(unsafePropagationEntries.keys) {
             unsafePropagationEntries[tid]?.handledPeers.removeAll { $0 == peer.destinationHash }
@@ -3581,7 +3581,7 @@ public final class LXMRouter {
         unsafePeerDistributionQueue.append((transientID, fromPeer))
     }
 
-    /// Flush the peer distribution queue — mark new messages as unhandled for all peers.
+    /// Flush the peer distribution queue—mark new messages as unhandled for all peers.
     ///
     /// Python: `LXMRouter.flush_peer_distribution_queue()`.
     public func flushPeerDistributionQueue() {
@@ -3627,7 +3627,7 @@ public final class LXMRouter {
         for peer in all {
             // A peer not heard from for MAX_UNREACHABLE has gone away; without this it is
             // attempted on every pass for the life of the process. A static peer is the operator's
-            // declared upstream and is exempt — a node behind a constrained link may legitimately
+            // declared upstream and is exempt—a node behind a constrained link may legitimately
             // be silent this long (`LXMRouter.py:2138-2140`).
             if now > peer.lastHeard + LXMPeer.maxUnreachable {
                 if !staticHashes.contains(peer.destinationHash) {
@@ -3647,7 +3647,7 @@ public final class LXMRouter {
         }
 
         // The pool: the fastest peers by measured throughput, widened with up to as many again
-        // whose speed is not yet known (`:2148-2166`). The mix is deliberate — it lets a node
+        // whose speed is not yet known (`:2148-2166`). The mix is deliberate—it lets a node
         // converge on its good peers without starving peers it has never tried.
         var pool: [LXMPeer] = []
         if !waiting.isEmpty {
@@ -3656,8 +3656,8 @@ public final class LXMRouter {
                 .prefix(min(LXMRouter.fastestNRandomPool, waiting.count))
             pool.append(contentsOf: fastest)
 
-            // A peer whose rate is still 0 can land in `fastest` as well — when every waiting peer
-            // is unmeasured, they all do — and so appears in the pool twice, weighting the draw
+            // A peer whose rate is still 0 can land in `fastest` as well—when every waiting peer
+            // is unmeasured, they all do—and so appears in the pool twice, weighting the draw
             // toward it. The reference does exactly this (`:2151-2166` extends the same list), and
             // it is left alone: de-duplicating would change the selection distribution away from
             // the reference's for no stated reason.
@@ -3692,8 +3692,8 @@ public final class LXMRouter {
     /// - Returns: Response value:
     ///   - `LXMPeerError.noIdentity` if not identified
     ///   - `LXMPeerError.throttled` if the remote is inside a throttle window
-    ///   - `false` (MsgPack.Value.bool) if we already have all offered messages
-    ///   - `true`  if we want all offered messages
+    ///   - `false` (MsgPack.Value.bool) if all offered messages are already held
+    ///   - `true`  if all offered messages are wanted
     ///   - `[Data]` list of wanted transient IDs
     public func handleOfferRequest(data: MsgPack.Value, on link: Link) -> MsgPack.Value {
         handleOfferRequest(data: data,
@@ -3704,7 +3704,7 @@ public final class LXMRouter {
 
     /// The offer handler with its two hashes supplied separately.
     ///
-    /// Internal, and the only production caller is the entry point above — a `propagationHash` of
+    /// Internal, and the only production caller is the entry point above—a `propagationHash` of
     /// `nil` **cannot be throttled**, so nothing reachable from a link may use this directly. It
     /// exists for tests of the wanted-IDs logic, which have no link and no interest in one; giving
     /// the concurrency test a real link would put link machinery inside a race test.
@@ -3744,10 +3744,10 @@ public final class LXMRouter {
             if case .bytes(let b) = $0 { return Data(b) } else { return nil }
         }
 
-        // Validate peering key if we have a peering cost.
+        // Validate peering key if a peering cost is set.
         if peeringCost > 0 {
-            // Without an identity there is no receiver half, and `?? Data()` — what this used to
-            // do — validates the sender's key against 16 bytes of material instead of 32. That
+            // Without an identity there is no receiver half, and `?? Data()`—what this used to
+            // do—validates the sender's key against 16 bytes of material instead of 32. That
             // does not fail; it accepts a *different* proof of work than the one the peer was
             // asked for. A router with no identity cannot peer at all, so say so.
             guard let myHash = identity?.hash else {
@@ -3763,7 +3763,7 @@ public final class LXMRouter {
         }
 
         // Record the validated link + build the wanted-IDs list under the lock
-        // (messages the peer offered that we don't have yet).
+        // (messages the peer offered that are not held yet).
         lock.lock()
         unsafeValidatedPeerLinks[linkID] = true
         let wantedIDs = offeredIDs.filter { unsafePropagationEntries[$0] == nil }
@@ -3824,7 +3824,7 @@ public final class LXMRouter {
             return .array(sorted.map { .bytes($0.0) })
         }
 
-        // Process "have" list — client already has these, delete from store.
+        // Process "have" list—client already has these, delete from store.
         // Snapshot the tids to purge under the lock; removeFromMessageStore self-locks
         // + unlinks the file OUTSIDE the lock.
         if let have = haveList {
@@ -3834,7 +3834,7 @@ public final class LXMRouter {
             for tid in toPurge { removeFromMessageStore(transientID: tid) }
         }
 
-        // Process "want" list — snapshot the file paths under the lock, read files OUTSIDE.
+        // Process "want" list—snapshot the file paths under the lock, read files OUTSIDE.
         var responseMessages: [MsgPack.Value] = []
         let perMsgOverhead = 16
         var cumulative     = 24
@@ -3880,8 +3880,8 @@ public final class LXMRouter {
     ///   - stampValue: Pre-validated stamp value.
     ///   - stamp: The 32-byte proof-of-work stamp.
     ///   - fromPeer: the peer this arrived from on a sync, or nil for a client upload. It is
-    ///     excluded from the fan-out and the message is recorded as handled for it — Python does
-    ///     both (`LXMRouter.py:2444-2445`, `:2484`), because a peer that just sent us a message
+    ///     excluded from the fan-out and the message is recorded as handled for it—Python does
+    ///     both (`LXMRouter.py:2444-2445`, `:2484`), because a peer that just sent this router a message
     ///     demonstrably has it.
     /// - Returns: The stored entry, or `nil` when the message was a duplicate.
     @discardableResult
@@ -3938,9 +3938,9 @@ public final class LXMRouter {
     // MARK: - Client state persistence
     //
     // Mirrors Python LXMRouter, which persists these across restarts under
-    // storagepath. The Swift structures differ (e.g. a Set rather than a
+    // storagepath. The Swift structures differ (for example, a Set rather than a
     // timestamped dict), so the on-disk encoding is Swift-native msgpack rather
-    // than byte-compatible with Python's files — the goal is restart durability,
+    // than byte-compatible with Python's files—the goal is restart durability,
     // and these files are always local to a single node. All writes are atomic.
 
     /// Load all persisted client state.
@@ -3954,7 +3954,7 @@ public final class LXMRouter {
         loadAvailableTickets()
     }
 
-    /// Persist the set of transient ids we've already delivered locally, so a
+    /// Persist the set of transient ids already delivered locally, so a
     /// restart doesn't re-deliver duplicates.
     ///
     /// Python: `local_deliveries`.
@@ -4142,7 +4142,7 @@ public final class LXMRouter {
         return unsafePropagationEntries[transientID]?.stampValue ?? 0
     }
 
-    /// Ordering weight of a stored message — offers go out ascending.
+    /// Ordering weight of a stored message—offers go out ascending.
     ///
     /// Port of `LXMRouter.get_weight` (`LXMRouter.py:1056-1067`):
     /// `priorityWeight * ageWeight * size`, where `ageWeight` is the message's age in four-day
@@ -4207,12 +4207,12 @@ private final class DeliveryAnnounceHandler: AnnounceHandler {
 ///
 /// Mirrors Python `Handlers.LXMFPropagationAnnounceHandler`. Both behaviours live in
 /// `LXMRouter.handlePropagationNodeAnnounce`, which the public handler in `Handlers.swift` also
-/// calls — see `swift_devel/bugs/046` for what having two copies of it cost.
+/// calls—see `swift_devel/bugs/046` for what having two copies of it cost.
 private final class PropagationNodeAnnounceHandler: AnnounceHandler {
     let aspectFilter: String? = appName + ".propagation"
     /// Whether path responses reach this handler, as in `Handlers.py:38`.
     ///
-    /// The peering branch needs to *see* path responses in order to distinguish them — a
+    /// The peering branch needs to *see* path responses to distinguish them—a
     /// static peer takes its terms from one, and autopeering must refuse one.
     let receivePathResponses: Bool = true
     weak var router: LXMRouter?

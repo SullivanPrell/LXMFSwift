@@ -42,11 +42,11 @@ final class LXMStamperPropagationTests: XCTestCase {
         // Build data that is long enough but has a stamp that won't satisfy even cost=1
         let overhead = LXMessage.lxmfOverhead + LXStamper.stampSize + 10
         let data     = Data(repeating: 0x01, count: overhead)
-        // Cost of 1 with expand 1000 rounds — extremely unlikely to pass by accident.
-        // In fact impossible with all-zeros stamp unless we specifically craft one.
-        // We set cost=1 to test the rejection path with obviously-invalid stamp bytes.
+        // Cost of 1 with expand 1000 rounds—extremely unlikely to pass by accident.
+        // In fact impossible with all-zeros stamp unless one is specifically crafted.
+        // Cost is set to 1 to test the rejection path with obviously invalid stamp bytes.
         // NOTE: This test only verifies the API doesn't crash; the validation outcome
-        // depends on the actual PoW check which is slow. We use cost=200 to guarantee rejection.
+        // depends on the actual PoW check which is slow. Cost 200 guarantees rejection.
         let result = LXStamper.validatePNStamp(transientData: data, targetCost: 200)
         XCTAssertNil(result, "Should reject invalid stamp (cost 200)")
     }
@@ -121,7 +121,7 @@ final class LXMStamperPropagationTests: XCTestCase {
     }
 
     func testValidatePeeringKeyAcceptsCostZero() {
-        // Cost=0 — any stamp passes.
+        // Cost=0—any stamp passes.
         let peeringID  = Data(repeating: 0x01, count: 32)
         let peeringKey = Data(count: 32)
         let result = LXStamper.validatePeeringKey(

@@ -1,6 +1,6 @@
 # Contributing to LXMFSwift
 
-LXMFSwift aims for **wire compatibility with Python LXMF** — a message must
+LXMFSwift aims for **wire compatibility with Python LXMF**—a message must
 round-trip with the reference implementation (<https://github.com/markqvist/LXMF>).
 
 ## Ground rules
@@ -39,6 +39,8 @@ RETICULUM_LOCAL_DEPS=1 swift test
 - `LXMRouter` guards state with an `NSLock`; do not hold the lock when invoking
   callbacks.
 - File / type naming mirrors the Python snake_case → Swift camelCase convention.
+- Tests are XCTest, not swift-testing.
+- Style: [Google Swift Style Guide](https://google.github.io/swift/).
 
 ## Submitting changes
 

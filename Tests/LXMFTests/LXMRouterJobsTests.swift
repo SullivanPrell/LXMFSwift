@@ -12,7 +12,7 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/019` — the periodic job loop runs every routine the reference runs, on the
+/// `swift_devel/bugs/019`—the periodic job loop runs every routine the reference runs, on the
 /// reference's schedule.
 ///
 /// Python's `jobs()` (`LXMF/LXMRouter.py:880-911`) dispatches ten calls, each on its own interval,
@@ -20,7 +20,7 @@ import ReticulumSwift
 ///
 /// The assertions are about the **schedule**, not about a set of calls made once. A test that
 /// drove the loop and checked "everything ran" would pass against a loop that ran everything every
-/// tick, which is a different defect — `sync_peers` every 4 seconds instead of every 24 would dial
+/// tick, which is a different defect—`sync_peers` every 4 seconds instead of every 24 would dial
 /// every peer six times as often as the reference.
 final class LXMRouterJobsTests: XCTestCase {
 
@@ -177,7 +177,7 @@ final class LXMRouterJobsTests: XCTestCase {
     // MARK: - Bodies
 
     /// `jobs()` returns the names of the routines it dispatched, and every other test in this file
-    /// reads that return value — so all of them would stay green if a routine's *body* were
+    /// reads that return value—so all of them would stay green if a routine's *body* were
     /// emptied.
     ///
     /// The name is reported by the schedule, not by the work.
@@ -209,7 +209,7 @@ final class LXMRouterJobsTests: XCTestCase {
         }
         // Not an assertion that `pending` is empty: a routine the port has not written yet is
         // recorded here rather than omitted from the schedule, because an omitted routine is
-        // indistinguishable from one nobody noticed — which is how `bugs/019` survived.
+        // indistinguishable from one nobody noticed—which is how `bugs/019` survived.
         XCTAssertTrue(pending.allSatisfy { Self.reference.map(\.name).contains($0.name) },
                       "a pending routine that is not in the reference schedule at all")
     }

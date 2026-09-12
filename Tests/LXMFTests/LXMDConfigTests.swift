@@ -11,7 +11,7 @@
 import XCTest
 @testable import LXMF
 
-/// Tests for LXMDConfig — lxmd daemon constants and example configuration.
+/// Tests for LXMDConfig—lxmd daemon constants and example configuration.
 /// Python reference: LXMF/Utilities/lxmd.py
 
 final class LXMDConfigTests: XCTestCase {

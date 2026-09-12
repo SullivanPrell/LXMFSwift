@@ -20,8 +20,8 @@ import ReticulumSwift
 /// already did. A test that asserts A's state cannot tell the two apart.
 ///
 /// The wire is `PeerSyncLoopInterface`, which delivers on the caller's thread. That is deliberate:
-/// it means the entire outbound machine — dial, identify, offer, response, resource, teardown —
-/// can complete *inside* `Link.initiate`, and any state write placed after a callout will stomp a
+/// it means the entire outbound machine—dial, identify, offer, response, resource, teardown—can
+/// complete *inside* `Link.initiate`, and any state write placed after a callout stomps a
 /// later transition. Over a real network the same code works either way, so a synchronous wire is
 /// the only cheap way to observe the ordering bug at all.
 final class PeerOutboundSyncNetwork {
@@ -37,7 +37,7 @@ final class PeerOutboundSyncNetwork {
     let interfaceA: PeerSyncLoopInterface
     let interfaceB: PeerSyncLoopInterface
 
-    /// A's peer entry for B — the one an outbound sync runs against.
+    /// A's peer entry for B—the one an outbound sync runs against.
     var peerB: LXMPeer { routerA.peers[bPropagationHash]! }
 
     /// B's peer entry for A, once B has heard A announce.
@@ -52,14 +52,14 @@ final class PeerOutboundSyncNetwork {
     ///   - test: the test case the harness waits on.
     ///   - tempDir: the directory both routers store messages under.
     ///   - peeringCost: the cost B advertises, which A must satisfy with real
-    ///     proof of work. Capped hard — see the `precondition` below.
+    ///     proof of work. Capped hard—see the `precondition` below.
     ///   - syncStrategy: the strategy B syncs with.
     /// - Throws: An error raised while building either router.
     init(test: XCTestCase, tempDir: String, peeringCost: Int = 4,
          syncStrategy: LXMSyncStrategy = .persistent) throws {
         // A test that accidentally takes the default cost of 18 (`LXMRouter.py:50`) runs ~2^18
         // SHA-256 over a 6400-byte workblock per peering and looks like a hang. The next person
-        // "fixes" it by hand-assigning a peering key — which reintroduces exactly the fabricated
+        // "fixes" it by hand-assigning a peering key—which reintroduces exactly the fabricated
         // fixture that made "no writer exists anywhere in Sources/" invisible for a year.
         precondition(peeringCost <= 8,
                      "peering PoW in a test must stay cheap; hand-assigning a key is not the fix")
@@ -83,7 +83,7 @@ final class PeerOutboundSyncNetwork {
 
         // Both nodes accept a stamp of any value: `minCost = max(0, cost - flexibility) = 0`
         // (`LXMRouter.swift:2258`), so the cost-0 stamps these tests store are offered and
-        // ingested. The point under test is the sync machine, not stamp economics — and the
+        // ingested. The point under test is the sync machine, not stamp economics—and the
         // reference allows it, since PROPAGATION_COST_MIN clamps the constructor argument, not a
         // later assignment (`LXMRouter.py:136` vs `:147`).
         for router in [routerA, routerB] {
@@ -122,7 +122,7 @@ final class PeerOutboundSyncNetwork {
     /// Announce B to A over the wire, so A learns B's identity, its terms and a path to it.
     ///
     /// Through the real announce handler rather than `routerA.peer(destinationHash:…)`, because
-    /// that is the path that feeds `peeringCost` into the peer — and a peer with no cost never
+    /// that is the path that feeds `peeringCost` into the peer—and a peer with no cost never
     /// generates a key, which is the first guard the machine hits.
     @discardableResult
     func announceBToA() throws -> LXMPeer {
@@ -154,7 +154,7 @@ final class PeerOutboundSyncNetwork {
     // MARK: - The message store
 
     /// Store a message in `router` through the real ingest path, and mark it unhandled for every
-    /// peer — which is what `addToMessageStore` plus peer distribution does in production.
+    /// peer—which is what `addToMessageStore` plus peer distribution does in production.
     ///
     /// Returns the transient ID. The body is unique per call so two messages never collide.
     @discardableResult
@@ -185,7 +185,7 @@ final class PeerOutboundSyncNetwork {
     /// Poll until `condition` holds, then return true; false on timeout.
     ///
     /// Polling, not an expectation, because the thing being waited on is a dictionary in another
-    /// router with no callback to hang a fulfilment off — and inventing one would mean adding a
+    /// router with no callback to hang a fulfilment off—and inventing one would mean adding a
     /// production hook that exists only for this suite.
     @discardableResult
     func waitUntil(_ description: String, timeout: TimeInterval = 5.0,
@@ -209,7 +209,7 @@ final class PeerOutboundSyncNetwork {
 // MARK: - The wire
 
 /// A synchronous loopback pair. `send` delivers on the caller's thread, which is what lets a whole
-/// sync complete inside `Link.initiate` — see the note on `PeerOutboundSyncNetwork`.
+/// sync complete inside `Link.initiate`—see the note on `PeerOutboundSyncNetwork`.
 final class PeerSyncLoopInterface: Interface {
     let name: String
     var bitrate: Int = 1_000_000
@@ -228,7 +228,7 @@ final class PeerSyncLoopInterface: Interface {
 
     /// When set, `send` drops any packet the predicate matches. Finer-grained than
     /// `isBlackholed`: on a synchronous wire a whole exchange completes inside one call, so
-    /// holding a sync at a *chosen* stage means the drop decision has to be per-packet — e.g.
+    /// holding a sync at a *chosen* stage means the drop decision has to be per-packet—for example,
     /// "let the link proof through, drop the request responses" parks the far side's client at
     /// `.requestSent` (`swift_devel/bugs/020`'s mid-transfer closure point).
     var dropOutbound: ((Packet) -> Bool)?

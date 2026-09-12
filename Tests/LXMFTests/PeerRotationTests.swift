@@ -12,18 +12,18 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/043` — rotation: dropping peers that do not accept what they are offered, to
+/// `swift_devel/bugs/043`—rotation: dropping peers that do not accept what they are offered, to
 /// keep headroom under the bound.
 ///
 /// Python's `rotate_peers()` (`LXMRouter.py:2060-2130`) is one routine whose steps depend on each
 /// other, and it is ported whole for that reason (design D4): headroom from `ROTATION_HEADROOM_PCT`,
-/// a postponement while too many peers have never been tried, a preference for fully-synced peers
+/// a postponement while too many peers have never been tried, a preference for fully synced peers
 /// as the pool basis, an unresponsive/waiting split gated on `prioritiseRotatingUnreachablePeers`,
 /// ordering by acceptance rate, and the `ROTATION_AR_MAX` floor.
 ///
 /// Each test drives one step. Every one of them passes against a `rotatePeers()` that does nothing
 /// **except** the first, so the falsification for the rest is against the implemented routine with
-/// that step removed — recorded in the task notes rather than inferred.
+/// that step removed—recorded in the task notes rather than inferred.
 final class PeerRotationTests: XCTestCase {
 
     /// Ten peers with a bound of ten: headroom is `max(1, floor(10 × 0.10))` = 1, so
@@ -45,7 +45,7 @@ final class PeerRotationTests: XCTestCase {
         return bytes
     }
 
-    /// A peer that has been tried, is reachable and idle, and has been offered messages — the
+    /// A peer that has been tried, is reachable and idle, and has been offered messages—the
     /// shape rotation considers.
     ///
     /// Anything a test wants different, it sets afterwards.
@@ -120,7 +120,7 @@ final class PeerRotationTests: XCTestCase {
         let untried = router.peers[hash(0)]!
         untried.seedStatistics(offered: 0)
         untried.seedStatistics(outgoing: 0)
-        // Someone must be droppable, or this passes for the wrong reason — and its acceptance
+        // Someone must be droppable, or this passes for the wrong reason—and its acceptance
         // rate must be *above* zero. `acceptanceRate` returns 0.0 for a peer offered nothing, so a
         // droppable peer that also scores 0.0 ties with `untried`, and Swift's sort is not stable:
         // the outcome would depend on which of the two the tie-break happened to pick. Measured:
@@ -140,7 +140,7 @@ final class PeerRotationTests: XCTestCase {
     func testNobodyIsDroppedWhenEveryCandidateIsAboveTheFloor() {
         let router = makeRouter()
         fullTable(router)
-        // Worst peer accepts 60% — above ROTATION_AR_MAX (50%).
+        // Worst peer accepts 60%—above ROTATION_AR_MAX (50%).
         router.peers[hash(0)]!.seedStatistics(outgoing: 6)
 
         router.rotatePeers()
@@ -212,7 +212,7 @@ final class PeerRotationTests: XCTestCase {
         let router = makeRouter()
         fullTable(router)
         // A peer with the worst record, but still holding messages it has not been given a chance
-        // to take. Python narrows the pool to fully-synced peers when any exist (`:2075-2084`), so
+        // to take. Python narrows the pool to fully synced peers when any exist (`:2075-2084`), so
         // this one is not considered on this pass.
         let stillSyncing = router.peers[hash(0)]!
         stillSyncing.seedStatistics(outgoing: 0)
@@ -226,7 +226,7 @@ final class PeerRotationTests: XCTestCase {
         stillSyncing.addUnhandledMessage(outstanding)
         XCTAssertEqual(stillSyncing.unhandledMessageCount, 1,
                        "precondition: the peer must actually have something outstanding")
-        // The worst of the fully-synced peers.
+        // The worst of the fully synced peers.
         router.peers[hash(1)]!.seedStatistics(outgoing: 1)
 
         router.rotatePeers()

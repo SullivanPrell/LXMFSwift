@@ -12,7 +12,7 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/043` — the peer table has a ceiling and a guarded way out.
+/// `swift_devel/bugs/043`—the peer table has a ceiling and a guarded way out.
 ///
 /// Python bounds the table at `MAX_PEERS = 20` (`LXMRouter.py:43`) and enforces it inside `peer()`
 /// (`:2032`), the single point every peering passes through, so no caller can peer around it. It

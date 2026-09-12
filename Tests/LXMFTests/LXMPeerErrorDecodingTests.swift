@@ -12,7 +12,7 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/054`, step 2 — one decoder for peer error codes.
+/// `swift_devel/bugs/054`, step 2—one decoder for peer error codes.
 ///
 /// `bugs/053` fixed the offer-response path by adding a numeric read there. It left the *decision*
 /// duplicated: `LXMRouter.isPeerError` carried its own copy of "which values are error codes" and
@@ -40,7 +40,7 @@ final class LXMPeerErrorDecodingTests: XCTestCase {
 
     func testAHandBuiltIntIsAlsoRecognised() {
         // Swift's own encoder and Python's agree on the wire form, but a value constructed in
-        // memory as `.int` must decode too — that is what this package's own handlers return.
+        // memory as `.int` must decode too—that is what this package's own handlers return.
         XCTAssertEqual(LXMPeerError(msgPack: .int(0xF6)), .throttled)
         XCTAssertEqual(LXMPeerError(msgPack: .uint(0xF6)), .throttled)
     }

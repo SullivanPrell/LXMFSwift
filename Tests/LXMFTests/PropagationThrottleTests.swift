@@ -12,7 +12,7 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/044` — a node throttles a remote that sends messages with invalid stamps, and
+/// `swift_devel/bugs/044`—a node throttles a remote that sends messages with invalid stamps, and
 /// says so on the wire.
 ///
 /// Python sets the throttle for `PN_STAMP_THROTTLE` (180 s) when a transfer contains any
@@ -25,7 +25,7 @@ import ReticulumSwift
 /// client with an actionable refusal, and this port answers with an ordinary acceptance.
 ///
 /// Everything here drives the real registered request handler over a real link, rather than calling
-/// the router's methods — the throttle is keyed by the remote's *propagation destination* hash
+/// the router's methods—the throttle is keyed by the remote's *propagation destination* hash
 /// (`:2269-2270`), which cannot be derived from the identity hash the internal handler was being
 /// given, so a test that called it directly would be testing a different question.
 final class PropagationThrottleTests: XCTestCase {
@@ -145,7 +145,7 @@ final class PropagationThrottleTests: XCTestCase {
         /// A fresh identified link to the node.
         ///
         /// Each interaction gets its own, because an invalid-stamp transfer **tears the link
-        /// down** (`LXMRouter.py:2447`) — so a throttled remote's next offer necessarily arrives on
+        /// down** (`LXMRouter.py:2447`)—so a throttled remote's next offer necessarily arrives on
         /// a new link, exactly as it would on a real mesh. Reusing one link would test a state that
         /// cannot occur.
         func connect() throws -> Link {
@@ -181,7 +181,7 @@ final class PropagationThrottleTests: XCTestCase {
             if stampIsValid {
                 // `pnStampExpandRounds`, not the default: a propagation stamp is computed over a
                 // 1000-round workblock (`LXStamper.swift:146`), so a stamp generated with the
-                // default rounds validates as *invalid* — which silently made this control case
+                // default rounds validates as *invalid*—which silently made this control case
                 // exercise the throttle path it exists to rule out.
                 stamp = try XCTUnwrap(LXStamper.generateStamp(
                     messageID: Hashes.fullHash(lxmfData),

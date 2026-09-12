@@ -76,7 +76,7 @@ final class InboundResourceTrackingTests: XCTestCase {
     func testMessageGetProgressPublishesStateProgressAndSize() throws {
         let router = makeRouter()
         // Incompressible, so the response is large enough on the wire to come
-        // back as a Resource rather than a single packet — only the Resource
+        // back as a Resource rather than a single packet—only the Resource
         // path produces the progress callbacks under test.
         let responseBytes = Data((0 ..< 8192).map { _ in UInt8.random(in: 0 ... 255) })
         let (_, _, aLink, _) = try establishLoopbackLinks(requestHandler: { _ in responseBytes })
@@ -134,7 +134,7 @@ final class InboundResourceTrackingTests: XCTestCase {
         XCTAssertNil(router.wantsDownloadOnPathAvailableFrom)
     }
 
-    /// A failure stays visible until explicitly acknowledged — Python only resets
+    /// A failure stays visible until explicitly acknowledged—Python only resets
     /// the state when `reset_state` is set or the state is not a failure code.
     func testAcknowledgeSyncCompletionLeavesFailureStateUnlessReset() {
         let router = makeRouter()
@@ -164,7 +164,7 @@ final class InboundResourceTrackingTests: XCTestCase {
     /// It was not: ReticulumSwift used to call the callback before parsing the
     /// advertisement, so every transfer arrived carrying the empty initial
     /// `Data()`. This test drives two concurrent inbound resources over a real
-    /// link and checks they occupy two distinct 32-byte keys — with the old
+    /// link and checks they occupy two distinct 32-byte keys—with the old
     /// ordering both collapse onto one empty key and the second silently evicts
     /// the first.
     func testConcurrentInboundResourcesGetDistinctRegistryKeys() throws {

@@ -168,7 +168,7 @@ final class MessageListResponseTests: XCTestCase {
         RequestReceipt(requestID: Data(repeating: 0x01, count: 16), path: "/get", requestSize: 0)
     }
 
-    // Helper — encode a MsgPack value as raw bytes
+    // Helper—encode a MsgPack value as raw bytes
     private func encode(_ value: MsgPack.Value) -> Data { MsgPack.encode(value) }
 
     func testEmptyListSetsDoneState() {
@@ -228,7 +228,7 @@ final class MessageListResponseTests: XCTestCase {
 
         let data = encode(.array([.bytes(tid)]))
         router.handleMessageListResponse(data, receipt: makeReceipt())
-        // Empty wants (we have all) → no link needed, but no early-exit on empty wants path
+        // Empty wants (all are held) → no link needed, but no early exit on empty wants path
         // (state .failed because no link, but wants is empty)
         XCTAssertEqual(router.propagationTransferState, .failed)
     }

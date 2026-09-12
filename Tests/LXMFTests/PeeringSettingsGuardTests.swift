@@ -12,7 +12,7 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/042`, second half — a configuration key the port documents is a key the port
+/// `swift_devel/bugs/042`, second half—a configuration key the port documents is a key the port
 /// reads.
 ///
 /// `autopeer` and `autopeer_maxdepth` sat in `LXMDConfig.exampleConfig` for the life of the port
@@ -20,8 +20,8 @@ import ReticulumSwift
 /// behaved as `autopeer = no`. That is `bugs/030` at key scale: an entire `[reticulum]` section the
 /// port generated and ignored.
 ///
-/// LXMFSwift parses no configuration file — `LXMDConfig` is constants and a template string, and
-/// the package has no executable target — so the guard cannot be "is parsed". It is: every peering
+/// LXMFSwift parses no configuration file—`LXMDConfig` is constants and a template string, and
+/// the package has no executable target—so the guard cannot be "is parsed". It is: every peering
 /// key in the template is *accounted for*, either by naming a router setting that exists or by
 /// recording, with a reason, that the port does not implement it. A key that is neither fails.
 final class PeeringSettingsGuardTests: XCTestCase {
@@ -52,8 +52,8 @@ final class PeeringSettingsGuardTests: XCTestCase {
             // `Mirror` reports *stored* properties. A setting that has been encapsulated
             // (`swift_devel/bugs/055`) is stored as `unsafeName` behind a lock-taking accessor
             // named `name`, so both spellings are the same setting. Accepting either keeps the
-            // guard's purpose — a renamed or deleted setting still matches neither and still
-            // fails — while not treating "was made thread-safe" as "was removed".
+            // guard's purpose—a renamed or deleted setting still matches neither and still
+            // fails—while not treating "was made thread-safe" as "was removed".
             let stored = "unsafe" + name.prefix(1).uppercased() + name.dropFirst()
             XCTAssertTrue(properties.contains(name) || properties.contains(stored),
                           """
@@ -81,7 +81,7 @@ final class PeeringSettingsGuardTests: XCTestCase {
     /// Peering-related keys in the template's `[propagation]` section, commented or not.
     ///
     /// The template comments out its optional keys, and a commented key is still a key the
-    /// operator is being shown — `bugs/042`'s `autopeer` was uncommented and `max_peers` is
+    /// operator is being shown—`bugs/042`'s `autopeer` was uncommented and `max_peers` is
     /// commented, and both were equally unread.
     private static func peeringKeysIn(_ template: String) -> Set<String> {
         // Keys whose subject is peering. Deliberately a list rather than "every key in the

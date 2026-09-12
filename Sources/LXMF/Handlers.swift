@@ -108,8 +108,8 @@ public final class LXMFPropagationAnnounceHandler: AnnounceHandler {
     /// Called when a propagation node announces.
     ///
     /// Mirrors `LXMFPropagationAnnounceHandler.received_announce()` in Python whole
-    /// (`Handlers.py:41-99`): the outbound-PN trigger, and — when this router is itself a
-    /// propagation node — peering with the node that announced.
+    /// (`Handlers.py:41-99`): the outbound-PN trigger, and—when this router is itself a
+    /// propagation node—peering with the node that announced.
     ///
     /// The work is `LXMRouter.handlePropagationNodeAnnounce`, not this method. The router
     /// registers its own handler for the same aspect, so anything implemented here rather than

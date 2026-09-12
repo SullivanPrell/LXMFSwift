@@ -76,7 +76,7 @@ public enum LXStamper {
     /// Returns nil if cancelled. Runs on the calling thread.
     ///
     /// Thin wrapper over `generateStamp(material:targetCost:expandRounds:isCancelled:)`, which is
-    /// the form the peering path needs — Python's `generate_stamp` returns `(stamp, value)` and the
+    /// the form the peering path needs—Python's `generate_stamp` returns `(stamp, value)` and the
     /// peer stores both (`LXStamper.py:123-144`, `LXMPeer.py:259-261`).
     public static func generateStamp(messageID: Data, stampCost: Int,
                                      expandRounds: Int = defaultExpandRounds) -> Data? {
@@ -127,7 +127,7 @@ public enum LXStamper {
 
                     let stamp = SecureRandom.bytes(stampSize)
                     // Incremental hash: SHA256(workblock || stamp) without allocating the
-                    // concatenation — the workblock is up to 750 KB for message stamps.
+                    // concatenation—the workblock is up to 750 KB for message stamps.
                     var hasher = SHA256()
                     hasher.update(data: workblock)
                     hasher.update(data: stamp)
@@ -151,7 +151,7 @@ public enum LXStamper {
         private var result: (stamp: Data, value: Int)?
         private var flag = false
 
-        /// Read without the lock so the hot loop's early-out costs nothing.
+        /// Read without the lock so leaving the hot loop early costs nothing.
         ///
         /// A stale `false` only
         /// means one more candidate is hashed before the batch notices.
@@ -207,15 +207,15 @@ public enum LXStamper {
     /// Both Python sites agree on that order even though they name the halves differently:
     ///
     /// - the generator (`LXMPeer.py:258`) builds `self.identity.hash + self.router.identity.hash`
-    ///   — the *remote peer it is dialling* first, itself second;
+    ///—the *remote peer it is dialling* first, itself second;
     /// - the validator (`LXMRouter.py:2300`) builds `self.identity.hash + remote_identity.hash`
-    ///   — *itself* first, the sender second.
+    ///—*itself* first, the sender second.
     ///
     /// Both are receiver-then-sender. The argument labels here state which is which so the two
     /// call sites cannot silently disagree.
     ///
-    /// These are **Identity** hashes — `Identity.truncated_hash(public_key)`, 16 bytes
-    /// (`RNS/Identity.py:784`) — not destination hashes. An `LXMPeer` is keyed by its *propagation
+    /// These are **Identity** hashes—`Identity.truncated_hash(public_key)`, 16 bytes
+    /// (`RNS/Identity.py:784`)—not destination hashes. An `LXMPeer` is keyed by its *propagation
     /// destination* hash, so the identity must be recalled from the transport first.
     public static func peeringID(receiverIdentityHash: Data, senderIdentityHash: Data) -> Data {
         receiverIdentityHash + senderIdentityHash

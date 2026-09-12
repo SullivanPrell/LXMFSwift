@@ -12,7 +12,7 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// Tests for LXMPeer — propagation peer state machine, serialization, message tracking.
+/// Tests for LXMPeer—propagation peer state machine, serialization, message tracking.
 final class LXMPeerTests: XCTestCase {
 
     private func makeRouter() -> LXMRouter { LXMRouter(transport: Transport()) }

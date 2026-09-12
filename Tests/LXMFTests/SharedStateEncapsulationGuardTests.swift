@@ -11,7 +11,7 @@
 import XCTest
 @testable import LXMF
 
-/// `swift_devel/bugs/055`, step 7 — the rule, enforced, over both owners.
+/// `swift_devel/bugs/055`, step 7—the rule, enforced, over both owners.
 ///
 /// The router already documented this discipline in prose: a comment explains that peers must not
 /// touch the message store directly, and names the four accessors they must use instead. The
@@ -29,7 +29,7 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
          ("LXMPeer",   "LXMPeer.swift",   "peerLock", SharedStateInventory.peer.map(\.name))]
     }
 
-    /// A `public var` with a setter, i.e. a stored property or a computed one with a `set` block.
+    /// A `public var` with a setter, that is, a stored property or a computed one with a `set` block.
     ///
     /// A read-only computed property is `public var name: T {` followed by a body with no `set`.
     /// A stored one is `public var name: T = …` or `public var name: T` with no brace.
@@ -54,7 +54,7 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
             }
             return nil
         }
-        return nil   // not declared as `public var` at all — private storage, or a `func`
+        return nil   // not declared as `public var` at all—private storage, or a `func`
     }
 
     // MARK: - 7.1
@@ -128,7 +128,7 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
         XCTAssertNil(publiclySettable(privateOnly, property: "peers"))
     }
 
-    // MARK: - 7.2 — the inventory and the source must agree in both directions
+    // MARK: - 7.2—the inventory and the source must agree in both directions
 
     /// Properties that are `public var` on an owner and deliberately **not** lock-guarded.
     ///
@@ -183,8 +183,8 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
                 let name = String(l[m].split(separator: " ").last!)
                 if inventoried.contains(name) || exempt.contains(name) { continue }
                 // A read-only computed property is already the shape the rule asks for. It is not
-                // exempt from scrutiny — it can still read guarded storage without the lock, which
-                // is what `name` did — but that is
+                // exempt from scrutiny—it can still read guarded storage without the lock, which
+                // is what `name` did—but that is
                 // `testEveryComputedAccessorThatReadsGuardedStorageTakesTheLock`'s question, not
                 // this one.
                 if publiclySettable(lines, property: name) == nil && l.contains("{") { continue }
@@ -210,13 +210,13 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
     /// A public accessor that reads lock-guarded storage must take the lock.
     ///
     /// This is the defect wearing the fix's clothes, and it is not hypothetical: encapsulating
-    /// `metadata` left `LXMPeer.name` reading `unsafeMetadata` with no lock — a read-only computed
+    /// `metadata` left `LXMPeer.name` reading `unsafeMetadata` with no lock—a read-only computed
     /// property, so 7.1 had nothing to say about it, while the router writes that field from the
     /// announce-callback thread. Converting a property is not finished until everything that reads
     /// its new storage has been re-examined.
     ///
-    /// An accessor that reaches guarded state *indirectly* — by calling a method that locks — is
-    /// fine and is recognised by delegating rather than naming `_x`.
+    /// An accessor that reaches guarded state *indirectly*—by calling a method that locks—is
+    /// fine and is recognized by delegating rather than naming `_x`.
     func testEveryComputedAccessorThatReadsGuardedStorageTakesTheLock() throws {
         for o in owners {
             let lines = try SharedStateInventory.sourceLines(o.file)
@@ -245,7 +245,7 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
                     $0 != String(name)
                     && text.range(of: #"(?<![\w])_\#($0)\b"#, options: .regularExpression) != nil
                 }
-                // Reading its own `_name` counts too — that is the whole point of the accessor.
+                // Reading its own `_name` counts too—that is the whole point of the accessor.
                 let readsOwn = text.range(of: #"(?<![\w])_\#(name)\b"#, options: .regularExpression) != nil
                 guard readsOwn || !reads.isEmpty else { continue }
                 guard o.names.contains(String(name)) || !reads.isEmpty || readsOwn else { continue }
@@ -278,7 +278,7 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
     /// - `sync()` read the three announced-term fields outside the lock, under the same
     ///   now-false comment.
     /// - a local named `offered` had been renamed to `unsafeOffered` by the conversion and was
-    ///   shadowing the property — behaviour unchanged, but one deletion away from silently
+    ///   shadowing the property—behaviour unchanged, but one deletion away from silently
     ///   binding to the wrong thing.
     ///
     /// `isUnderLock` is brace-depth aware, so it is not fooled by same-line `lock(); x; unlock()`
@@ -350,11 +350,11 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
     ///
     /// `swift_devel/bugs/055` step 6 asked for a sweep proving no direct assignment to shared
     /// state survives in the test suite. A textual sweep cannot answer that: 21 assignments remain
-    /// and every one is to a *different type* that shares a name — `router.peeringCost` is the
+    /// and every one is to a *different type* that shares a name—`router.peeringCost` is the
     /// router's configuration, `msg.state` is an `LXMessage`. The real proof is that the package
     /// compiles: every inventoried property is get-only, so an assignment to one is a build error.
     ///
-    /// What this pins is the premise that makes those 21 safe — that each colliding name is
+    /// What this pins is the premise that makes those 21 safe—that each colliding name is
     /// inventoried on `LXMPeer` and exempt on `LXMRouter`. If one of the router's scalars ever
     /// becomes lock-guarded, this fails and the 21 sites need revisiting.
     func testTheCollidingNamesAreGuardedOnThePeerAndExemptOnTheRouter() {

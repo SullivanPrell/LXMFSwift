@@ -193,7 +193,7 @@ final class LXMRouterStampTests: XCTestCase {
         let msg = LXMessage(destination: dstDest, source: srcDest, content: "test")
         XCTAssertNil(msg.stampCost, "message should have no stamp cost before send()")
 
-        // send() — will fail with noPropagationNode or similar, but must have set stampCost first.
+        // send()—fails with noPropagationNode or similar, but must have set stampCost first.
         try? router.send(msg)
 
         XCTAssertEqual(msg.stampCost, 4,
@@ -217,7 +217,7 @@ final class LXMRouterStampTests: XCTestCase {
         let dstDest = try Destination(identity: dstId, direction: .in, kind: .single,
                                       appName: appName, aspects: ["delivery"])
         let msg = LXMessage(destination: dstDest, source: srcDest, content: "test")
-        msg.stampCost = 7  // user-set stamp cost — must not be overridden
+        msg.stampCost = 7  // user-set stamp cost—must not be overridden
 
         try? router.send(msg)
 

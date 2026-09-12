@@ -12,7 +12,7 @@ import XCTest
 import LXMF
 import ReticulumSwift
 
-/// A message is reported delivered only when the recipient proves it — `bugs/014`, task 5.1.
+/// A message is reported delivered only when the recipient proves it—`bugs/014`, task 5.1.
 ///
 /// The reference takes the packet receipt returned by the send call and reaches DELIVERED, and
 /// fires the application's delivery callback, only when the receiver's explicit proof validates
@@ -23,7 +23,7 @@ import ReticulumSwift
 ///
 /// **Why the existing test cannot fail.** `LXMRouterResourceTests.swift:183` asserts that the
 /// delivery callback fires on a healthy loopback link. On a healthy link the proof always comes
-/// back, so send-time firing and proof-time firing are indistinguishable — it passes identically
+/// back, so send-time firing and proof-time firing are indistinguishable—it passes identically
 /// before and after this requirement is met. Both tests here are built so that they can only pass
 /// if the gate is real: one never lets the message arrive at all, and the other lets the message
 /// arrive but holds the proof back, so "delivered" and "received" are separated in time and can
@@ -37,8 +37,8 @@ final class ProofGatedDeliveryTests: XCTestCase {
         let net = try LoopbackPair()
 
         // The link is up and stays up; only the LXMF payload is lost. This is the case the
-        // reference's timeout path exists for, and the one a real network produces constantly —
-        // a dropped packet, not a closed link.
+        // reference's timeout path exists for, and the one a real network produces constantly—a
+        // dropped packet, not a closed link.
         net.senderInterface.dropOutbound = { $0.destinationType == .link && $0.packetType == .data }
 
         let deliveryFired = Flag()
@@ -83,7 +83,7 @@ final class ProofGatedDeliveryTests: XCTestCase {
                           + "never returned is evidence about the link, not just the packet")
     }
 
-    /// Spec: "The user interface reflects the true state" — "a retry after a timeout is visible
+    /// Spec: "The user interface reflects the true state"—"a retry after a timeout is visible
     /// rather than silent" (R3).
     ///
     /// `onDelivery` reports one terminal outcome, so an application wired only to it sees a
@@ -95,8 +95,8 @@ final class ProofGatedDeliveryTests: XCTestCase {
         net.senderInterface.dropOutbound = { $0.destinationType == .link && $0.packetType == .data }
         try net.senderTransport.start()
 
-        // Locked: state changes arrive on whichever thread made them — the receipt's timeout
-        // callback runs on a background queue — while the poller below reads concurrently.
+        // Locked: state changes arrive on whichever thread made them—the receipt's timeout
+        // callback runs on a background queue—while the poller below reads concurrently.
         let observed = StateLog()
         let message = try net.sendMessage(content: "watch me",
                                           onStateChange: { observed.record($0.state) })
@@ -117,7 +117,7 @@ final class ProofGatedDeliveryTests: XCTestCase {
 
     // MARK: - Ordering, not occurrence
 
-    /// Spec: "Delivery is reported after the proof, not before" — "the ordering is asserted, not
+    /// Spec: "Delivery is reported after the proof, not before"—"the ordering is asserted, not
     /// merely the occurrence".
     ///
     /// The message is allowed through, so the receiver really does get it; only the proof is held.
@@ -129,7 +129,7 @@ final class ProofGatedDeliveryTests: XCTestCase {
         let received = expectation(description: "receiver got the message")
         net.onReceive = { _ in received.fulfill() }
 
-        // Hold the *data* proof travelling back towards the sender — context `.none`, which is
+        // Hold the *data* proof travelling back towards the sender—context `.none`, which is
         // the same predicate the reference uses to decide a packet is receipt-worthy
         // (`Transport.py:1113-1124` excludes the KEEPALIVE…LRPROOF range). Holding every proof
         // would block the link handshake's own LRPROOF and no link would come up at all.

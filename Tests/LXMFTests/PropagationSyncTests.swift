@@ -12,22 +12,22 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/020` — the client sync state machine's answer to its link closing.
+/// `swift_devel/bugs/020`—the client sync state machine's answer to its link closing.
 ///
 /// Python maps a closed outbound propagation link onto the sync state machine in `clean_links`
 /// (`LXMRouter.py:991-1000`): `PR_COMPLETE` acknowledges to idle, anything before
 /// `PR_LINK_ESTABLISHED` fails as `PR_LINK_FAILED`, anything between established and complete
-/// fails as `PR_TRANSFER_FAILED` — all through `acknowledge_sync_completion` (`:1656`). The port
+/// fails as `PR_TRANSFER_FAILED`—all through `acknowledge_sync_completion` (`:1656`). The port
 /// had none of it: `onClosed` cleared the link reference and left `propagationTransferState`
 /// wherever it was, so "Sync Now" against an unreachable node spun for the lifetime of the
 /// process (`RetiOS` polls that state and exits only on `.done` or `.failed`).
 ///
 /// `LXMPropagationSyncTests` covers a dozen **response-level** failures; the hole was the
-/// **link-level** one — the case a real user hits first.
+/// **link-level** one—the case a real user hits first.
 ///
 /// The wire is the synchronous `PeerSyncLoopInterface`, so every stage of a sync completes
 /// inside the call that starts it; parking the machine at a chosen pre-close state is done by
-/// dropping packets, not by assigning states — an assigned state would test the assignment.
+/// dropping packets, not by assigning states—an assigned state would test the assignment.
 final class PropagationSyncTests: XCTestCase {
 
     private var tempDir: String!
@@ -107,7 +107,7 @@ final class PropagationSyncTests: XCTestCase {
     }
 
     /// The reference's `PR_COMPLETE` branch: a *completed* sync whose link then closes
-    /// acknowledges back to `.idle` (`LXMRouter.py:993-994`) — closure after success is
+    /// acknowledges back to `.idle` (`LXMRouter.py:993-994`)—closure after success is
     /// housekeeping, not a failure.
     ///
     /// Against B's empty store the whole sync completes inside
@@ -135,7 +135,7 @@ final class PropagationSyncTests: XCTestCase {
     ///
     /// The reference gets this for free because
     /// `cancel_propagation_node_requests` clears the link reference *before* tearing down, so
-    /// `clean_links` finds nothing to map — the port's closure handler must keep that guard.
+    /// `clean_links` finds nothing to map—the port's closure handler must keep that guard.
     /// (Passes before the fix too, because the unfixed handler does nothing at all; it is
     /// meaningful only beside the failure tests above, and pins the guard once they are green.)
     func testCancelDoesNotReadAsFailure() throws {
@@ -155,7 +155,7 @@ final class PropagationSyncTests: XCTestCase {
     }
 
     /// The periodic safety net, Python's letter: `clean_links` itself maps a closed outbound
-    /// link even when the closure callback never ran — here because something clobbered
+    /// link even when the closure callback never ran—here because something clobbered
     /// `onClosed`, which is exactly how the neighbouring defect in `bugs/021` (an unchained
     /// handler) would present.
     func testCleanLinksMapsAClosedOutboundLinkTheCallbackMissed() throws {
@@ -183,11 +183,11 @@ final class PropagationSyncTests: XCTestCase {
 
     // MARK: - 6.5: a sync that neither completes nor sees closure terminates
 
-    /// A live link whose transfer has simply stopped moving: no closure will ever fire and no
-    /// response will ever come.
+    /// A live link whose transfer has simply stopped moving: no closure ever fires and no
+    /// response ever comes.
     ///
-    /// The reference has nothing for this case — its watchdog only
-    /// catches links that *die* — so the bound is a port-side safety net, checked on the same
+    /// The reference has nothing for this case—its watchdog only
+    /// catches links that *die*—so the bound is a port-side safety net, checked on the same
     /// periodic pass as the closure mapping. The parameter exists so the test does not wait out
     /// the production bound, the same shape as `cleanLinks(peerSyncMaxInactivity:)`.
     func testStalledSyncTerminates() throws {

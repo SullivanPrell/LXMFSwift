@@ -12,7 +12,7 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// The outbound retry loop against the reference's numbers and gate — `bugs/013 §9`.
+/// The outbound retry loop against the reference's numbers and gate—`bugs/013 §9`.
 ///
 /// Three constants and one comparison decide how fast a message converges on a destination
 /// the sender has no path to. The reference (LXMF 1.1.0, `LXMRouter.py:30-34`):
@@ -24,7 +24,7 @@ import ReticulumSwift
 ///
 /// and the gate is `delivery_attempts <= MAX_DELIVERY_ATTEMPTS` (`LXMRouter.py:2736`), so a
 /// message is really tried six times before `fail_message`. The port shipped `2 / 12 / 15`
-/// (the middle one is LXMF's pre-0.2.8 value) and fails fast on `>=` — every number an
+/// (the middle one is LXMF's pre-0.2.8 value) and fails fast on `>=`—every number an
 /// interop partner would time is different, and delivery to a pathless destination converges
 /// roughly twice as slowly as the reference's.
 ///
@@ -49,7 +49,7 @@ final class OutboundRetryParityTests: XCTestCase {
 
     // MARK: - Pathless opportunistic pacing
 
-    /// One pathless try, then the path request — with the reference's waits on each side.
+    /// One pathless try, then the path request—with the reference's waits on each side.
     /// `LXMRouter.py:2737-2742` (path request after MAX_PATHLESS_TRIES) and `:2753-2758`
     /// (retry spacing of the try itself).
     func testOnePathlessTryThenPathRequestWithReferenceWaits() throws {
@@ -65,7 +65,7 @@ final class OutboundRetryParityTests: XCTestCase {
         XCTAssertEqual(msg.nextDeliveryAttempt - before1, 10, accuracy: 0.5,
                        "a failed try is spaced by DELIVERY_RETRY_WAIT = 10 (LXMRouter.py:32,:2756)")
 
-        // Pass 2: attempts == MAX_PATHLESS_TRIES and still no path — request one.
+        // Pass 2: attempts == MAX_PATHLESS_TRIES and still no path—request one.
         msg.nextDeliveryAttempt = 0
         let before2 = Date().timeIntervalSince1970
         net.router.processOutbound()
@@ -139,7 +139,7 @@ final class OutboundRetryParityTests: XCTestCase {
     /// a message whose path entry outlived the route.
     func testStalePathIsDroppedAndRediscovered() throws {
         // Two transports on a synchronous wire: B announces a delivery destination, so A
-        // holds a real path table entry and can recall B's identity — a path that *looks*
+        // holds a real path table entry and can recall B's identity—a path that *looks*
         // healthy, which is exactly what a stale entry looks like.
         let transportA = Transport()
         let transportB = Transport()
@@ -205,7 +205,7 @@ final class OutboundRetryParityTests: XCTestCase {
 
 /// One router on one transport with a recording interface and a destination that is
 /// deliberately unknown: no announce is ever processed, so `recall` fails and no path
-/// exists — the exact situation the pathless retry ladder exists for.
+/// exists—the exact situation the pathless retry ladder exists for.
 final class SingleNode {
     let transport = Transport()
     let iface = PeerSyncLoopInterface(name: "recording")

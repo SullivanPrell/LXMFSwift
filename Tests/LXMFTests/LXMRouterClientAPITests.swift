@@ -169,7 +169,7 @@ final class LXMRouterClientAPITests: XCTestCase {
         let (router, transport) = makeRouter()
         let (_, dest) = try makeIdentityAndRegister(router: router, transport: transport)
         // Reticulum.shared is nil in unit tests, so Destination.announce returns nil
-        // — but the call must not throw.
+        //—but the call must not throw.
         XCTAssertNoThrow(try router.announce(destinationHash: dest.hash))
     }
 

@@ -16,7 +16,7 @@ import Foundation
 /// HKDF-SHA256 expansion salted with `msgpack.packb(n)` per round; if Swift's expansion diverges
 /// from Python's by one round, one salt byte or one HKDF parameter, both the generator and the
 /// validator in this package move together and every Swift-only test still passes. On the wire it
-/// surfaces as `ERROR_INVALID_KEY` (0xF3) from the peer — with **nothing the sender can log**,
+/// surfaces as `ERROR_INVALID_KEY` (0xF3) from the peer—with **nothing the sender can log**,
 /// because the sender's own validation of its own key succeeds.
 ///
 /// Captured 2026-07-31 from `tri-test/.venv` (LXMF 1.1.0, RNS 1.4.2):
@@ -31,7 +31,7 @@ import Foundation
 enum PythonPeeringVectors {
 
     /// The peering material: a 16-byte receiver identity hash followed by a 16-byte sender's.
-    /// `bytes(range(16)) * 2` — deliberately two identical halves, so a test that swapped the
+    /// `bytes(range(16)) * 2`—deliberately two identical halves, so a test that swapped the
     /// operands would still pass here.
     ///
     /// Operand *order* is pinned separately, against real
@@ -69,7 +69,7 @@ enum PythonPeeringVectors {
         0xa7, 0x92, 0x4a, 0x01, 0xce, 0xef, 0x68, 0xec,
     ])
 
-    /// `msgpack.packb([peering_key, [tid_a1, tid_a2]])` — the exact offer-request payload a Python
+    /// `msgpack.packb([peering_key, [tid_a1, tid_a2]])`—the exact offer-request payload a Python
     /// propagation node emits (`LXMPeer.py:385`), with `key` above and two 32-byte transient IDs.
     ///
     /// Decodes a hex literal from this file. A nil result means a typo in the literal
@@ -84,7 +84,7 @@ enum PythonPeeringVectors {
     static let offerTransientIDs = [Data(repeating: 0xa1, count: 32),
                                     Data(repeating: 0xa2, count: 32)]
 
-    /// `msgpack.packb([1234567890.5, [b"\xde\xad\xbe\xef", b"\xca\xfe"]])` — the sync resource
+    /// `msgpack.packb([1234567890.5, [b"\xde\xad\xbe\xef", b"\xca\xfe"]])`—the sync resource
     /// payload shape (`LXMPeer.py:466`): a float timestamp then a list of whole message files.
     static let resourcePayload = hex("92cb41d26580b4a0000092c404deadbeefc402cafe")
 
@@ -94,7 +94,7 @@ enum PythonPeeringVectors {
     /// Every `LXMPeer.ERROR_*` as Python's umsgpack writes it.
     ///
     /// All eight are above 127, so all
-    /// eight are `uint8` (`0xCC`) — none of them is a msgpack `int`.
+    /// eight are `uint8` (`0xCC`)—none of them is a msgpack `int`.
     static let errorCodeWireForms: [(name: String, code: UInt8, wire: Data)] = [
         ("ERROR_NO_IDENTITY",   0xF0, Data([0xCC, 0xF0])),
         ("ERROR_NO_ACCESS",     0xF1, Data([0xCC, 0xF1])),

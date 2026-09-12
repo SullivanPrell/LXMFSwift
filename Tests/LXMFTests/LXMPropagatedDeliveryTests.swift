@@ -24,7 +24,7 @@ final class LXMPropagatedDeliveryTests: XCTestCase {
         let msg = LXMessage(destination: dst, source: src, content: "propagate me!")
         try msg.pack()
         let pp = try XCTUnwrap(msg.propagationPacked, "propagationPacked should be set after pack()")
-        // Should decode to [float, [bytes]] — outer array with timestamp and inner array of messages.
+        // Should decode to [float, [bytes]]—outer array with timestamp and inner array of messages.
         guard case .array(let outer) = try MsgPack.decode(pp),
               outer.count == 2 else {
             XCTFail("propagationPacked should decode to a 2-element array")
@@ -129,7 +129,7 @@ final class LXMPropagatedDeliveryTests: XCTestCase {
         try msg.pack()
         XCTAssertNotNil(msg.propagationPacked)
 
-        // Simulate the propagation node on the B side — accept resources.
+        // Simulate the propagation node on the B side—accept resources.
         var receivedPropagation: Data?
         let receiveExp = expectation(description: "propagation resource received")
         bLink.resourceStrategy = .acceptAll
@@ -155,7 +155,7 @@ final class LXMPropagatedDeliveryTests: XCTestCase {
             XCTFail("received data should be valid propagation msgpack")
             return
         }
-        // Inner bytes are: destHash (16) + encrypt(payload) — NOT plaintext packed.
+        // Inner bytes are: destHash (16) + encrypt(payload)—NOT plaintext packed.
         let destLen = LXMessage.destinationLength
         XCTAssertGreaterThanOrEqual(inner.count, destLen, "inner bytes must be at least destHash length")
         XCTAssertEqual(Data(inner.prefix(destLen)), dst.hash, "first 16 bytes must be destination hash")

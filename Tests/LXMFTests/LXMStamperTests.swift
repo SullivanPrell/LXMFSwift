@@ -39,7 +39,7 @@ final class LXMStamperTests: XCTestCase {
         // hash = SHA256(wb + stamp), if result >= 0x80... then value = 0
         let stamp = Data(repeating: 0xFF, count: 32)
         let value = LXStamper.stampValue(workblock: wb, stamp: stamp)
-        // value is the number of leading zero bits — we just verify it's a non-negative int
+        // value is the number of leading zero bits, so this only verifies it is a non-negative int
         XCTAssertGreaterThanOrEqual(value, 0)
     }
 

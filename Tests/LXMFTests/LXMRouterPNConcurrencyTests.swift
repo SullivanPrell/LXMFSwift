@@ -14,17 +14,17 @@ import ReticulumSwift
 
 /// Concurrency stress test for the LXMRouter propagation-node collections hardened in
 /// the 2026-07-19 deferred data-race pass (propagationEntries / peers /
-/// peerDistributionQueue / validatedPeerLinks / clientPropagationMessages* — plus
+/// peerDistributionQueue / validatedPeerLinks / clientPropagationMessages*—plus
 /// LXMPeer's cross-object propagationEntries mutations routed through synchronized
 /// router accessors) AND LXMPeer's OWN internal state (message queues + count caches +
 /// sync state machine), hardened in the follow-up per-peer-lock pass.
 ///
 /// The PN request handlers (handleOfferRequest / handleMessageGetRequest /
 /// handleInboundPropagationResource) run on RNS link-callback threads concurrently
-/// with the admin/driver methods (addPeer / removePeer / flushPeerDistributionQueue /
+/// with the administrative and driver methods (addPeer / removePeer / flushPeerDistributionQueue /
 /// syncPeers / cleanMessageStore / savePeers / saveNodeStats). Pre-fix, the
 /// propagationEntries Dictionary was read-modify-written (including in-place
-/// force-unwrap value mutation from LXMPeer) with no lock — a crash under concurrency.
+/// force-unwrap value mutation from LXMPeer) with no lock—a crash under concurrency.
 ///
 /// The original test kept a SINGLE serialized "driver" (worker 0) for the peer-touching
 /// operations, because LXMPeer's own internal state (unhandledMessagesQueue /
@@ -87,8 +87,8 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
         let iterations = 1500
 
         // NO single-driver constraint: EVERY worker concurrently (a) drives a
-        // peer-touching operation — flush/sync/addPeer/removePeer/savePeers, which mutate
-        // per-peer internal state (queues + count caches + sync state machine) — AND
+        // peer-touching operation—flush/sync/addPeer/removePeer/savePeers, which mutate
+        // per-peer internal state (queues + count caches + sync state machine)—AND
         // (b) hammers the ROUTER PN collections via the request handlers + message store.
         // Multiple workers therefore land inside the same peer object's
         // processQueues()/sync()/toBytes() at once; only the per-peer lock keeps that
@@ -100,7 +100,7 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
                     let m = pool[(w &* 7 &+ i) % pool.count]
                     let tid = m.tid
 
-                    // (a) Peer-touching driver op — run by ALL workers (was worker-0 only).
+                    // (a) Peer-touching driver op—run by ALL workers (was worker-0 only).
                     switch (w &+ i) % 5 {
                     case 0: router.enqueueForPeerDistribution(transientID: tid); router.flushPeerDistributionQueue()
                     case 1: router.syncPeers()
@@ -109,7 +109,7 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
                     default: router.savePeers()
                     }
 
-                    // (b) ROUTER-collection op — concurrent with every other worker's (a).
+                    // (b) ROUTER-collection op—concurrent with every other worker's (a).
                     switch (w &* 3 &+ i) % 8 {
                     case 0: router.addToMessageStore(lxmfData: m.lxmf, transientID: tid, stampValue: 5, stamp: m.stamp)
                     case 1: _ = router.ingestPropagatedLXM(lxmfData: m.lxmf, stampValue: 5, stamp: m.stamp)
@@ -134,13 +134,13 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
         _ = router.messageStorageSize()
     }
 
-    // MARK: - bugs/055 — the property surface, not the methods
+    // MARK: - bugs/055—the property surface, not the methods
 
     /// The test above cannot fail on `bugs/055`, by construction.
     ///
     /// Every one of its ~13 operations is a call to a *router method*, and every one of those
-    /// takes `lock` on the way in. It therefore proves the router is internally consistent —
-    /// which `bugs/055` already concedes — while never once touching `router.propagationEntries`,
+    /// takes `lock` on the way in. It therefore proves the router is internally consistent—which
+    /// `bugs/055` already concedes—while never once touching `router.propagationEntries`,
     /// `router.peers` or a counter directly. It is a test of the inside of the seam, presented as
     /// a test of the seam.
     ///
@@ -150,8 +150,8 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
     /// Swift access race against the unfixed code. A `Dictionary` write is not atomic, so the
     /// reader can observe a partially rehashed table rather than a merely stale value.
     ///
-    /// After the fix these reads go through lock-taking accessors and still compile unchanged —
-    /// that source compatibility is the point of the read-only-accessor shape.
+    /// After the fix these reads go through lock-taking accessors and still compile unchanged—that
+    /// source compatibility is the point of the read-only accessor shape.
     func testDirectPropertyReadsRaceTheRoutersOwnWrites() throws {
         let router = LXMRouter(transport: Transport())
         try router.enablePropagation(storagePath: tempDir)
@@ -218,9 +218,9 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
 
     /// `bugs/055`, one level down: the same defect on `LXMPeer`.
     ///
-    /// The peer guards its own sync state with `peerLock` — `sync()` writes `state`,
+    /// The peer guards its own sync state with `peerLock`—`sync()` writes `state`,
     /// `nextSyncAttempt` and `syncBackoff` under it across the COMMIT-BEFORE-CALLOUT boundaries
-    /// established by `bugs/054` — and then publishes every one of those as a plain `public var`.
+    /// established by `bugs/054`—and then publishes every one of those as a plain `public var`.
     /// A caller reading `peer.state` to render a peer list is racing the sync machine.
     ///
     /// Under ThreadSanitizer this reports a race naming `LXMPeer`. These are scalars and an enum,
@@ -235,7 +235,7 @@ final class LXMRouterPNConcurrencyTests: XCTestCase {
         }
         // Resolved once, up front. Looking peers up inside the loop would touch `router.peers`
         // concurrently with the router's own writes, and TSan reports only the first race it
-        // finds — the router-table one would mask the peer-property one this test is for.
+        // finds—the router-table one would mask the peer-property one this test is for.
         let peerObjects: [LXMPeer] = peerHashes.map { router.addPeer(destinationHash: $0) }
 
         let done = expectation(description: "peer-property stress")

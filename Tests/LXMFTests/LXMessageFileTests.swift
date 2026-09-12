@@ -38,7 +38,7 @@ final class LXMessageFileTests: XCTestCase {
 
     // MARK: - unpackFromFile tests
 
-    /// Test 1: Round-trip — pack then unpackFromFile restores destinationHash and content.
+    /// Test 1: Round-trip—pack then unpackFromFile restores destinationHash and content.
     func testUnpackFromFileRoundTrip() throws {
         let original = try makeMessage(content: "Round-trip content", title: "Round-trip title")
         guard let packedData = original.packed else {
@@ -95,7 +95,7 @@ final class LXMessageFileTests: XCTestCase {
         }
     }
 
-    /// Test 4: State field is restored — incoming flag is set after unpackFromFile.
+    /// Test 4: State field is restored—incoming flag is set after unpackFromFile.
     func testUnpackFromFileSetsIncomingFlag() throws {
         let original = try makeMessage(content: "State test")
         guard let packedData = original.packed else {
@@ -121,7 +121,7 @@ final class LXMessageFileTests: XCTestCase {
     func testDetermineCompressionSupportNoAppDataDefaultsTrue() throws {
         let original = try makeMessage(content: "Compression test")
         // No Reticulum stack is running, so recallAppData returns nil.
-        original.autoCompress = false  // set to false first so we can verify the method changes it
+        original.autoCompress = false  // set to false first so the method's change is observable
         original.determineCompressionSupport()
         XCTAssertTrue(original.autoCompress,
                       "autoCompress must default to true when no app data is recalled")

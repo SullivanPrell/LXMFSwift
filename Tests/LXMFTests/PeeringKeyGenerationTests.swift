@@ -13,12 +13,12 @@ import CryptoKit
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/054`, step 1 — the peering proof-of-work, checked against Python.
+/// `swift_devel/bugs/054`, step 1—the peering proof-of-work, checked against Python.
 ///
 /// A peering key is a stamp over `receiverIdentityHash ‖ senderIdentityHash` with 25 expand
 /// rounds. The sender generates it; the receiver validates it with its own workblock. Both halves
 /// live in this package, so a divergence from the reference is invisible to every Swift-only
-/// test — it surfaces only as `ERROR_INVALID_KEY` from a Python peer, which the sender cannot
+/// test—it surfaces only as `ERROR_INVALID_KEY` from a Python peer, which the sender cannot
 /// distinguish from a genuinely wrong key.
 final class PeeringKeyGenerationTests: XCTestCase {
 

@@ -57,7 +57,7 @@ final class LXMessageTests: XCTestCase {
         let dst = try makeDestination(identity: dstIdentity)
 
         // A ticket field (nested [expiry, ticketBytes] array) plus a telemetry
-        // blob — the two field shapes that actually exercise inbound ingest.
+        // blob—the two field shapes that actually exercise inbound ingest.
         let expiry = 1_700_000_000
         let ticketBytes = Data([0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02])
         let telemetry = Data([0x10, 0x20, 0x30, 0x40, 0x50])
@@ -93,7 +93,7 @@ final class LXMessageTests: XCTestCase {
         XCTAssertTrue(decoded.validateSignature(knownIdentity: srcIdentity))
     }
 
-    /// Newly-unpacked messages default to `sourceBlackholed = false`.
+    /// Newly unpacked messages default to `sourceBlackholed = false`.
     /// `Reticulum.shared` is nil in unit tests, so the check short-circuits.
     ///
     /// Mirrors Python's `LXMessage.source_blackholed` default (LXMF commit 2ac2b10).
@@ -228,7 +228,7 @@ final class LXMessageTests: XCTestCase {
     }
 
     func testStampCostFromAppDataNilForSingleElement() {
-        // Single-element array (old format / wrong format) — no stamp cost at index 1
+        // Single-element array (old format / wrong format)—no stamp cost at index 1
         let appData = MsgPack.encode(.array([.int(7)]))
         XCTAssertNil(stampCostFromAppData(appData))
     }

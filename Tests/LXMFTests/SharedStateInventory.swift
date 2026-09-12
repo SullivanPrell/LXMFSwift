@@ -11,24 +11,24 @@
 import XCTest
 @testable import LXMF
 
-/// `swift_devel/bugs/055`, step 1 — the authoritative list of lock-guarded shared state.
+/// `swift_devel/bugs/055`, step 1—the authoritative list of lock-guarded shared state.
 ///
 /// Every later task in this change works from these lists, and the structural guard test
 /// (`SharedStateEncapsulationGuardTests`) enforces the rule over exactly this set. So the list
 /// itself has to be checked, not asserted: a name that is in the inventory but is *not* actually
 /// lock-protected would make the guard demand encapsulation for no reason, and a name that is
-/// missing is a property the guard will never look at.
+/// missing is a property the guard never looks at.
 ///
 /// The survey that sized this change used a 25-line proximity heuristic over `grep` output. That
-/// is fine for sizing and useless as a specification — it produced four false "unguarded" verdicts
-/// on `LXMRouter` alone, every one of them a same-line `lock.lock(); x = y; lock.unlock()` or an
-/// early-return release inside a nested block. The check below re-derives lock state from the
+/// is fine for sizing and useless as a specification—it produced four false "unguarded" verdicts
+/// on `LXMRouter` alone, every one of them a same-line `lock.lock(); x = y; lock.unlock()` or a
+/// release on an early return inside a nested block. The check below re-derives lock state from the
 /// source with brace-depth tracking (see `isUnderLock`).
 ///
 /// ## The criterion: *accessed* under the lock, not *mutated* under it
 ///
 /// "Mutated under the lock" is too narrow. `LXMRouter.staticPeers` and `LXMPeer.syncStrategy` are
-/// read under their owner's lock on every use and written only by consumers — so a consumer write
+/// read under their owner's lock on every use and written only by consumers—so a consumer write
 /// races an owner read while the property has no under-lock mutation at all. Reading it under the
 /// lock is the owner declaring it lock-protected state, and that is the criterion.
 enum SharedStateInventory {
@@ -36,7 +36,7 @@ enum SharedStateInventory {
     /// One inventoried property, and what it holds.
     ///
     /// Deliberately carries **no line numbers**. The first version cited a declaration line and a
-    /// locked-access line per entry, and every edit in this change shifted them — the citations
+    /// locked-access line per entry, and every edit in this change shifted them—the citations
     /// were breaking faster than the thing they documented. The invariant is "the owner accesses
     /// this under its lock *somewhere*", so the check searches for that rather than trusting a
     /// coordinate. `note` is for the reader and is never asserted.
@@ -94,14 +94,14 @@ enum SharedStateInventory {
     /// fields from the announce-callback thread while the peer's own `sync()` reads seven of them
     /// under `peerLock`, and `:2262-2263` increments two more on the inbound propagation path.
     ///
-    /// The assertion over this list is **inverted** — it proves the router's writes are
+    /// The assertion over this list is **inverted**—it proves the router's writes are
     /// unsynchronized rather than pretending they are not. Task 4.3 replaces them with
     /// `peerLock`-taking mutators, at which point the router stops naming these properties at all
     /// and the test says so; emptying this list is 4.3's completion criterion.
     ///
     /// These names are also in `peer`: they became `peerLock`-accessed the moment the seeding API
     /// landed, which is why the check below is about the router's side and not the peer's. The two
-    /// lists overlap by design — this one annotates a subset of `peer` rather than partitioning it.
+    /// lists overlap by design—this one annotates a subset of `peer` rather than partitioning it.
     struct CrossObjectWrite {
         let name: String
         let note: String
@@ -112,15 +112,15 @@ enum SharedStateInventory {
     /// **Empty, and that is the result.
     ///
     /// ** Task 4.3 replaced all thirteen cross-object writes with
-    /// three `peerLock`-taking mutators — `adoptAnnouncedTerms`, `clearSyncBackoff`,
-    /// `creditInbound` — so the router no longer names any peer property on the left of an
+    /// three `peerLock`-taking mutators—`adoptAnnouncedTerms`, `clearSyncBackoff`,
+    /// `creditInbound`—so the router no longer names any peer property on the left of an
     /// assignment.
     ///
     /// The list is kept rather than deleted because it is where a future regression would be
     /// recorded. It is **not** enforced against the source: the compiler enforces it, because every
     /// peer property is now a get-only accessor and a direct router write does not build. An
     /// earlier revision of this comment claimed the test below scanned the source, which
-    /// contradicted the test's own docstring — the scan was tried, produced five false positives on
+    /// contradicted the test's own docstring—the scan was tried, produced five false positives on
     /// `LXMessage.state` and `LXMRouter.peeringCost`, and was removed.
     static let peerCrossObjectWrites: [CrossObjectWrite] = []
 }
@@ -151,7 +151,7 @@ extension SharedStateInventory {
     /// ```swift
     /// lock.lock()                                   // acquired at depth d
     /// if let existing = entries[id] {
-    ///     lock.unlock()                             // released at depth d+1 — one branch only
+    ///     lock.unlock()                             // released at depth d+1—one branch only
     ///     return existing
     /// }
     /// entries[id] = entry                           // still holds the lock
@@ -222,7 +222,7 @@ extension SharedStateInventory {
         return String(line[line.startIndex..<r.lowerBound])
     }
 
-    /// A regex alternation matching both spellings of `name`: the accessor and the backing store.
+    /// A regular expression alternation matching both spellings of `name`: the accessor and the backing store.
     ///
     /// Encapsulating a property leaves `name` as a lock-taking computed accessor and moves the
     /// storage to `unsafeName`, whose prefix records that reaching it does not take the lock. A
@@ -232,7 +232,7 @@ extension SharedStateInventory {
         "(?:\(name)|unsafe\(name.prefix(1).uppercased())\(name.dropFirst()))"
     }
 
-    /// The first access to `name` — or to its backing store — in `lines` at `line`, as a column,
+    /// The first access to `name`—or to its backing store—in `lines` at `line`, as a column,
     /// or `nil` if neither is there.
     static func accessColumn(_ lines: [String], line: Int, property name: String) -> Int? {
         guard line - 1 >= 0, line - 1 < lines.count else { return nil }
@@ -314,8 +314,8 @@ final class SharedStateInventoryTests: XCTestCase {
     /// The router must not write any peer property directly.
     ///
     /// This started as an inverted assertion: thirteen entries proving the writes were
-    /// unsynchronized. Task 4.3 replaced all of them with three `peerLock`-taking mutators —
-    /// `adoptAnnouncedTerms`, `clearSyncBackoff`, `creditInbound` — so the list is empty.
+    /// unsynchronized. Task 4.3 replaced all of them with three `peerLock`-taking mutators—`adoptAnnouncedTerms`,
+    /// `clearSyncBackoff`, `creditInbound`—so the list is empty.
     ///
     /// **The compiler is the enforcement, not this test.** Every peer property in the inventory is
     /// now a get-only computed accessor, so `peer.alive = true` from `LXMRouter` does not build.

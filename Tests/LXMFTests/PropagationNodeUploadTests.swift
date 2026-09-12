@@ -12,14 +12,14 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/021` — the propagation node's *packet* upload path.
+/// `swift_devel/bugs/021`—the propagation node's *packet* upload path.
 ///
 /// Python's `propagation_link_established` sets **both** a packet callback and the resource
 /// callbacks (`LXMRouter.py:2189-2193`); the port wired only the resource path, so
 /// `link.onDataReceived` stayed nil and ReticulumSwift's `Link` dropped the plaintext without a
 /// proof. Python clients take the packet path for any message whose propagation container fits
-/// `LINK_PACKET_MAX_CONTENT = 319` bytes (`LXMessage.py:439-441`) — an ordinary short chat
-/// message — so a Swift node worked for long messages and lost short ones, silently.
+/// `LINK_PACKET_MAX_CONTENT = 319` bytes (`LXMessage.py:439-441`)—an ordinary short chat
+/// message—so a Swift node worked for long messages and lost short ones, silently.
 ///
 /// `LXMPropagationNodeTests` drives `handleInboundPropagationResource` directly, which is the
 /// resource path only; these tests put a real DATA packet on a real link, because the defect is
@@ -99,8 +99,8 @@ final class PropagationNodeTests: XCTestCase {
     }
 
     /// The reject half of `propagation_packet` (`LXMRouter.py:2253-2256`): a payload whose stamps
-    /// do not all validate is answered with `ERROR_INVALID_STAMP` and the link is torn down —
-    /// not proved, not silently dropped.
+    /// do not all validate is answered with `ERROR_INVALID_STAMP` and the link is torn down—not
+    /// proved, not silently dropped.
     func testInvalidStampUploadIsRejectedNotProved() throws {
         let link = try openClientLink()
         // B now demands real work for a client upload; a zero stamp cannot satisfy it.

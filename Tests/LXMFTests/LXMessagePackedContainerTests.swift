@@ -55,7 +55,7 @@ final class LXMessagePackedContainerTests: XCTestCase {
     func testPackedContainerIsMsgpackDict() throws {
         let msg = try makeMessage()
         let container = try msg.packedContainer()
-        // Decode container — must be a msgpack map with "lxmf_bytes" key
+        // Decode container—must be a msgpack map with "lxmf_bytes" key
         guard case .map(let pairs) = try MsgPack.decode(container) else {
             XCTFail("packedContainer must decode as a msgpack map")
             return
@@ -124,7 +124,7 @@ final class LXMessagePackedContainerTests: XCTestCase {
 
     /// Test 7: unpackFromFile on raw packed bytes (legacy) falls back gracefully.
     ///
-    /// Files written by earlier Swift versions contain raw bytes — we must read them too.
+    /// Files written by earlier Swift versions contain raw bytes, which must still be readable.
     func testUnpackFromFileHandlesLegacyRawBytes() throws {
         let msg = try makeMessage(content: "Legacy bytes")
         guard let raw = msg.packed else {
@@ -138,7 +138,7 @@ final class LXMessagePackedContainerTests: XCTestCase {
         let handle = try FileHandle(forReadingFrom: tmpURL)
         defer { handle.closeFile() }
 
-        // Must not throw — fallback to raw unpack
+        // Must not throw—fallback to raw unpack
         let restored = try LXMessage.unpackFromFile(handle)
         XCTAssertEqual(restored.destinationHash, msg.destinationHash)
         XCTAssertEqual(restored.content, msg.content)

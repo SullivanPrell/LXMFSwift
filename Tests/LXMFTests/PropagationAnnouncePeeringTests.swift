@@ -12,9 +12,9 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/046` — a propagation node peers with the propagation nodes it hears announce.
+/// `swift_devel/bugs/046`—a propagation node peers with the propagation nodes it hears announce.
 ///
-/// Python peers on two paths. `PropagationPeeringTests` covers the reactive one — the incoming-sync
+/// Python peers on two paths. `PropagationPeeringTests` covers the reactive one—the incoming-sync
 /// path `bugs/042` named. This file covers the proactive one, `LXMF/Handlers.py:56-99`, which is the
 /// path that *starts* the relationship.
 ///
@@ -25,7 +25,7 @@ import ReticulumSwift
 /// path exists.
 ///
 /// **The announce is delivered over the wire, not by calling the router.** The defect is precisely
-/// that no registered handler consults a propagation announce — both of the port's handlers return
+/// that no registered handler consults a propagation announce—both of the port's handlers return
 /// early unless the announce is from the node's own *outbound* PN (`Handlers.swift:104`,
 /// `LXMRouter.swift:3390`). A test that reached past the handler and called a router method would
 /// pass against the broken tree, because the router method is not what is missing.
@@ -108,7 +108,7 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
     func testAPathResponseDoesNotCreateAPeer() throws {
         let net = try makeTwoNodes()
         // Without a known path this passes whatever the handler does, because an unknown hop count
-        // already fails the depth test — the assertion would then be about path knowledge and not
+        // already fails the depth test—the assertion would then be about path knowledge and not
         // about path responses at all. Seeding the path leaves exactly one reason to refuse.
         net.movePathToRemote(hops: 1)
 
@@ -145,7 +145,7 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
                         "precondition: the remote is a peer")
 
         // The mesh grew: the remote is now reachable only via a longer path than
-        // `autopeerMaxdepth` allows. The default depth is left alone — moving the *node* is what
+        // `autopeerMaxdepth` allows. The default depth is left alone—moving the *node* is what
         // the reference's branch is about, and lowering the setting instead would pass against an
         // implementation that read the setting once at peering time.
         net.movePathToRemote(hops: UInt8(net.node.autopeerMaxdepth + 1))
@@ -264,7 +264,7 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
         ///
         /// Announced through `Transport.announce` rather than `router.announcePropagationNode()`
         /// because `Destination.announce` resolves its transport from `Reticulum.shared`
-        /// (`Destination.swift:510`) and returns nil when there is none — two independent
+        /// (`Destination.swift:510`) and returns nil when there is none—two independent
         /// `Transport` instances is exactly the topology a peering test needs, and in it the
         /// router's own announce method is a silent no-op. The app data is the router's, so what
         /// travels is what a real node advertises.
@@ -279,12 +279,12 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
 
         /// Hand an announce to the public handler with a chosen `isPathResponse` and node state.
         ///
-        /// Only for the cases the wire cannot produce on demand — a path response, and a node
+        /// Only for the cases the wire cannot produce on demand—a path response, and a node
         /// announcing that it has *stopped* propagating. `testAnAnnounceFromAPropagationNodeCreatesAPeer`
         /// establishes that the registered handlers reach the same router method, so these are the
         /// same code path with one input varied.
         /// `timebase` defaults to a moment in the near future because `unpeer` refuses an
-        /// announce older than the peering it would break (`LXMRouter.py:2049-2057`) — a fixed
+        /// announce older than the peering it would break (`LXMRouter.py:2049-2057`)—a fixed
         /// literal here would be older than the timebase the real announce carried, so the
         /// unpeer cases would pass for the wrong reason: stale, not disqualified.
         func deliverAnnounceDirectly(nodeState: Bool = true,
@@ -324,7 +324,7 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
             test.wait(for: [queued], timeout: 5.0)
             // `send` also kicks off `processOutbound()` on that same background task, and it
             // writes `nextDeliveryAttempt` too. Settle before returning, so the caller's timer is
-            // set after the last writer other than the announce trigger has finished — otherwise
+            // set after the last writer other than the announce trigger has finished—otherwise
             // the assertion races the queueing that set it up.
             let settled = test.expectation(description: "outbound processing settled")
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) { settled.fulfill() }

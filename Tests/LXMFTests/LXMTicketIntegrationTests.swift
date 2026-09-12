@@ -121,7 +121,7 @@ final class LXMTicketIntegrationTests: XCTestCase {
         router.rememberTicket(destinationHash: dst.hash, expiry: expiry, ticket: ticket)
 
         let msg = LXMessage(destination: dst, source: src, content: "With ticket")
-        // Don't set outboundTicket manually — router.send() should do it
+        // Don't set outboundTicket manually—router.send() should do it
         XCTAssertNil(msg.outboundTicket, "outboundTicket must be nil before send()")
 
         // Register source so the destination lookup works
@@ -131,8 +131,8 @@ final class LXMTicketIntegrationTests: XCTestCase {
         do {
             try router.send(msg)
         } catch {
-            // send() may fail (e.g. no transport path) — that's fine for this test
-            // We only care that outboundTicket was set before pack() was called
+            // send() may fail (for example, no transport path)—that's fine for this test
+            // Only outboundTicket being set before pack() was called matters here
         }
 
         XCTAssertEqual(msg.outboundTicket, ticket,
@@ -157,7 +157,7 @@ final class LXMTicketIntegrationTests: XCTestCase {
         do {
             try router.send(msg)
         } catch {
-            // Delivery failure OK — we're just checking that the field was added
+            // Delivery failure OK; this only checks that the field was added
         }
 
         let ticketFieldKey = Int(Field.ticket.rawValue)

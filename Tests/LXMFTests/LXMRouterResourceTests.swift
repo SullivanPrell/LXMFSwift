@@ -12,7 +12,7 @@ import XCTest
 import LXMF
 import ReticulumSwift
 
-/// Tests for LXMF Resource delivery — large messages (> 319 bytes content) sent as Resources over links.
+/// Tests for LXMF Resource delivery—large messages (> 319 bytes content) sent as Resources over links.
 final class LXMRouterResourceTests: XCTestCase {
 
     // 319 = Link.mdu (464) - lxmfOverhead (145). Content at this boundary or below uses .packet.
@@ -37,7 +37,7 @@ final class LXMRouterResourceTests: XCTestCase {
 
     func testExactlyAtLimitUsesPacket() throws {
         let (src, dst, _, _) = try makeDeliveryPair()
-        // Content at exactly linkPacketMaxContent — should still be .packet.
+        // Content at exactly linkPacketMaxContent—should still be .packet.
         let exactContent = String(repeating: "Y", count: Self.linkPacketMaxContent)
         let msg = LXMessage(destination: dst, source: src, content: exactContent)
         try msg.pack()
@@ -60,7 +60,7 @@ final class LXMRouterResourceTests: XCTestCase {
         try msg.pack()
         XCTAssertEqual(msg.representation, .resource)
 
-        // Resource carries the FULL packed bytes (including dest hash) — matches Python LXMessage.__as_resource().
+        // Resource carries the FULL packed bytes (including dest hash)—matches Python LXMessage.__as_resource().
         let packed = msg.packed!
 
         // Receiver: bind ResourceTransfer on B side, collect assembled payload.
@@ -88,7 +88,7 @@ final class LXMRouterResourceTests: XCTestCase {
         XCTAssertTrue(senderComplete)
         XCTAssertNotNil(receivedData)
 
-        // Resource data IS the full packed LXMessage bytes — decode directly.
+        // Resource data IS the full packed LXMessage bytes—decode directly.
         let decoded = try LXMessage.unpack(receivedData!)
         XCTAssertEqual(decoded.contentAsString, bigContent)
         XCTAssertEqual(decoded.destinationHash, dst.hash)
@@ -120,7 +120,7 @@ final class LXMRouterResourceTests: XCTestCase {
             receiveExp.fulfill()
         }
 
-        // Sender side: resource carries FULL packed bytes (mirrors what LXMRouter.sendOverLink will do).
+        // Sender side: resource carries FULL packed bytes (mirrors what LXMRouter.sendOverLink does).
         let body = msg.packed!
         let sender = ResourceTransfer(link: aLink)
         var delivered = false
@@ -177,7 +177,7 @@ final class LXMRouterResourceTests: XCTestCase {
         bTransport.registeredDestinations[dst.hash]?.onLinkEstablished?(bLink)
 
         // Sender side: send the FULL packed message over the link.
-        // Python DIRECT delivery (link-based) sends self.packed in full — the destination
+        // Python DIRECT delivery (link-based) sends self.packed in full—the destination
         // hash is NOT stripped, so the receiver must NOT prepend it again.
         // (OPPORTUNISTIC delivery strips the dest hash; DIRECT link delivery does not.)
         let body = msg.packed!
@@ -232,14 +232,14 @@ final class LXMRouterResourceTests: XCTestCase {
         // Design D10 named it as a test whose construction made `bugs/014` unobservable: on a
         // healthy loopback link the proof always comes straight back, so "the callback fired"
         // reads identically whether delivery is reported at send time or at proof time. It
-        // passed before the fix and passes after it, which is precisely the problem — it pinned
+        // passed before the fix and passes after it, which is precisely the problem—it pinned
         // the broken behaviour rather than testing the right one.
         //
         // Left in place because it still earns its keep: the message really does travel A→B and
         // arrive intact. But *when* delivery may be reported now belongs to
         // `ProofGatedDeliveryTests`, which holds the proof back so the two events can be
         // separated and ordered against each other. Do not add delivery-timing assertions
-        // here — a healthy link cannot express them.
+        // here—a healthy link cannot express them.
         var deliveredMsg: LXMessage?
         let deliverExp = expectation(description: "sender marks delivered")
         msg.onDelivery = { m in
@@ -327,7 +327,7 @@ extension LXMRouterResourceTests {
         return (src, dst, srcId, dstId)
     }
 
-    /// Establish a fully-active loopback link pair (A initiates to B).
+    /// Establish a fully active loopback link pair (A initiates to B).
     ///
     /// Returns (aTransport, bTransport, aLink, bLink).
     private func establishLoopbackLinks() throws -> (Transport, Transport, Link, Link) {

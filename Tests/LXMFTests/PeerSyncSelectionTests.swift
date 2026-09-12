@@ -12,7 +12,7 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/045` — a sync pass syncs **one** peer, chosen from a speed-weighted pool, and
+/// `swift_devel/bugs/045`—a sync pass syncs **one** peer, chosen from a speed-weighted pool, and
 /// culls peers unreachable past the maximum.
 ///
 /// Python's `sync_peers()` (`LXMRouter.py:2131-2183`) does four things in order: cull non-static
@@ -20,7 +20,7 @@ import ReticulumSwift
 /// build a pool from the `FASTEST_N_RANDOM_POOL` fastest by `sync_transfer_rate` plus up to as many
 /// again of unknown speed, and sync exactly one of them at random.
 ///
-/// Swift's was `for peer in peerList { peer.sync() }` — four of the five steps missing. It is
+/// Swift's was `for peer in peerList { peer.sync() }`—four of the five steps missing. It is
 /// latent only because the job loop never calls it (`bugs/019`); it becomes the node's real sync
 /// behaviour as soon as that lands, which is why it is fixed in the same change rather than after.
 final class PeerSyncSelectionTests: XCTestCase {
@@ -74,7 +74,7 @@ final class PeerSyncSelectionTests: XCTestCase {
         // Stamp costs, so `sync()` gets past its first guard. No peering key is assigned: this
         // suite's observable is `lastSyncAttempt`, which `sync()` stamps unconditionally before
         // every gate (`LXMPeer.py:269`), so the key was never load-bearing here. Assigning one by
-        // hand is also no longer possible, which is the point — see `swift_devel/bugs/054`.
+        // hand is also no longer possible, which is the point—see `swift_devel/bugs/054`.
         peer.seedAnnouncedTerms(propagationStampCost: 0)
         peer.seedAnnouncedTerms(propagationStampCostFlexibility: 0)
         peer.seedAnnouncedTerms(peeringCost: 0)
@@ -96,7 +96,7 @@ final class PeerSyncSelectionTests: XCTestCase {
     ///
     /// Not `state != .idle`: `sync()` self-gates on backoff, outstanding messages and transfer
     /// state, so a peer the router *did* select can decline and stay `.idle`, making "not
-    /// selected" and "selected, then declined" indistinguishable. Measured — with the state
+    /// selected" and "selected, then declined" indistinguishable. Measured—with the state
     /// observable, removing the router's own outstanding-messages filter changed nothing any test
     /// could see. The router's selection is a separate property from the peer's decision, and the
     /// reference has both.

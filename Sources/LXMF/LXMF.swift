@@ -10,7 +10,7 @@
 
 import Foundation
 
-/// LXMF application name — used for Destination naming.
+/// LXMF application name—used for Destination naming.
 /// Python: `LXMF.APP_NAME = "lxmf"`
 public let appName = "lxmf"
 
@@ -49,22 +49,22 @@ public enum Field: UInt8 {
 
 /// Keys of the reaction field's map.
 public enum ReactionField: UInt8 {
-    case reactionTo      = 0x00  // Python: REACTION_TO — Bytes, full LXMessage.hash
-    case reactionContent = 0x01  // Python: REACTION_CONTENT — Bytes, reaction content in UTF-8
+    case reactionTo      = 0x00  // Python: REACTION_TO—Bytes, full LXMessage.hash
+    case reactionContent = 0x01  // Python: REACTION_CONTENT—Bytes, reaction content in UTF-8
 }
 
 // MARK: - Comment dict indices (mirrors LXMF.py COMMENT_FOR)
 
 /// Keys of the comment field's map.
 public enum CommentField: UInt8 {
-    case commentFor = 0x00  // Python: COMMENT_FOR — Bytes, full LXMessage.hash
+    case commentFor = 0x00  // Python: COMMENT_FOR—Bytes, full LXMessage.hash
 }
 
 // MARK: - Continuation dict indices (mirrors LXMF.py CONTINUATION_OF)
 
 /// Keys of the continuation field's map.
 public enum ContinuationField: UInt8 {
-    case continuationOf = 0x00  // Python: CONTINUATION_OF — Bytes, full LXMessage.hash
+    case continuationOf = 0x00  // Python: CONTINUATION_OF—Bytes, full LXMessage.hash
 }
 
 // MARK: - Audio mode identifiers
@@ -108,7 +108,7 @@ public func displayNameFromAppData(_ appData: Data?) -> String? {
     if (appData[0] >= 0x90 && appData[0] <= 0x9F) || appData[0] == 0xDC {
         guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)),
               let first = items.first else { return nil }
-        // Accept both bin (.bytes) and str (.string) — Python 3 sends bin,
+        // Accept both bin (.bytes) and str (.string)—Python 3 sends bin,
         // Python 2 / compatibility-mode senders use the legacy str type.
         let rawBytes: Data
         switch first {
@@ -182,7 +182,7 @@ public func compressionSupportFromAppData(_ appData: Data?) -> Bool {
             }
         }
     }
-    // Original (pre-0.5.0) announce format: raw UTF-8 — always supported
+    // Original (pre-0.5.0) announce format: raw UTF-8—always supported
     return true
 }
 
@@ -282,13 +282,13 @@ public func pnStampCostFromAppData(_ appData: Data?) -> Int? {
 /// `pnStampCostFromAppData` each re-decode the same array for one field; this type exists for the
 /// caller that needs most of them at once, rather than adding a third partial decoder.
 struct PropagationNodeAnnounce {
-    /// `pn_config[1]` — the node's peering timebase.
+    /// `pn_config[1]`—the node's peering timebase.
     let timebase: TimeInterval
-    /// `pn_config[2]` — whether the node is currently acting as a propagation node.
+    /// `pn_config[2]`—whether the node is currently acting as a propagation node.
     let isPropagationNode: Bool
-    /// `pn_config[3]` — per-transfer limit, in KB.
+    /// `pn_config[3]`—per-transfer limit, in KB.
     let transferLimit: Double?
-    /// `pn_config[4]` — per-sync limit, in KB.
+    /// `pn_config[4]`—per-sync limit, in KB.
     ///
     /// Python falls back to the transfer limit when unset
     /// (`:2029`, `:2044`); that fallback lives at the peering site, not here.
@@ -297,7 +297,7 @@ struct PropagationNodeAnnounce {
     let stampCost: Int
     let stampCostFlexibility: Int
     let peeringCost: Int
-    /// `pn_config[6]` — node metadata.
+    /// `pn_config[6]`—node metadata.
     ///
     /// Only `pnMetaName` is carried, under the `"name"` key
     /// `LXMPeer.name` already reads (`LXMPeer.swift:765-767`); no other key has a consumer in the

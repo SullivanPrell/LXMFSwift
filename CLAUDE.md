@@ -4,7 +4,7 @@ Swift port of [LXMF](https://github.com/markqvist/LXMF) (Python ref: LXMF 0.9.9)
 Full client **and** propagation-node server. Target: wire + API parity so a Swift
 LXMF node interoperates with Python LXMF nodes.
 
-## Build & Test
+## Build and test
 
 ```bash
 swift test                          # runs the full test suite
@@ -14,7 +14,7 @@ swift test --filter <SuiteName>
 rm -rf .build && swift test
 ```
 
-## Source Map
+## Source map
 
 ```
 Sources/LXMF/
@@ -28,7 +28,7 @@ Sources/LXMF/
 └── Handlers.swift      ← Internal announce handler types
 ```
 
-## Python Reference
+## Python reference
 
 Source of truth for wire format. Files under `LXMF/` in
 <https://github.com/markqvist/LXMF>:
@@ -40,7 +40,7 @@ LXMF/LXStamper.py   ← Stamp PoW
 LXMF/LXMF.py        ← Protocol constants
 ```
 
-## Current State
+## Current state
 
 **Full LXMF client + propagation-node server, wire-compatible with Python LXMF
 0.9.9. ~77% line coverage across 434 tests.**
@@ -65,7 +65,7 @@ LXMF/LXMF.py        ← Protocol constants
 | Feature | Status |
 |---------|--------|
 | `register(identity:transport:displayName:)` | ✅ |
-| `send(_:)` — ticket wiring before pack + `includeTicket` handling | ✅ |
+| `send(_:)`—ticket wiring before pack + `includeTicket` handling | ✅ |
 | `announce(destinationHash:attachedInterface:)` | ✅ |
 | `getAnnounceAppData(destinationHash:)` | ✅ |
 | `deliveryLinkAvailable(destinationHash:)` | ✅ |
@@ -93,12 +93,12 @@ LXMF/LXMF.py        ← Protocol constants
 | `displayNameFromAppData`, `stampCostFromAppData`, `compressionSupportFromAppData` | ✅ |
 | `pnNameFromAppData`, `pnStampCostFromAppData`, `propagationNodeAnnounceDataIsValid` | ✅ |
 
-## Completed (Phase 18–19)
+## Completed (phase 18–19)
 
-- Propagation node server (`enable_propagation`, `LXMPeer`, `sync_peers`, offer/get protocol) — +91 tests
-- QR code delivery (`asQR()` → `CIImage` via `CIQRCodeGenerator`) — +12 tests
+- Propagation node server (`enable_propagation`, `LXMPeer`, `sync_peers`, offer/get protocol)—+91 tests
+- QR code delivery (`asQR()` → `CIImage` via `CIQRCodeGenerator`)—+12 tests
 
-## Source Map (additions)
+## Source map (additions)
 
 ```
 Sources/LXMF/
@@ -112,7 +112,7 @@ Sources/LXMF/
 
 - Depends on `ReticulumSwift` package (local path dependency)
 - TDD: failing test → implement → green → commit; zero regressions tolerated
-- `LXMessage` is a `final class` — all stored properties must be in the class body,
+- `LXMessage` is a `final class`—all stored properties must be in the class body,
   not in `extension` blocks (Swift restriction)
 - `LXMessage` uses `Data` for all byte fields; string convenience via `contentAsString`/`titleAsString`
 - `LXMRouter` uses `NSLock` for thread safety; callers must not hold the lock when calling back

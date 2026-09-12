@@ -97,7 +97,7 @@ extension LXMPeerError {
     }
 }
 
-/// Peer sync strategy — lazy (on-demand) or persistent (continuous).
+/// Peer sync strategy—lazy (on-demand) or persistent (continuous).
 ///
 /// Mirrors Python's `LXMPeer.STRATEGY_*` constants.
 public enum LXMSyncStrategy: Int, Equatable {
@@ -181,7 +181,7 @@ public final class LXMPeer {
     }
     private var unsafeAlive: Bool = false
 
-    /// Unix timestamp when we last received a successful sync from this peer.
+    /// Unix timestamp when this node last received a successful sync from this peer.
     public var lastHeard: TimeInterval {
         peerLock.lock(); defer { peerLock.unlock() }
         return unsafeLastHeard
@@ -233,7 +233,7 @@ public final class LXMPeer {
     /// The setter is `internal`, unlike the machine's own state, and the distinction is
     /// deliberate: seeding a measured *rate* does not fake having driven a sync. `syncPeers`
     /// ranks its candidate pool by this, and testing that ranking needs peers with different
-    /// rates. Faking a peering key, a link or an in-flight offer would fake the machine — those
+    /// rates. Faking a peering key, a link or an in-flight offer would fake the machine—those
     /// are `private`.
     public internal(set) var syncTransferRate: Double {
         get { peerLock.lock(); defer { peerLock.unlock() }; return unsafeSyncTransferRate }
@@ -257,7 +257,7 @@ public final class LXMPeer {
     }
     private var unsafePropagationSyncLimit: Double? = nil
 
-    /// Stamp cost this peer requires for messages it will accept.
+    /// Stamp cost this peer requires for messages it accepts.
     public var propagationStampCost: Int? {
         peerLock.lock(); defer { peerLock.unlock() }
         return unsafePropagationStampCost
@@ -284,11 +284,11 @@ public final class LXMPeer {
     ///
     /// `private(set)`: `generatePeeringKey()` and `peeringKeyReady()` are the only writers.
     /// While this was settable from outside, tests assigned `(stamp, 0)` by hand and asserted the
-    /// method they had just fed — which is how "no writer exists anywhere in `Sources/`" stayed
-    /// invisible from 2026-06-23 to 2026-07-31 (`swift_devel/bugs/054`).
+    /// method they had just fed—which is how "no writer exists anywhere in `Sources/`" stayed
+    /// invisible for the period 2026-06-23 to 2026-07-31 (`swift_devel/bugs/054`).
     /// Lock-guarded on **read** as well as write. The proof of work runs on a background queue
     /// and commits here under `peerLock`; a plain `private(set)` stored property would still let
-    /// any reader on another thread tear the tuple mid-write. TSan caught exactly that — the
+    /// any reader on another thread tear the tuple mid-write. TSan caught exactly that—the
     /// assertions all passed.
     public private(set) var peeringKey: (stamp: Data, value: Int)? {
         get { peerLock.lock(); defer { peerLock.unlock() }; return unsafePeeringKey }
@@ -296,7 +296,7 @@ public final class LXMPeer {
     }
     private var unsafePeeringKey: (stamp: Data, value: Int)? = nil
 
-    /// The value of the peering key we hold, or nil if we hold none.
+    /// The value of the peering key held for this peer, or nil if there is none.
     ///
     /// Python: `LXMPeer.peering_key_value()` (`LXMPeer.py:238-240`).
     public var peeringKeyValue: Int? {
@@ -308,7 +308,7 @@ public final class LXMPeer {
     ///
     /// Single-flight is otherwise unobservable:
     /// eight redundant generations and one produce the same key. Lock-guarded for the same reason
-    /// as `peeringKey` — it is incremented from whichever thread got through the gate.
+    /// as `peeringKey`—it is incremented from whichever thread got through the gate.
     public private(set) var peeringKeyGenerationsStarted: Int {
         get { peerLock.lock(); defer { peerLock.unlock() }; return unsafePeeringKeyGenerationsStarted }
         set { peerLock.lock(); unsafePeeringKeyGenerationsStarted = newValue; peerLock.unlock() }
@@ -332,14 +332,14 @@ public final class LXMPeer {
 
     // MARK: - Statistics
 
-    /// Count of messages we have offered to this peer.
+    /// Count of messages offered to this peer.
     public var offered: Int {
         peerLock.lock(); defer { peerLock.unlock() }
         return unsafeOffered
     }
     private var unsafeOffered: Int = 0
 
-    /// Count of messages we have successfully transferred to this peer.
+    /// Count of messages successfully transferred to this peer.
     public var outgoing: Int {
         peerLock.lock(); defer { peerLock.unlock() }
         return unsafeOutgoing
@@ -373,7 +373,7 @@ public final class LXMPeer {
     /// `private`: a settable link is a way to fake having established one.
     private var link: Link? = nil
 
-    /// The transient IDs included in the most recent sync offer we sent.
+    /// The transient IDs included in the most recent sync offer sent to this peer.
     /// `private`: assigning this is how the deleted tests faked having sent an offer.
     private var lastOffer: [Data] = []
 
@@ -416,19 +416,19 @@ public final class LXMPeer {
 
     // MARK: - Synchronization
     //
-    // Guards this peer's OWN mutable internal state — the batched message queues
+    // Guards this peer's OWN mutable internal state—the batched message queues
     // (`handledMessagesQueue` / `unhandledMessagesQueue`), the count caches
     // (`hmCount` / `umCount` / `hmCountsSynced` / `umCountsSynced`), and the sync
     // state machine (`state` / `link` / `nextSyncAttempt` / `lastSyncAttempt` /
     // `syncBackoff` / `currentlyTransferringMessages` / `lastOffer` / `alive` /
     // `lastHeard` / `offered` / `outgoing` / `txBytes`). The router drives these from
-    // its PN methods (flush / sync / addPeer / savePeers) which — post the router-side
-    // hardening — run OUTSIDE the router lock, so two threads can enter the same peer's
+    // its PN methods (flush / sync / addPeer / savePeers) which—post the router-side
+    // hardening—run OUTSIDE the router lock, so two threads can enter the same peer's
     // `processQueues()` / `sync()` / `toBytes()` concurrently.
     //
     // Discipline: `peerLock` only ever guards short, callout-free critical sections. It
     // is NEVER held across a call into the router (the `peer*` accessors take the router
-    // lock) or across a link callout — such calls are made on snapshots taken under the
+    // lock) or across a link callout—such calls are made on snapshots taken under the
     // lock, with results committed under the lock afterwards (snapshot-under-lock /
     // act-outside / commit-under-lock). Consequently `peerLock` and the router `lock`
     // are never held simultaneously in either direction, so no lock-order inversion is
@@ -492,7 +492,7 @@ public final class LXMPeer {
     ///
     /// Every field here is itself `Optional`, so the parameters are **doubly** optional: omitting
     /// one leaves it unchanged, and passing `nil` explicitly clears it. A single optional cannot
-    /// express both, and conflating them is not harmless — the first version of this API silently
+    /// express both, and conflating them is not harmless—the first version of this API silently
     /// turned `peer.propagationSyncLimit = nil` into a no-op, so a test that meant "clear the sync
     /// limit and prove it falls back to the transfer limit" was instead asserting against a value
     /// the announce had already set.
@@ -517,7 +517,7 @@ public final class LXMPeer {
 
     // MARK: - Mutators the router uses (`swift_devel/bugs/055`)
     //
-    // `LXMRouter` used to write these fields directly — thirteen of them, across three sites, all
+    // `LXMRouter` used to write these fields directly—thirteen of them, across three sites, all
     // from callback threads and none holding `peerLock`, while this peer's own `sync()` read seven
     // of them under it. That is a live race, not a hazard awaiting an external consumer: the
     // router *is* the consumer.
@@ -558,7 +558,7 @@ public final class LXMPeer {
     /// Python does this on re-peering (`LXMRouter.py:2017-2018`). These two fields are the sync
     /// machine's own: `sync()` computes `unsafeNextSyncAttempt = now + unsafeSyncBackoff` under `peerLock`
     /// (`:807-808`), so clearing them from the announce thread with the lock not held could tear
-    /// that deadline — the most consequential of the thirteen cross-object writes, and the two
+    /// that deadline—the most consequential of the thirteen cross-object writes, and the two
     /// the original survey missed.
     func clearSyncBackoff() {
         peerLock.lock(); defer { peerLock.unlock() }
@@ -591,13 +591,13 @@ public final class LXMPeer {
     ///     threading.Thread(target=lambda: peer.sync(), daemon=True).start()
     /// ```
     ///
-    /// That one line is the entire consumer-side write surface of Python's LXMF — `lxmd`,
+    /// That one line is the entire consumer-side write surface of Python's LXMF—`lxmd`,
     /// `Handlers.py` and the rest of NomadNet assign to nothing on a router or a peer. So making
     /// the guarded properties read-only cost exactly one capability, and this restores it as the
     /// intent rather than as the field assignment.
     ///
     /// It does not start the sync; Python's caller spawns a thread for `sync()`, which is public
-    /// here too. Nor does it clear `syncBackoff` — Python's line does not, and a manual nudge that
+    /// here too. Nor does it clear `syncBackoff`—Python's line does not, and a manual nudge that
     /// silently reset the backoff would retry a failing peer at the base interval forever.
     ///
     /// The grace check belongs to the caller, as it does in Python, and `lastSyncAttempt` stays
@@ -673,8 +673,8 @@ public final class LXMPeer {
         else { peer.unsafePropagationSyncLimit = peer.propagationTransferLimit }
 
         // The peering key, as Python's two-element list (`:113-114`). Without this every restart
-        // redoes a full proof of work for every peer — minutes each at the default cost of 18 —
-        // and the node cannot sync to anyone until it finishes.
+        // redoes a full proof of work for every peer—minutes each at the default cost of 18—and
+        // the node cannot sync to anyone until it finishes.
         if case .array(let parts)? = dict["peering_key"], parts.count == 2,
            case .bytes(let stampBytes) = parts[0] {
             let keyValue: Int? = {
@@ -692,7 +692,7 @@ public final class LXMPeer {
         if let v = intVal("propagation_stamp_cost_flexibility")  { peer.unsafePropagationStampCostFlexibility = v }
         if let v = intVal("peering_cost")                        { peer.unsafePeeringCost = v }
 
-        // Handled and unhandled IDs — only add if still in router's propagation_entries
+        // Handled and unhandled IDs—only add if still in router's propagation_entries
         if case .array(let handledArr) = dict["handled_ids"] {
             for item in handledArr {
                 if case .bytes(let tid) = item {
@@ -731,8 +731,8 @@ public final class LXMPeer {
         // them); `handledMessages`/`unhandledMessages` self-lock, so they run below.
         //
         // This used to claim `incoming`/`rxBytes` had no runtime writer and read them outside the
-        // lock. The router has always been one — it credits the sending peer on every inbound
-        // propagated message (`swift_devel/bugs/055`) — so that read raced serialization against
+        // lock. The router has always been one—it credits the sending peer on every inbound
+        // propagated message (`swift_devel/bugs/055`)—so that read raced serialization against
         // the inbound path. They are snapshotted with the rest now.
         peerLock.lock()
         let sAlive           = unsafeAlive
@@ -782,21 +782,21 @@ public final class LXMPeer {
         if let v = sPeeringCost { kv("peering_cost", .int(Int64(v))) }
         else { kv("peering_cost", .nil) }
 
-        // Python's shape exactly — `[stamp, value]` (`LXMPeer.py:145`, written from the list built
+        // Python's shape exactly—`[stamp, value]` (`LXMPeer.py:145`, written from the list built
         // at `:261`). A shape invented here would load as nothing on a Python node reading the
         // same file, and the peer would silently redo the work.
         //
         // `metadata` is deliberately **not** written. Python stores it as a raw dict whose name
         // key is `pnMetaName`, an *integer*, with a bytes value; this port models it as
         // `[String: String]`, which cannot express that. A Swift-shaped map would load on a Python
-        // node and leave `peer.name` nil — worse than absent, because it looks like data.
+        // node and leave `peer.name` nil—worse than absent, because it looks like data.
         peerLock.lock()
         let key = unsafePeeringKey
         peerLock.unlock()
         if let key { kv("peering_key", .array([.bytes(key.stamp), .int(Int64(key.value))])) }
         else { kv("peering_key", .nil) }
 
-        // Handled IDs = propagation_entries entries where our destinationHash is in handledPeers
+        // Handled IDs = propagation_entries entries where this node's destinationHash is in handledPeers
         let handledIDs = handledMessages.map { MsgPack.Value.bytes($0) }
         let unhandledIDs = unhandledMessages.map { MsgPack.Value.bytes($0) }
         kv("handled_ids",   .array(handledIDs))
@@ -861,7 +861,7 @@ public final class LXMPeer {
 
     // MARK: - Message tracking (direct mutations on propagation_entries)
 
-    /// Mark message as handled by this peer (i.e., peer already has it).
+    /// Mark message as handled by this peer (that is, peer already has it).
     ///
     /// Python: `LXMPeer.add_handled_message(transient_id)`.
     public func addHandledMessage(_ transientID: Data) {
@@ -921,7 +921,7 @@ public final class LXMPeer {
     /// Each queue element is popped under `peerLock` (an atomic check-and-`removeLast`,
     /// so two concurrent flushes cooperatively drain the shared queue instead of both
     /// passing an `!isEmpty` guard and then both calling `removeLast` on an emptied
-    /// queue — the crash this hardening fixes). The `handled`/`unhandled` membership
+    /// queue—the crash this hardening fixes). The `handled`/`unhandled` membership
     /// snapshots and the `add`/`remove` calls run OUTSIDE the lock (they self-lock /
     /// route through the router), preserving the original behaviour: membership is
     /// tested against the pre-drain snapshot.
@@ -961,7 +961,7 @@ public final class LXMPeer {
 
     // MARK: - Peering key generation
 
-    /// Whether the key we hold satisfies the cost this peer currently demands.
+    /// Whether the held key satisfies the cost this peer currently demands.
     ///
     /// Exact port of `LXMPeer.peering_key_ready()` (`LXMPeer.py:227-236`), including two things
     /// the inline check this replaces got wrong:
@@ -972,10 +972,10 @@ public final class LXMPeer {
     ///   `LXMRouter.swift:423-426`, and a Swift node that treated 0 as "free" would sync to peers
     ///   a Python node in the same mesh silently skips.
     /// - **A key worth less than the cost is discarded, not merely rejected** (`:233-234`). A peer
-    ///   may raise its cost at any announce; without the reset we would re-offer the same
+    ///   may raise its cost at any announce; without the reset this node would re-offer the same
     ///   too-cheap key on every pass and be refused with `ERROR_INVALID_KEY` forever.
     ///
-    /// Takes `peerLock` — never call it with the lock held.
+    /// Takes `peerLock`—never call it with the lock held.
     private func peeringKeyReady() -> Bool {
         peerLock.lock(); defer { peerLock.unlock() }
         guard let cost = unsafePeeringCost, cost > 0 else { return false }
@@ -992,18 +992,18 @@ public final class LXMPeer {
     ///
     /// **Single-flight**, a deliberate deviation from the reference: Python starts a fresh daemon
     /// thread from every postponed sync pass (`:285-286`), all of which serialise on
-    /// `_peering_key_lock` through a proof of work that takes seconds at the default cost of 18 —
-    /// the job loop can queue them faster than they retire. Here the second and later callers see
+    /// `_peering_key_lock` through a proof of work that takes seconds at the default cost of 18—the
+    /// job loop can queue them faster than they retire. Here the second and later callers see
     /// the in-flight flag and return immediately.
     ///
     /// The proof of work runs with `peerLock` **released**. Identities come from the context, so
-    /// this is also the point at which an unrecallable peer identity stops the attempt — Python
+    /// this is also the point at which an unrecallable peer identity stops the attempt—Python
     /// re-recalls here and logs (`:252-256`).
     @discardableResult
     func generatePeeringKey() -> Bool {
         peerLock.lock()
         guard let cost = unsafePeeringCost, cost > 0 else { peerLock.unlock(); return false }
-        // Any existing key is accepted here, exactly as Python does (`:245`) — **not**
+        // Any existing key is accepted here, exactly as Python does (`:245`)—**not**
         // `key.value >= cost`. Deciding a key's sufficiency is `peeringKeyReady()`'s job, and it
         // discards one that has fallen short. Re-deciding it here would make that discard dead
         // code, and dead code is how the reset stops being tested.
@@ -1017,7 +1017,7 @@ public final class LXMPeer {
 
         guard let ctx = router?.makePeerSyncContext(for: self) else { return false }
 
-        // receiver ‖ sender — the peer we are dialling first, ourselves second (`:258`).
+        // receiver ‖ sender—the peer being dialled first, this node second (`:258`).
         let material = LXStamper.peeringID(receiverIdentityHash: ctx.peerIdentity.hash,
                                            senderIdentityHash: ctx.routerIdentity.hash)
         guard let generated = LXStamper.generateStamp(material: material, targetCost: cost,
@@ -1036,7 +1036,7 @@ public final class LXMPeer {
     /// Attempt a sync with this peer.
     ///
     /// Mirrors Python's `LXMPeer.sync()`.
-    /// In production this would establish an RNS Link; here we expose
+    /// In production this would establish an RNS Link; here the method exposes
     /// the decision logic as testable state changes.
     public func sync() {
         let now = Date().timeIntervalSince1970
@@ -1046,7 +1046,7 @@ public final class LXMPeer {
         // (`swift_devel/bugs/055`). This comment used to say they had none, which was only ever
         // true in the sense that the router's write was unsynchronized too.
         //
-        // Read under the lock, then release it before `peeringKeyReady()` — that self-locks, and
+        // Read under the lock, then release it before `peeringKeyReady()`—that self-locks, and
         // `peerLock` is a non-reentrant `NSLock`.
         peerLock.lock()
         let stampCostsKnown = unsafePropagationStampCost != nil
@@ -1106,8 +1106,8 @@ public final class LXMPeer {
             // ---- ORDERING A: commit every field a callback can read, *then* dial. ----
             //
             // Over a synchronous transport `Link.initiate` and the `onEstablished` assignment
-            // below can run the entire machine — identify, offer, response, resource, teardown —
-            // before either returns. A `state = …` written after one of them stomps a later
+            // below can run the entire machine—identify, offer, response, resource, teardown—before
+            // either returns. A `state = …` written after one of them stomps a later
             // transition, and `syncPeers` only ever selects `.idle` (`LXMRouter.swift:3038`), so
             // the peer is then never dialled again. There must be no state write after the
             // callouts in this branch.
@@ -1155,7 +1155,7 @@ public final class LXMPeer {
     private func syncLinkEstablished(_ link: Link, _ ctx: PeerSyncContext) {
         // Mandatory. The peer keys both its peering-key check and its throttle off the remote
         // identity, and answers an unidentified link with `ERROR_NO_IDENTITY`
-        // (`LXMRouter.swift:3110`) — so without this nothing ever transfers.
+        // (`LXMRouter.swift:3110`)—so without this nothing ever transfers.
         try? link.identify(as: ctx.routerIdentity)
 
         if let rate = link.getEstablishmentRate() {   // already bits/s (`Link.swift:1229`)
@@ -1171,7 +1171,7 @@ public final class LXMPeer {
         unsafeNextSyncAttempt = 0
         peerLock.unlock()
 
-        sync()   // `:542` — re-entry 1
+        sync()   // `:542`—re-entry 1
     }
 
     /// The sync link went away, for any reason.
@@ -1187,7 +1187,7 @@ public final class LXMPeer {
     /// Tear down a sync link that has gone quiet, and release the peer.
     ///
     /// Called only from `LXMRouter.cleanLinks()`. A peer's own sync link is in neither
-    /// `directLinks` nor `activePropagationLinks`, so nothing else collects it — and Python
+    /// `directLinks` nor `activePropagationLinks`, so nothing else collects it—and Python
     /// leaves these to the RNS watchdog. It covers the four stalls that otherwise wedge a peer
     /// out of `syncPeers` selection forever: `.linkReady` after an offer that had nothing left to
     /// send (`:381-383`), `.responseReceived` after `ERROR_NO_ACCESS` (`:419`) or
@@ -1199,7 +1199,7 @@ public final class LXMPeer {
         peerLock.unlock()
 
         guard isStalled, let current, current.noDataFor() > maxInactivity else { return }
-        try? current.teardown()            // callout — may re-enter syncLinkClosed
+        try? current.teardown()            // callout—may re-enter syncLinkClosed
         peerLock.lock()
         link = nil
         unsafeState = .idle
@@ -1211,7 +1211,7 @@ public final class LXMPeer {
     /// Choose what to offer this peer, applying its advertised limits.
     ///
     /// Port of the `LINK_READY` branch of `LXMPeer.sync()` (`LXMPeer.py:327-388`). Returns `nil`
-    /// when nothing survives — Python returns there with the link still open and `state` still
+    /// when nothing survives—Python returns there with the link still open and `state` still
     /// `LINK_READY` (`:381-383`), and so does this; `reapStalledSyncLink` is what rescues it.
     private func buildOffer(_ ctx: PeerSyncContext) -> [Data]? {
         // The link is up and answering, which is itself proof of life (`:328-330`). Committed
@@ -1239,31 +1239,31 @@ public final class LXMPeer {
             }
         }
 
-        // Gone from the store, or too cheap for what this peer now demands: either way it will
+        // Gone from the store, or too cheap for what this peer now demands: either way it can
         // never be sent, so stop carrying it (`:350-356`).
         for tid in purgedIDs   { removeUnhandledMessage(tid) }
         for tid in lowValueIDs { removeUnhandledMessage(tid) }
 
-        // Ascending weight — `priorityWeight * ageWeight * size` (`LXMRouter.py:1056-1067`), not
+        // Ascending weight—`priorityWeight * ageWeight * size` (`LXMRouter.py:1056-1067`), not
         // receive time. With a per-sync limit the order decides what fits.
         candidates.sort { $0.weight < $1.weight }
 
-        let perMessageOverhead = 16     // `:359` — really 2 bytes, held higher deliberately
-        var cumulative         = 24     // `:360` — highest reasonable binary structure overhead
+        let perMessageOverhead = 16     // `:359`—really 2 bytes, held higher deliberately
+        var cumulative         = 24     // `:360`—highest reasonable binary structure overhead
         var offerIDs: [Data] = []
 
         for candidate in candidates {
             let transferSize = candidate.size + perMessageOverhead
             let nextSize     = cumulative + transferSize
 
-            // Bigger than this peer will accept in one message: it can never be delivered, so
+            // Bigger than this peer accepts in one message: it can never be delivered, so
             // record it as handled rather than re-offering it forever (`:370-373`).
             if let limit = transferLimit, transferSize > Int(limit * 1000) {
                 addHandledMessage(candidate.id)
                 removeUnhandledMessage(candidate.id)
                 continue
             }
-            // Over the per-sync budget: skipped, not dropped — a later sync carries it (`:375`).
+            // Over the per-sync budget: skipped, not dropped—a later sync carries it (`:375`).
             if let limit = syncLimit, nextSize >= Int(limit * 1000) { continue }
 
             cumulative += transferSize
@@ -1298,7 +1298,7 @@ public final class LXMPeer {
         ])
 
         do {
-            // `nativeValue:`, not `data:` — the latter wraps the payload as msgpack `.bytes`
+            // `nativeValue:`, not `data:`—the latter wraps the payload as msgpack `.bytes`
             // (`LinkRequest.swift:316`) and a Python node rejects that. An offer larger than the
             // link MDU becomes an outbound Resource automatically (`:388`), which at 32-byte IDs
             // is the common case beyond about a dozen messages.
@@ -1317,13 +1317,13 @@ public final class LXMPeer {
 
     /// The offer request could not be sent, or was never answered.
     ///
-    /// Port of `LXMPeer.request_failed` (`LXMPeer.py:395-398`) — absent from this port until now.
+    /// Port of `LXMPeer.request_failed` (`LXMPeer.py:395-398`)—absent from this port until now.
     private func requestFailed(_ ctx: PeerSyncContext) {
         peerLock.lock()
         let link = self.link
         peerLock.unlock()
 
-        if let link { try? link.teardown() }      // callout — may re-enter syncLinkClosed
+        if let link { try? link.teardown() }      // callout—may re-enter syncLinkClosed
 
         peerLock.lock()
         self.link = nil
@@ -1336,7 +1336,7 @@ public final class LXMPeer {
     /// Act on what the peer answered.
     ///
     /// Port of `LXMPeer.offer_response` (`LXMPeer.py:400-490`),
-    /// **with its side effects** — the branches are not merely classified, they are carried out.
+    /// **with its side effects**—the branches are not merely classified, they are carried out.
     private func offerResponse(_ data: Data, _ ctx: PeerSyncContext) {
         peerLock.lock()
         unsafeState = .responseReceived
@@ -1374,7 +1374,7 @@ public final class LXMPeer {
                 return
 
             case .noAccess:
-                // Told we are not welcome. Break the peering rather than dial it forever
+                // Told this node is not welcome. Break the peering rather than dial it forever
                 // (`:416-419`). The link is left open, as Python leaves it; the reaper collects it.
                 ctx.unpeer(destinationHash)
                 return
@@ -1390,7 +1390,7 @@ public final class LXMPeer {
             case .invalidKey:
                 // **A Swift-only branch.** Python has none: the integer falls into
                 // `for transient_id in response`, raises `TypeError`, and lands in the except at
-                // `:482-490` — which tears down and resets without touching the messages. Doing
+                // `:482-490`—which tears down and resets without touching the messages. Doing
                 // that here is not enough, because the key it refused would be re-offered
                 // unchanged on every subsequent sync. So the key is discarded and rebuilt, and
                 // the offered messages stay **unhandled**: they were not delivered.
@@ -1426,8 +1426,8 @@ public final class LXMPeer {
             let requested = wanted.compactMap { value -> Data? in
                 if case .bytes(let b) = value { return Data(b) } else { return nil }
             }
-            // Anything offered and not asked for, the peer already has from someone else — mark
-            // it handled first, so a store that changes under us cannot lose the bookkeeping
+            // Anything offered and not asked for, the peer already has from someone else—mark
+            // it handled first, so a store that changes underneath cannot lose the bookkeeping
             // (`:443-448`).
             let requestedSet = Set(requested)
             for tid in offeredIDs where !requestedSet.contains(tid) {
@@ -1441,8 +1441,8 @@ public final class LXMPeer {
         }
 
         guard !wantedIDs.isEmpty else {
-            // Nothing to send. Note `offered` accrues here but the persistent re-sync does not —
-            // that belongs only to a completed transfer (`:475-480`).
+            // Nothing to send. Note `offered` accrues here but the persistent re-sync does not—that
+            // belongs only to a completed transfer (`:475-480`).
             peerLock.lock()
             self.unsafeOffered += offeredIDs.count
             let link = self.link
@@ -1480,7 +1480,7 @@ public final class LXMPeer {
     private func sendWantedMessages(_ ids: [Data], _ ctx: PeerSyncContext) {
         // Files that vanished between the offer and now are skipped silently, exactly as Python
         // skips a missing path (`:459-464`). `bodies` can therefore be shorter than `ids`, and
-        // `ids` is still what gets marked handled — faithful to `:469`.
+        // `ids` is still what gets marked handled—faithful to `:469`.
         let bodies = ids.compactMap { ctx.messageBytes($0) }
         guard !bodies.isEmpty else {
             peerLock.lock()
@@ -1493,7 +1493,7 @@ public final class LXMPeer {
         }
 
         // `[timestamp, [whole message files]]` (`:466`). Each element is the on-disk file
-        // verbatim — LXMF bytes with the 32-byte propagation stamp still attached — because the
+        // verbatim—LXMF bytes with the 32-byte propagation stamp still attached—because the
         // receiver splits the stamp back off and validates it (`LXStamper.py:84-96`).
         let payload = MsgPack.encode(.array([
             .double(ctx.now()),
@@ -1516,7 +1516,7 @@ public final class LXMPeer {
         // ---- ORDERING C: commit the index, then send. ----
         // A synchronous conclusion inside `send` would otherwise find
         // `currentlyTransferringMessages == nil`, take the abort branch below, and leave the
-        // interlock at `:315-317` armed forever — no further sync would ever start.
+        // interlock at `:315-317` armed forever—no further sync would ever start.
         peerLock.lock()
         currentlyTransferringMessages = ids
         currentSyncTransferStarted    = ctx.now()
@@ -1524,7 +1524,7 @@ public final class LXMPeer {
         peerLock.unlock()
 
         do {
-            // Never `segmentSize:` — the receiver derives its own part count from its view of the
+            // Never `segmentSize:`—the receiver derives its own part count from its view of the
             // link, and a disagreement means the transfer never completes
             // (`ResourceTransfer.swift:406-414`).
             try transfer.send(payload: payload)
@@ -1564,7 +1564,7 @@ public final class LXMPeer {
         }
 
         guard let transferring else {
-            // Python logs this and then falls into `for transient_id in None` (`:494-498`) — it
+            // Python logs this and then falls into `for transient_id in None` (`:494-498`)—it
             // is missing the `return` its own log message says it takes.
             if let link { try? link.teardown() }
             peerLock.lock()
@@ -1579,12 +1579,12 @@ public final class LXMPeer {
             removeUnhandledMessage(tid)
         }
 
-        if let link { try? link.teardown() }      // callout — may re-enter syncLinkClosed
+        if let link { try? link.teardown() }      // callout—may re-enter syncLinkClosed
 
         peerLock.lock()
         self.link = nil
         unsafeState = .idle
-        // Guarded, as Python guards it (`:509`) — an aborted transfer can conclude with no start
+        // Guarded, as Python guards it (`:509`)—an aborted transfer can conclude with no start
         // time, and dividing by `now - nil` is not a thing that has a sensible answer.
         if let startedAt {
             let elapsed = secondsSince(startedAt)

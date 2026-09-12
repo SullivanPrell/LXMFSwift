@@ -19,7 +19,7 @@ import ReticulumSwift
 ///   message.set_content_from_string(str)
 ///   message.set_fields(dict)
 ///   message.get_fields()
-///   message.write_to_directory(path) → file path string | None
+///   message.write_to_directory(path) → path string | None
 final class LXMessageConvenienceTests: XCTestCase {
 
     private func makeSrcDst() throws -> (Destination, Destination) {

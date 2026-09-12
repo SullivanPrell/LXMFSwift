@@ -12,11 +12,11 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/049` and `/050` — a node does not offer a peer the messages that peer sent it.
+/// `swift_devel/bugs/049` and `/050`—a node does not offer a peer the messages that peer sent it.
 ///
 /// Two separate omissions with one visible consequence.
 ///
-/// **`bugs/049` — the distribution queue carries no origin.** Python queues
+/// **`bugs/049`—the distribution queue carries no origin.** Python queues
 /// `[transient_id, from_peer]` and skips the originating peer when it fans out:
 ///
 /// ```python
@@ -28,11 +28,11 @@ import ReticulumSwift
 ///             peer.queue_unhandled_message(transient_id)
 /// ```
 ///
-/// Swift's queue is `[Data]` — transient IDs only — so every peer gets every message, including
+/// Swift's queue is `[Data]`—transient IDs only—so every peer gets every message, including
 /// the one that just uploaded it. Python also marks the message *handled* for the sender at the
 /// ingest site (`:2445`, `peer.queue_handled_message(transient_id)`), which this port omits.
 ///
-/// **`bugs/050` — `addPeer` back-fills the whole store.** Python's `peer()` constructs a peer and
+/// **`bugs/050`—`addPeer` back-fills the whole store.** Python's `peer()` constructs a peer and
 /// sets its advertised terms and nothing else (`:2032-2045`); `unhandled_messages` is a *derived*
 /// property over `propagation_entries` (`LXMPeer.py:583-588`), so a brand-new peer has none.
 /// Seeding happens only in `from_bytes` (`:118-129`), restoring sets that were previously
@@ -59,7 +59,7 @@ final class PeerDistributionOriginTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - bugs/049 — the origin exclusion
+    // MARK: - bugs/049—the origin exclusion
 
     func testAMessageIsNotOfferedBackToThePeerThatSentIt() throws {
         let router = try makeNode()
@@ -89,8 +89,8 @@ final class PeerDistributionOriginTests: XCTestCase {
         let other  = try addPeer(to: router, tag: 0xB2)
 
         // Stored WITHOUT going through `ingestPropagatedLXM`, so the sender is not also marked
-        // handled. Both mechanisms exist in the reference — `queue_handled_message` at
-        // LXMRouter.py:2445 and `if peer != from_peer` at :2484 — and with ingest driving the test
+        // handled. Both mechanisms exist in the reference—`queue_handled_message` at
+        // LXMRouter.py:2445 and `if peer != from_peer` at :2484—and with ingest driving the test
         // the handled-marking alone satisfies it, leaving the exclusion unfalsifiable. This drives
         // the queue directly so the exclusion is the only thing that can hold.
         let tid = try storeWithoutDistributing(in: router)
@@ -132,7 +132,7 @@ final class PeerDistributionOriginTests: XCTestCase {
                       """)
     }
 
-    // MARK: - bugs/050 — a new peer starts empty
+    // MARK: - bugs/050—a new peer starts empty
 
     func testANewPeerIsNotOfferedTheExistingStore() throws {
         let router = try makeNode()

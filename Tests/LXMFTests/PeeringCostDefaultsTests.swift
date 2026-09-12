@@ -12,14 +12,14 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/048` — a propagation node's advertised costs default to the reference's values.
+/// `swift_devel/bugs/048`—a propagation node's advertised costs default to the reference's values.
 ///
 /// Python defaults `peering_cost` to `PEERING_COST = 18`, `propagation_stamp_cost` to
 /// `PROPAGATION_COST = 16` with a `PROPAGATION_COST_MIN = 13` floor applied in `__init__`
 /// (`LXMRouter.py:50-54, 97-103, 136`), and the flexibility to `PROPAGATION_COST_FLEX = 3`. This
 /// port hardcoded all three to `0`.
 ///
-/// A zero peering cost is not "no proof of work required" on the Python side — it is a value that
+/// A zero peering cost is not "no proof of work required" on the Python side—it is a value that
 /// can never be satisfied:
 ///
 /// ```python
@@ -30,7 +30,7 @@ import ReticulumSwift
 ///
 /// So a default-configured node built on this port advertises a cost every Python peer treats as
 /// permanently unmeetable. The peering succeeds, the peer sits in the table, and every sync pass
-/// postpones — silently, forever. Nothing on either side reports an error.
+/// postpones—silently, forever. Nothing on either side reports an error.
 ///
 /// The three constants that *were* ported all have `default…` statics behind them
 /// (`defaultAutopeer`, `defaultMaxPeers`, `defaultMaxPeeringCost`); the three that were not are
@@ -137,7 +137,7 @@ final class PeeringCostDefaultsTests: XCTestCase {
         try router.enablePropagation(storagePath: tempDir)
 
         // Field 5 of the announce is `[stamp_cost, flexibility, peering_cost]`
-        // (`LXMRouter.py:327`) — decoded here exactly as a remote peer decodes it.
+        // (`LXMRouter.py:327`)—decoded here exactly as a remote peer decodes it.
         let announce = try XCTUnwrap(PropagationNodeAnnounce(appData: router.getPropagationNodeAppData()),
                                      "the node's own announce data must decode as a peer reads it")
 

@@ -12,18 +12,18 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/051` — a configured static peering actually happens, and survives a restart.
+/// `swift_devel/bugs/051`—a configured static peering actually happens, and survives a restart.
 ///
 /// Python activates static peers at the end of `enable_propagation` (`LXMRouter.py:633-641`): any
 /// static peer that was not restored from disk gets an entry, and one that has never been heard
-/// from gets a path request — a peer that was offline at startup will not announce on its own, so
+/// from gets a path request—a peer that was offline at startup does not announce on its own, so
 /// the solicited path response is the only way its advertised terms are ever learned.
 ///
 /// The port had `staticPeers` as a set that rotation and sync selection filtered against, and no
 /// code path that ever put a peer into the table because of it. An operator could configure a
 /// peering and get nothing: no entry, no path request, no error.
 ///
-/// `swift_devel/bugs/052` — and the table is written back, not only read. Python persists on exit
+/// `swift_devel/bugs/052`—and the table is written back, not only read. Python persists on exit
 /// via atexit and the SIGINT/SIGTERM handlers (`:307-309`, `:1400-1423`). This port had a fully
 /// implemented reader for a file no production path produced, because `savePeers` was reachable
 /// only from `disablePropagation`, which nothing calls.

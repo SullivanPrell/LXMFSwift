@@ -12,7 +12,7 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/042` — a propagation node acquires peers from the syncs it receives.
+/// `swift_devel/bugs/042`—a propagation node acquires peers from the syncs it receives.
 ///
 /// Python peers on the incoming-sync path (`LXMF/LXMRouter.py:2366-2375`): on concluding a
 /// propagation transfer from a remote it does not already know, it recalls that remote's announce
@@ -22,7 +22,7 @@ import ReticulumSwift
 /// **Nothing in this file calls `addPeer`.** That is the point. Every existing peer test in the
 /// package constructs its peers by hand (`LXMPropagationNodeTests.swift:289,297-298,314,322,354`),
 /// which is why "no code path in `Sources/` creates a peer" was invisible for the life of the port
-/// — a suite that builds the state under test cannot observe that production never builds it.
+///—a suite that builds the state under test cannot observe that production never builds it.
 ///
 /// The upload goes through the real `Link` → `ResourceTransfer` → `onResourceConcluded` wiring
 /// rather than calling the router's ingest method directly, so the seam these tests depend on (the
@@ -71,7 +71,7 @@ final class PropagationPeeringTests: XCTestCase {
 
     // MARK: - The gates
     //
-    // Each of these fails against 1.4's implementation with only its own gate removed — not
+    // Each of these fails against 1.4's implementation with only its own gate removed—not
     // against the pre-fix tree, where all three pass because no peer is ever created and a gate
     // that is present but never consulted would look identical to one that works.
 
@@ -92,7 +92,7 @@ final class PropagationPeeringTests: XCTestCase {
 
     func testANodeThatIsNoLongerActiveIsNotPeeredWith() throws {
         let net = try makeNodeAndRemote()
-        // Valid propagation-node announce data, but the node-state flag is off — how the reference
+        // Valid propagation-node announce data, but the node-state flag is off—how the reference
         // signals a node that has disabled propagation (`disable_propagation` re-announces with
         // it false). Python gates on `pn_config[2]` (`:2365`).
         net.announceRemoteAsPropagationNode(nodeState: false)
@@ -309,7 +309,7 @@ final class PropagationPeeringTests: XCTestCase {
         try router.register(identity: nodeIdentity, transport: nodeTransport)
         // The node accepts stamps of any cost: these tests upload a message with a cost-0 stamp,
         // and the point under test is peering / ingest, not stamp validation. The reference allows
-        // this — the PROPAGATION_COST_MIN floor applies to the constructor argument, not to later
+        // this—the PROPAGATION_COST_MIN floor applies to the constructor argument, not to later
         // assignment (`LXMRouter.py:136` vs `:147`). Without it the node demands the default 16
         // and the upload is rejected before it ever reaches the path being tested.
         router.propagationStampCost = 0
@@ -326,7 +326,7 @@ final class PropagationPeeringTests: XCTestCase {
         let propagationDestination = try XCTUnwrap(router.propagationDestination)
         nodeTransport.register(destination: propagationDestination)
 
-        // The remote's propagation destination — what the reference keys the peer table by
+        // The remote's propagation destination—what the reference keys the peer table by
         // (`LXMRouter.py:2350-2351`).
         let remotePropagationHash = try Destination(identity: remoteIdentity, direction: .out,
                                                     kind: .single, appName: appName,

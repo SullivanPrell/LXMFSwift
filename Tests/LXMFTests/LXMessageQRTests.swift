@@ -13,7 +13,7 @@ import CoreImage
 import ReticulumSwift
 @testable import LXMF
 
-/// Tests for LXMessage.asQR() — QR code encoding of paper-delivery LXMs.
+/// Tests for LXMessage.asQR()—QR code encoding of paper-delivery LXMs.
 ///
 /// Python reference (LXMessage.py):
 ///   QR_MAX_STORAGE = 2953
@@ -86,7 +86,7 @@ final class LXMessageQRTests: XCTestCase {
         let (src, dst) = try makeSrcDst()
         let msg = LXMessage(destination: dst, source: src,
                             content: "auto-pack", desiredMethod: .paper)
-        // Do NOT call pack() explicitly — asQR() must do it internally
+        // Do NOT call pack() explicitly—asQR() must do it internally
         let image = try msg.asQR()
         XCTAssertNotNil(image, "asQR() must pack automatically if needed")
         XCTAssertNotNil(msg.packed, "packed must be set after asQR()")
@@ -127,7 +127,7 @@ final class LXMessageQRTests: XCTestCase {
     /// Rebuilt for `bugs/026`.
     ///
     /// The previous version asserted only that `asURI()` returned
-    /// something starting with `lxm://` and that `asQR()` did not throw — which is true of a
+    /// something starting with `lxm://` and that `asQR()` did not throw—which is true of a
     /// QR carrying the message in cleartext. A QR code is the form of a paper message most
     /// likely to be photographed by someone it was not shown to, so the assertion that
     /// matters is what the encoded payload contains.

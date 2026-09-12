@@ -418,7 +418,7 @@ final class LXMPropagationNodeTests: XCTestCase {
 
         let tid1 = fakeHash(0x01)
         let tid2 = fakeHash(0x02)
-        // Neither tid is in propagationEntries → we want both
+        // Neither tid is in propagationEntries → both are wanted
 
         let data = MsgPack.Value.array([
             .bytes(Data(repeating: 0x00, count: 32)),  // peering key (no cost)
@@ -468,7 +468,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         router.seedPropagationEntry(existingTID, PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/x",
             received: 0, msgSize: 100, stampValue: 0))
-        // newTID is not stored → we want it
+        // newTID is not stored → it is wanted
 
         let data = MsgPack.Value.array([
             .bytes(Data(repeating: 0x00, count: 32)),
@@ -616,7 +616,7 @@ final class LXMPropagationNodeTests: XCTestCase {
     // left here is the one thing that is about *this* suite's subject: a router that is not a
     // propagation node does nothing at all. That used to be the whole of `syncPeers`' behavioural
     // coverage, and because it returns at the routine's first guard it could not observe anything
-    // the routine did — `swift_devel/bugs/045` sat behind it.
+    // the routine did—`swift_devel/bugs/045` sat behind it.
 
     func testSyncPeersDoesNothingWhenNotAPropagationNode() {
         let router = makeRouter()
@@ -682,7 +682,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         XCTAssertEqual(router.getStampValue(transientID: tid), 13)
     }
 
-    /// `priorityWeight * ageWeight * size` (`LXMRouter.py:1056-1067`) — not `received`, which is
+    /// `priorityWeight * ageWeight * size` (`LXMRouter.py:1056-1067`)—not `received`, which is
     /// what this returned and what this test used to assert.
     func testGetWeightIsPriorityTimesAgeTimesSize() {
         let router = makeRouter()
@@ -695,7 +695,7 @@ final class LXMPropagationNodeTests: XCTestCase {
             received: now, msgSize: 200, stampValue: 0))
         XCTAssertEqual(router.getWeight(transientID: tid), 200.0, accuracy: 1.0)
 
-        // Eight days old — two four-day units.
+        // Eight days old—two four-day units.
         let old = fakeHash(0x02)
         router.seedPropagationEntry(old, PropagationEntry(
             destinationHash: fakeHash(0xA0), filePath: "/tmp/y",
@@ -780,7 +780,7 @@ final class LXMPropagationNodeTests: XCTestCase {
     }
 
     func testAnnouncePropagationNodeReturnNilIfNoDestination() throws {
-        let router = makeRouter()  // No register() call — no propagation destination
+        let router = makeRouter()  // No register() call—no propagation destination
         let receipt = try router.announcePropagationNode()
         XCTAssertNil(receipt)
     }
@@ -889,7 +889,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let router = LXMRouter(transport: serverTransport)
         try router.register(identity: serverId, transport: serverTransport)
         // Accept stamps of any cost: this test uploads a cost-0 stamp and is about ingest, not
-        // stamp validation. Legal in the reference — PROPAGATION_COST_MIN clamps the constructor
+        // stamp validation. Legal in the reference—PROPAGATION_COST_MIN clamps the constructor
         // argument, not later assignment (`LXMRouter.py:136` vs `:147`).
         router.propagationStampCost = 0
         try router.enablePropagation(storagePath: tempDir)
@@ -968,7 +968,7 @@ final class LXMPropagationNodeTests: XCTestCase {
         let router = LXMRouter(transport: serverTransport)
         try router.register(identity: serverId, transport: serverTransport)
         // Accept stamps of any cost: this test uploads a cost-0 stamp and is about ingest, not
-        // stamp validation. Legal in the reference — PROPAGATION_COST_MIN clamps the constructor
+        // stamp validation. Legal in the reference—PROPAGATION_COST_MIN clamps the constructor
         // argument, not later assignment (`LXMRouter.py:136` vs `:147`).
         router.propagationStampCost = 0
         try router.enablePropagation(storagePath: tempDir)

@@ -17,7 +17,7 @@ import ReticulumSwift
 /// rewritten to disk in full on every save.
 ///
 /// These tests pin the Python
-/// behaviour — timestamped entries, expiry at `MESSAGE_EXPIRY * 6`, and a
+/// behaviour—timestamped entries, expiry at `MESSAGE_EXPIRY * 6`, and a
 /// propagation-node tombstone that survives the message being pruned.
 final class TransientIDCacheExpiryTests: XCTestCase {
 
@@ -58,7 +58,7 @@ final class TransientIDCacheExpiryTests: XCTestCase {
     func testExpiryBoundaryIsInclusiveOfRecentEntries() {
         let router = makeRouter()
         let now = Date().timeIntervalSince1970
-        // Just inside the window — must survive.
+        // Just inside the window—must survive.
         let borderline = Data(repeating: 0x03, count: 32)
         router.locallyDeliveredTransientIDs[borderline] = now - LXMRouter.transientIDCacheExpiry + 60
         router.cleanTransientIDCaches()
@@ -95,7 +95,7 @@ final class TransientIDCacheExpiryTests: XCTestCase {
     /// An existing install has a bare msgpack array on disk.
     ///
     /// Loading it must
-    /// migrate rather than discard — discarding would make the node re-deliver
+    /// migrate rather than discard—discarding would make the node re-deliver
     /// every message it had already seen.
     func testLegacyArrayFormatIsMigratedNotDiscarded() throws {
         let dir = tempDir()

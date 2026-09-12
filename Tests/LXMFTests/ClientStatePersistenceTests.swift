@@ -12,9 +12,9 @@ import XCTest
 import ReticulumSwift
 @testable import LXMF
 
-/// Tests that LXMRouter client state (locally-delivered transient ids, outbound
+/// Tests that LXMRouter client state (locally delivered transient ids, outbound
 /// stamp costs, available tickets) is persisted to disk and restored on the next
-/// launch — parity with Python LXMRouter, which reads these files at startup.
+/// launch—parity with Python LXMRouter, which reads these files at startup.
 final class ClientStatePersistenceTests: XCTestCase {
 
     private var dir: String!

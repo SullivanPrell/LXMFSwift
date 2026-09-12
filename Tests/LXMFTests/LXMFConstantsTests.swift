@@ -88,7 +88,7 @@ final class LXMFConstantsTests: XCTestCase {
     }
 
     func testPNStampCostFromAppDataValidMsgpack() {
-        // Same format as above — stamp_cost is at index 5[0]
+        // Same format as above—stamp_cost is at index 5[0]
         let appData = MsgPack.encode(.array([
             .nil,
             .uint(1_000_000),

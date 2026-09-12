@@ -12,14 +12,14 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/055`, step 5 — what a read of shared propagation state is *guaranteed to be*.
+/// `swift_devel/bugs/055`, step 5—what a read of shared propagation state is *guaranteed to be*.
 ///
 /// Encapsulation removed the unsynchronized write path. These pin the other half: that what comes
 /// back is a coherent snapshot rather than a live view, and that holding it cannot reach back into
 /// the router.
 ///
-/// **Only one of these five is evidence for the lock** —
-/// `testIteratingAMessageStoreSnapshotDuringConcurrentMutationCompletes`, which segfaults without
+/// **Only one of these five is evidence for the lock**—`testIteratingAMessageStoreSnapshotDuringConcurrentMutationCompletes`,
+/// which segfaults without
 /// it. The other four are true of any value-typed property and would pass against the code this
 /// change replaced; each says so on itself. They are regression guards for the *shape*, not proof
 /// of the fix, and an earlier version of this file's header implied otherwise.
@@ -61,7 +61,7 @@ final class SnapshotSemanticsTests: XCTestCase {
     /// **Observed red before the fix.
     ///
     /// ** Against the stored `public var` this is a race on the live
-    /// dictionary, and the whole suite took SIGSEGV — an unguarded read hitting a rehash is a
+    /// dictionary, and the whole suite took SIGSEGV—an unguarded read hitting a rehash is a
     /// crash, not a stale value. Recorded in task 1.2's notes with the ThreadSanitizer report.
     func testIteratingAMessageStoreSnapshotDuringConcurrentMutationCompletes() throws {
         let (router, ids) = try makeStore()
@@ -79,7 +79,7 @@ final class SnapshotSemanticsTests: XCTestCase {
                         for (_, entry) in snapshot { bytes &+= entry.msgSize }
                         XCTAssertGreaterThanOrEqual(bytes, 0)
 
-                        // The count cannot change under us: this is a value, not a view.
+                        // The count cannot change underneath: this is a value, not a view.
                         let n = snapshot.count
                         XCTAssertEqual(snapshot.count, n,
                                        "the snapshot changed size while it was being read — it is a live view, not a copy")
@@ -108,7 +108,7 @@ final class SnapshotSemanticsTests: XCTestCase {
     /// `Dictionary`-valued property, locked or not.
     ///
     /// It is here for a different regression: someone deciding the accessor should hand back the
-    /// live storage — via `inout`, an `UnsafeMutablePointer`, or by making the store a class — at
+    /// live storage—via `inout`, an `UnsafeMutablePointer`, or by making the store a class—at
     /// which point every other guarantee in this file collapses. The lock is proved by
     /// `testIteratingAMessageStoreSnapshotDuringConcurrentMutationCompletes`, which does segfault
     /// without it.
@@ -150,7 +150,7 @@ final class SnapshotSemanticsTests: XCTestCase {
     /// The limit of the guarantee, stated so nobody reads more into it than is there.
     ///
     /// A peer-table snapshot copies the *dictionary*. Its elements are `LXMPeer` references, and
-    /// two snapshots taken at different times hand back the same objects — which is correct, and
+    /// two snapshots taken at different times hand back the same objects—which is correct, and
     /// is why `LXMPeer`'s own properties had to be converted in the same change. A snapshot of a
     /// table of classes is not a deep copy and does not pretend to be one.
     func testAPeerTableSnapshotSharesItsPeerObjects() throws {

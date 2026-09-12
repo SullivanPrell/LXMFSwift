@@ -12,7 +12,7 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/054` — a propagation node pushes its store to its peers.
+/// `swift_devel/bugs/054`—a propagation node pushes its store to its peers.
 ///
 /// Every assertion here is about **B's message store**, not A's state machine. The defect these
 /// replace was a machine that set `state = .linkEstablishing` and stopped; asserting A's state
@@ -36,7 +36,7 @@ final class PeerOutboundSyncTests: XCTestCase {
 
     // MARK: - The harness itself
 
-    /// Not a test of the port — a test that the fixture below it means anything.
+    /// Not a test of the port—a test that the fixture below it means anything.
     ///
     /// If A never peers
     /// with B, every sync assertion in this file passes or fails for reasons unrelated to sync.
@@ -56,7 +56,7 @@ final class PeerOutboundSyncTests: XCTestCase {
 
     // MARK: - The peering key (design STEP 4)
 
-    /// T4 — the defect stated directly: `peeringKey` had **no writer anywhere in `Sources/`**.
+    /// T4—the defect stated directly: `peeringKey` had **no writer anywhere in `Sources/`**.
     func testSyncGeneratesThePeeringKeyWhenItIsMissing() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 2)
         let peer = try net.announceBToA()
@@ -75,7 +75,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(peer.peeringKeyValue), 2)
     }
 
-    /// T3 — the generated key is checked by the **real inbound validator**, not by the generator's
+    /// T3—the generated key is checked by the **real inbound validator**, not by the generator's
     /// own idea of validity.
     ///
     /// Both halves live in this package; only a receiver can refute a key.
@@ -103,7 +103,7 @@ final class PeerOutboundSyncTests: XCTestCase {
                           """)
     }
 
-    /// T5 — a peering cost of 0 is permanently unsatisfiable, not "free".
+    /// T5—a peering cost of 0 is permanently unsatisfiable, not "free".
     ///
     /// Python's `if not
     /// self.peering_cost: return False` (`LXMPeer.py:228`) is a falsy test, and 0 is falsy.
@@ -125,7 +125,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         XCTAssertEqual(peer.state, .idle)
     }
 
-    /// T6 — a peer that raises its cost invalidates the key we hold for it.
+    /// T6—a peer that raises its cost invalidates the key held for it.
     func testARaisedPeeringCostDiscardsAndRegeneratesTheKey() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 2)
         let peer = try net.announceBToA()
@@ -134,7 +134,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         let firstStamp = try XCTUnwrap(peer.peeringKey).stamp
         let firstValue = try XCTUnwrap(peer.peeringKeyValue)
 
-        // The peer now demands more than the key we hold is worth.
+        // The peer now demands more than the held key is worth.
         peer.seedAnnouncedTerms(peeringCost: firstValue + 3)
         peer.sync()
 
@@ -149,7 +149,7 @@ final class PeerOutboundSyncTests: XCTestCase {
                           "a key worth more must be different bytes")
     }
 
-    /// T20 — one generation, not one per caller.
+    /// T20—one generation, not one per caller.
     ///
     /// Python starts an unbounded daemon thread per
     /// postponed pass (`LXMPeer.py:285-286`), all serialising on a lock through a multi-second
@@ -179,8 +179,8 @@ final class PeerOutboundSyncTests: XCTestCase {
                        """)
     }
 
-    /// The reference's own path — a postponing `sync()` is what starts generation — must go
-    /// through the same gate, so a job loop firing every 24s cannot pile up proofs of work.
+    /// The reference's own path—a postponing `sync()` is what starts generation—must go
+    /// through the same gate, so a job loop firing every 24 seconds cannot pile up proofs of work.
     func testRepeatedSyncPassesDoNotPileUpGenerations() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
@@ -196,7 +196,7 @@ final class PeerOutboundSyncTests: XCTestCase {
 
     // MARK: - The sync itself (design STEPS 5-8)
 
-    /// T1 — **the defect test.
+    /// T1—**the defect test.
     ///
     /// ** A message stored on A reaches B's store.
     ///
@@ -226,7 +226,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         XCTAssertEqual(peer.state, .idle, "and the peer must be ready for the next pass")
     }
 
-    /// T0 — **the ordering invariant.
+    /// T0—**the ordering invariant.
     ///
     /// ** Over this synchronous wire the whole machine runs inside
     /// `Link.initiate`; a state write after any callout stomps a later transition, and `syncPeers`
@@ -258,7 +258,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         }, "the peer was left wedged after the first sync — one message, then silence forever")
     }
 
-    /// T7 — without identifying, B answers `ERROR_NO_IDENTITY` and nothing transfers.
+    /// T7—without identifying, B answers `ERROR_NO_IDENTITY` and nothing transfers.
     func testTheSyncLinkIdentifiesToThePeerNode() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
@@ -281,7 +281,7 @@ final class PeerOutboundSyncTests: XCTestCase {
                        """)
     }
 
-    /// T18 — a peer with no path gets a path request, and **does not** burn sync backoff for it.
+    /// T18—a peer with no path gets a path request, and **does not** burn sync backoff for it.
     ///
     /// Python bumps the backoff at `:321`, after the path gate, not before.
     func testAMissingPathRequestsOneWithoutBurningBackoff() throws {
@@ -311,7 +311,7 @@ final class PeerOutboundSyncTests: XCTestCase {
 
     // MARK: - The offer (design STEP 6)
 
-    /// T2 — the offer payload is `[peeringKeyStamp, [transientID…]]`, in that order.
+    /// T2—the offer payload is `[peeringKeyStamp, [transientID…]]`, in that order.
     func testTheOfferCarriesThePeeringKeyThenTheTransientIDs() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
@@ -323,7 +323,7 @@ final class PeerOutboundSyncTests: XCTestCase {
             path: LXMPeer.offerRequestPath, allow: .all
         ) { _, value, _, _, _ in
             captured = value
-            return .bool(false)          // "I have everything" — ends the sync cleanly
+            return .bool(false)          // "I have everything"—ends the sync cleanly
         }
 
         let tid = try net.storeMessage(in: net.routerA, size: 400)
@@ -378,7 +378,7 @@ final class PeerOutboundSyncTests: XCTestCase {
 
     // MARK: - Offer responses (design STEP 7)
 
-    /// T9 — `ERROR_THROTTLED` postpones by `PN_STAMP_THROTTLE`.
+    /// T9—`ERROR_THROTTLED` postpones by `PN_STAMP_THROTTLE`.
     func testAThrottledResponsePostponesTheNextSync() throws {
         let peer = try syncAgainst(response: .uint(UInt64(LXMPeerError.throttled.rawValue)))
 
@@ -391,7 +391,7 @@ final class PeerOutboundSyncTests: XCTestCase {
                        """)
     }
 
-    /// T10 — `ERROR_NO_ACCESS` breaks the peering.
+    /// T10—`ERROR_NO_ACCESS` breaks the peering.
     func testANoAccessResponseBreaksThePeering() throws {
         let peer = try syncAgainst(response: .uint(UInt64(LXMPeerError.noAccess.rawValue)))
 
@@ -402,10 +402,10 @@ final class PeerOutboundSyncTests: XCTestCase {
                      """)
     }
 
-    /// T11 — `ERROR_INVALID_KEY` must **not** be read as "the peer wants nothing".
+    /// T11—`ERROR_INVALID_KEY` must **not** be read as "the peer wants nothing".
     ///
     /// Python has no branch for it: the int falls into `for tid in response` and raises, landing
-    /// in the except at `:482-490`. Doing nothing is not an option here — the `default` arm this
+    /// in the except at `:482-490`. Doing nothing is not an option here—the `default` arm this
     /// replaces marked every offered message handled, which loses them silently.
     func testAnInvalidKeyResponseKeepsTheMessagesUnhandled() throws {
         let peer = try syncAgainst(response: .uint(UInt64(LXMPeerError.invalidKey.rawValue)))
@@ -422,7 +422,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         XCTAssertEqual(peer.offered, 0, "nothing was accepted, so nothing was offered")
     }
 
-    /// T8 — `ERROR_NO_IDENTITY` re-identifies and sends the **same** offer again.
+    /// T8—`ERROR_NO_IDENTITY` re-identifies and sends the **same** offer again.
     func testANoIdentityResponseReIdentifiesAndResendsTheOffer() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
@@ -456,8 +456,8 @@ final class PeerOutboundSyncTests: XCTestCase {
     ///
     /// Python re-identifies unconditionally and would loop against such a peer; it merely looks
     /// bounded there because CPython cannot deliver a response from inside `link.request`, so
-    /// each retry starts a fresh stack. Over a synchronous transport — a loopback interface, or
-    /// two routers in one process — the same code recurses until the stack overflows, which is
+    /// each retry starts a fresh stack. Over a synchronous transport—a loopback interface, or
+    /// two routers in one process—the same code recurses until the stack overflows, which is
     /// a crash rather than a slow loop.
     func testAPeerThatAlwaysRefusesIdentificationIsGivenUpOn() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
@@ -486,7 +486,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         XCTAssertEqual(peer.state, .idle, "and the peer must be released, not left mid-sync")
     }
 
-    /// T12 — the peer receives only what it lacks, and everything it already had is marked handled.
+    /// T12—the peer receives only what it lacks, and everything it already had is marked handled.
     func testThePeerReceivesOnlyTheMessagesItLacks() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
@@ -522,7 +522,7 @@ final class PeerOutboundSyncTests: XCTestCase {
 
     // MARK: - The resource (design STEP 8)
 
-    /// T13 — the resource carries `[timestamp, [fileBytes…]]` with the on-disk bytes **verbatim**,
+    /// T13—the resource carries `[timestamp, [fileBytes…]]` with the on-disk bytes **verbatim**,
     /// propagation stamp included.
     ///
     /// The client `/get` path deliberately strips it; this one must not.
@@ -535,7 +535,7 @@ final class PeerOutboundSyncTests: XCTestCase {
 
         // Chained onto B's real handler, not substituted for it: that handler is what sets
         // `resourceStrategy = .acceptApp`, and a replacement that omits it makes B refuse the
-        // resource — the test would then fail for a reason that has nothing to do with the payload.
+        // resource—the test would then fail for a reason that has nothing to do with the payload.
         var captured: Data?
         let realHandler = net.routerB.propagationDestination?.onLinkEstablished
         net.routerB.propagationDestination?.onLinkEstablished = { link in
@@ -568,7 +568,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         XCTAssertEqual(Data(body).suffix(32), onDisk.suffix(32))
     }
 
-    /// T14 — `txBytes` counts the **uncompressed** size, and a transfer rate is recorded.
+    /// T14—`txBytes` counts the **uncompressed** size, and a transfer rate is recorded.
     func testByteAccountingUsesTheUncompressedSize() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
@@ -598,7 +598,7 @@ final class PeerOutboundSyncTests: XCTestCase {
                              """)
     }
 
-    /// T17 — a persistent-strategy peer chains the next batch itself rather than waiting for the
+    /// T17—a persistent-strategy peer chains the next batch itself rather than waiting for the
     /// next scheduled pass.
     func testThePersistentStrategyChainsTheNextBatch() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
@@ -626,7 +626,7 @@ final class PeerOutboundSyncTests: XCTestCase {
 
     // MARK: - Termination (design STEP 9)
 
-    /// T15 — the remote tearing the link down returns the peer to idle.
+    /// T15—the remote tearing the link down returns the peer to idle.
     func testARemoteTeardownReturnsThePeerToIdle() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
@@ -639,7 +639,7 @@ final class PeerOutboundSyncTests: XCTestCase {
             path: LXMPeer.offerRequestPath, allow: .all
         ) { _, _, _, link, _ in
             responderLink = link
-            return nil                      // no response — the sync is left hanging
+            return nil                      // no response—the sync is left hanging
         }
 
         net.routerA.syncPeers()
@@ -669,7 +669,7 @@ final class PeerOutboundSyncTests: XCTestCase {
         XCTAssertTrue(peer.generatePeeringKey())
         _ = try net.storeMessage(in: net.routerA, size: 400)
 
-        // Accept the link, never answer — the peer is stuck in `.requestSent` with a live link.
+        // Accept the link, never answer—the peer is stuck in `.requestSent` with a live link.
         net.routerB.propagationDestination?.registerNativeRequestHandler(
             path: LXMPeer.offerRequestPath, allow: .all
         ) { _, _, _, _, _ in nil }
@@ -716,7 +716,7 @@ final class PeerOutboundSyncTests: XCTestCase {
 
     // MARK: - Persistence (design STEP 10)
 
-    /// T19 — the peering key survives a restart, so a node does not redo the proof of work for
+    /// T19—the peering key survives a restart, so a node does not redo the proof of work for
     /// every peer each time it starts.
     ///
     /// At the default cost of 18 that is minutes per peer.
@@ -781,7 +781,7 @@ final class PeerOutboundSyncTests: XCTestCase {
     func testAMissingSyncLimitFallsBackToTheTransferLimit() throws {
         net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
         let peer = try net.announceBToA()
-        // `.some(nil)` is "clear it", not `nil` — a bare `nil` against a doubly-optional parameter
+        // `.some(nil)` is "clear it", not `nil`—a bare `nil` against a doubly optional parameter
         // binds to the outer `.none`, which means "leave unchanged". That is the whole reason the
         // parameter is doubly optional; see `seedAnnouncedTerms`.
         peer.seedAnnouncedTerms(propagationTransferLimit: 64, propagationSyncLimit: .some(nil))
@@ -792,11 +792,11 @@ final class PeerOutboundSyncTests: XCTestCase {
 
     // MARK: - The surface (design STEP 12)
 
-    /// T21 — a structural guard, not a behavioural one.
+    /// T21—a structural guard, not a behavioural one.
     ///
     /// Every defect this change closes had the same shape: a public method with no production
     /// caller, kept green by tests that assigned the state they then asserted. Access control is
-    /// what makes that impossible to reintroduce — a test physically cannot reach the phases, so a
+    /// what makes that impossible to reintroduce—a test physically cannot reach the phases, so a
     /// dead one accumulates no coverage and shows up in review as an unreferenced `private` method.
     ///
     /// This test fails the moment a new non-private symbol appears on the outbound path.

@@ -12,12 +12,12 @@ import XCTest
 @testable import LXMF
 import ReticulumSwift
 
-/// `swift_devel/bugs/054`, step 3 — the context seam.
+/// `swift_devel/bugs/054`, step 3—the context seam.
 ///
 /// `LXMRouter.transport` is `private` and `LXMPeer` lives in another file. That is the structural
 /// reason the outbound port stopped at a comment: the peer could not reach a transport to dial
 /// with. `makePeerSyncContext` is the one place the outbound path touches the outside world, and
-/// `PeerSyncContext` has no defaulted members and no back-pointer to the router — so a future
+/// `PeerSyncContext` has no defaulted members and no back-pointer to the router—so a future
 /// dependency forces the single construction site to supply it, and no code can reach around it.
 final class PeerSyncContextTests: XCTestCase {
 
@@ -42,8 +42,8 @@ final class PeerSyncContextTests: XCTestCase {
         let net = try makeTwoRouters()
         let ctx = try XCTUnwrap(net.routerA.makePeerSyncContext(for: net.peerB))
 
-        // Python's late resolution (`LXMPeer.py:305`) reads an unqualified `destination_hash` —
-        // a NameError upstream. Resolving from `peer.destinationHash` is what makes that
+        // Python's late resolution (`LXMPeer.py:305`) reads an unqualified `destination_hash`—a
+        // NameError upstream. Resolving from `peer.destinationHash` is what makes that
         // unreachable here rather than merely unlikely.
         XCTAssertEqual(ctx.destination.hash, net.peerB.destinationHash)
     }
@@ -147,7 +147,7 @@ final class PeerSyncContextTests: XCTestCase {
         try routerA.enablePropagation(storagePath: tempDir)
         retained.append(routerA)
 
-        // B's propagation destination, and its identity known to A's transport — which is what a
+        // B's propagation destination, and its identity known to A's transport—which is what a
         // received announce would have done.
         let bPropagation = try Destination(identity: bIdentity, direction: .out, kind: .single,
                                            appName: appName, aspects: ["propagation"])

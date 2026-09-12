@@ -12,7 +12,7 @@ import XCTest
 import ReticulumSwift
 @testable import LXMF
 
-/// Confidentiality of the paper-delivery representation — `bugs/026`.
+/// Confidentiality of the paper-delivery representation—`bugs/026`.
 ///
 /// A paper message exists to cross a physical channel the sender does not control: it is
 /// printed, photographed, handed over. Python encrypts the payload to the destination
@@ -22,13 +22,13 @@ import ReticulumSwift
 ///     # lxmf/LXMF/LXMessage.py:449-451
 ///     encrypted_data    = self.__destination.encrypt(self.packed[DESTINATION_LENGTH:])
 ///     self.paper_packed = self.packed[:DESTINATION_LENGTH] + encrypted_data
-///     # :454-458 — raises TypeError when len(paper_packed) > PAPER_MDU
+///     # :454-458—raises TypeError when len(paper_packed) > PAPER_MDU
 ///
 /// Ingestion is symmetric (`LXMRouter.py:2549-2552` → `:2503-2504`).
 ///
 /// These assertions are the ones the pre-existing round-trip tests could not make.
 /// `LXMessageURITests.testAsURIIsRoundTrippable` and `testIngestValidURIDelivers` checked
-/// only that the destination hash survived a Swift→Swift round trip — which is exactly what
+/// only that the destination hash survived a Swift→Swift round trip—which is exactly what
 /// a plaintext payload permits, so they passed for the whole life of the defect.
 final class LXMessagePaperEncryptionTests: XCTestCase {
 
@@ -43,7 +43,7 @@ final class LXMessagePaperEncryptionTests: XCTestCase {
     }
 
     /// Base64url-decode the `lxm://` payload, exactly as Python's `ingest_lxm_uri` does
-    /// (`LXMRouter.py:2549`) — this is what anyone who photographs the QR obtains.
+    /// (`LXMRouter.py:2549`)—this is what anyone who photographs the QR obtains.
     private func decodePayload(_ uri: String) throws -> Data {
         let encoded = String(uri.dropFirst("lxm://".count))
             .replacingOccurrences(of: "-", with: "+")
@@ -58,7 +58,7 @@ final class LXMessagePaperEncryptionTests: XCTestCase {
     /// Returns deterministic incompressible filler of `byteCount` bytes.
     ///
     /// The filler is a SHA-256 chain rendered as hex, so a size-limit test cannot be
-    /// defeated by a compressor squeezing the body away — the mechanism that made the
+    /// defeated by a compressor squeezing the body away—the mechanism that made the
     /// large-resource cell in `tri-test` unfalsifiable (§6.2).
     private func incompressibleBody(byteCount: Int) -> String {
         var out = ""
@@ -83,7 +83,7 @@ final class LXMessagePaperEncryptionTests: XCTestCase {
         try msg.pack()
         let payload = try decodePayload(try msg.asURI())
 
-        // The destination hash is public by design — it is how the message is addressed.
+        // The destination hash is public by design—it is how the message is addressed.
         XCTAssertEqual(Data(payload.prefix(LXMessage.destinationLength)), msg.destinationHash,
                        "the first 16 bytes must remain the plaintext destination hash")
 
@@ -143,7 +143,7 @@ final class LXMessagePaperEncryptionTests: XCTestCase {
                             content: incompressibleBody(byteCount: LXMessage.paperMDU + 1024),
                             desiredMethod: .paper)
         // Python raises TypeError inside pack() (`LXMessage.py:457-458`) rather than
-        // handing back a URI that silently will not fit in a QR code.
+        // handing back a URI that silently does not fit in a QR code.
         XCTAssertThrowsError(try msg.pack(),
                              "pack() must reject a paper message whose payload exceeds PAPER_MDU")
     }

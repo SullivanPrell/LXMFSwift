@@ -12,7 +12,7 @@ import Foundation
 import CoreImage
 import ReticulumSwift
 
-/// An LXMF message — the core envelope of the Lightweight Extensible
+/// An LXMF message—the core envelope of the Lightweight Extensible
 /// Messaging Format.
 ///
 /// Wire format (mirrors Python's `LXMessage.pack()`):
@@ -73,15 +73,15 @@ public final class LXMessage {
 
     // MARK: - Wire-format sizes (matching Python constants)
 
-    /// 16 bytes — truncated-hash length.
+    /// 16 bytes—truncated-hash length.
     public static let destinationLength = 16
-    /// 64 bytes — Ed25519 signature length.
+    /// 64 bytes—Ed25519 signature length.
     public static let signatureLength   = 64
-    /// 16 bytes — ticket length (same as destination hash).
+    /// 16 bytes—ticket length (same as destination hash).
     public static let ticketLength      = 16
-    /// 8 bytes — f64 timestamp in msgpack payload.
+    /// 8 bytes—f64 timestamp in msgpack payload.
     public static let timestampSize     = 8
-    /// 8 bytes — msgpack array/map framing overhead per message.
+    /// 8 bytes—msgpack array/map framing overhead per message.
     public static let structOverhead    = 8
     /// Total per-message overhead: 2×dest + sig + timestamp + struct.
     public static let lxmfOverhead     = 2 * destinationLength + signatureLength + timestampSize + structOverhead
@@ -130,8 +130,8 @@ public final class LXMessage {
     ///
     /// Matches Python's `LXMessage.paper_packed` (`LXMessage.py:449-451`).
     ///
-    /// Set by `pack()` when `desiredMethod == .paper`, and it is this — never `packed` —
-    /// that `asURI()` and `asQR()` encode. The destination hash stays in the clear
+    /// Set by `pack()` when `desiredMethod == .paper`, and it is this—never `packed`—that
+    /// `asURI()` and `asQR()` encode. The destination hash stays in the clear
     /// because it is how the message is addressed; everything after it is encrypted to
     /// the destination identity, so a printed or photographed paper message is readable
     /// only by the addressee (`bugs/026`).
@@ -169,7 +169,7 @@ public final class LXMessage {
     ///    assignment sites made it, so a transition added later cannot silently go unreported.
     ///    Hanging that off the property is the seam; wiring each site is what produced
     ///    `bugs/013`.
-    /// 2. `state` is genuinely written from more than one thread — the packet receipt's timeout
+    /// 2. `state` is genuinely written from more than one thread—the packet receipt's timeout
     ///    callback fires on a background queue while `LXMRouter`'s four-second job loop can be
     ///    in `processOutbound` on another. A `didSet` observer holds an exclusive-access window
     ///    on the property for the whole duration of the observer body, so that pre-existing race
@@ -267,7 +267,7 @@ public final class LXMessage {
     /// Mirrors Python's `LXMessage.outbound_ticket`.
     public var outboundTicket: Data?
 
-    /// When `true`, the sending `LXMRouter` will generate an inbound ticket and
+    /// When `true`, the sending `LXMRouter` generates an inbound ticket and
     /// include it in `fields[Field.ticket]` before packing, allowing the recipient
     /// to reply without spending proof-of-work compute.
     ///
@@ -278,7 +278,7 @@ public final class LXMessage {
     ///
     /// Must live in the class body (not an extension) since Swift extensions cannot
     /// hold stored properties. Using a static cache keyed by ObjectIdentifier was
-    /// unsafe because Swift reuses memory addresses for newly-allocated objects,
+    /// unsafe because Swift reuses memory addresses for newly allocated objects,
     /// causing stale cache hits after an earlier message at the same address was
     /// deallocated.
     private var propagationStamp: Data?
@@ -300,8 +300,8 @@ public final class LXMessage {
     /// The delivery receipt for a DIRECT packet-representation send, once one exists.
     ///
     /// Python keeps this in a local and attaches its callbacks (`LXMessage.py:479-483`); it is
-    /// held here so an application can read the true transport state — round-trip time, timeout
-    /// instant, whether a proof arrived — instead of inferring delivery from the fact that
+    /// held here so an application can read the true transport state—round-trip time, timeout
+    /// instant, whether a proof arrived—instead of inferring delivery from the fact that
     /// `send()` returned. That inference was `bugs/014`.
     public var deliveryReceipt: PacketReceipt?
 
@@ -315,7 +315,7 @@ public final class LXMessage {
     /// `onDelivery` reports one terminal outcome; an application that shows progress needs the
     /// transitions in between. Once delivery became proof-gated (`bugs/014`) a message dwells in
     /// `.sending` for as long as the network takes and can drop back to `.outbound` on a
-    /// timeout — real states a user should see, and previously invisible because nothing fired
+    /// timeout—real states a user should see, and previously invisible because nothing fired
     /// between send and delivery.
     ///
     /// Deliberately hung off the ``state`` property itself rather than called from each site that
@@ -324,7 +324,7 @@ public final class LXMessage {
     /// would silently not be reported. Here a new one cannot escape.
     ///
     /// Set it before handing the message to the router. Fired outside `state`'s lock, on whichever
-    /// thread made the change — an application that touches its UI must hop to the main queue.
+    /// thread made the change—an application that touches its UI must hop to the main queue.
     public var onStateChange: ((LXMessage) -> Void)?
 
     // MARK: - Init (outbound)
@@ -420,7 +420,7 @@ public final class LXMessage {
         //   elif stamp_cost set      → LXStamper.generate_stamp(message_id, stamp_cost)
         if let ticket = outboundTicket,
            ticket.count == LXMessage.ticketLength {
-            // Ticket-based stamp: truncatedHash(ticket ++ messageID) — 16 bytes.
+            // Ticket-based stamp: truncatedHash(ticket ++ messageID)—16 bytes.
             self.stamp      = Hashes.truncatedHash(ticket + msgHash)
             self.stampValue = LXMessage.costTicket
         } else if let cost = stampCost {
@@ -437,7 +437,7 @@ public final class LXMessage {
         self.signature = signature
         self.signatureValidated = true
 
-        // Wire payload includes stamp as 5th element if present.
+        // Wire payload includes stamp as fifth element if present.
         let wirePayload = buildPayload(timestamp: ts, stamp: self.stamp)
 
         var wire = Data()
@@ -466,7 +466,7 @@ public final class LXMessage {
         //   paper_packed   = packed[:DESTINATION_LENGTH] + encrypted_data
         //   raise TypeError if len(paper_packed) > PAPER_MDU
         //
-        // Encryption here is not an optimisation — it is the whole point of the paper
+        // Encryption here is not an optimisation—it is the whole point of the paper
         // representation, which crosses a channel the sender does not control. So unlike
         // the propagation branch above, a failure to encrypt must not fall back to
         // plaintext (`bugs/026`).
@@ -542,7 +542,7 @@ public final class LXMessage {
         }
     }
 
-    /// Recursively convert a decoded msgpack value into the loosely-typed `Any`
+    /// Recursively convert a decoded msgpack value into the loosely typed `Any`
     /// representation that field values use: `Data` for byte blobs, `Int`,
     /// `Bool`, `Double`, `String`, nested `[Any]` arrays (file attachments,
     /// tickets, etc.), and `[AnyHashable: Any]` maps (reactions, comments).
@@ -639,7 +639,7 @@ public final class LXMessage {
         /// Python: `TypeError` at `LXMessage.py:457-458`.
         case paperMDUExceeded(size: Int, limit: Int)
         /// Thrown when a paper payload cannot be decrypted with the supplied delivery
-        /// destination — a URI addressed elsewhere, or a corrupted scan.
+        /// destination—a URI addressed elsewhere, or a corrupted scan.
         case paperDecryptionFailed
         /// Thrown by `LXMRouter.ingestLXMURI(_:)` when the paper message is addressed to a
         /// destination this router does not host, so it cannot be read here.
@@ -649,7 +649,7 @@ public final class LXMessage {
     /// Unpack a received wire blob into an LXMessage.
     ///
     /// Does NOT verify the
-    /// signature — call `validateSignature(knownIdentity:)` afterwards.
+    /// signature—call `validateSignature(knownIdentity:)` afterwards.
     public static func unpack(_ data: Data) throws -> LXMessage {
         let hlen = destinationLength
         let slen = signatureLength
@@ -684,7 +684,7 @@ public final class LXMessage {
             return Data()
         }()
 
-        // Extract stamp from 5th element if present. The message hash is computed
+        // Extract stamp from the fifth element if present. The message hash is computed
         // from only the first 4 elements (matches Python's unpack_from_bytes).
         let extractedStamp: Data? = {
             if parts.count >= 5, case .bytes(let b) = parts[4] { return b }
@@ -714,7 +714,7 @@ public final class LXMessage {
         // Decode the fields dictionary (msgpack payload element index 3).
         // Python's `unpack_from_bytes` assigns `fields = unpacked_payload[3]`.
         // The inbound init defaults `fields` to empty, so without this every
-        // received message would silently lose all of its fields — attachments,
+        // received message would silently lose all of its fields—attachments,
         // telemetry, tickets, reactions, replies, commands, and the renderer
         // hint. Inverse of the pack-side encoding in `buildPayload`
         // (`(.int(Int64(k)), msgpackValue(v))`).
@@ -731,8 +731,9 @@ public final class LXMessage {
 
         // Determine whether the source identity is currently blackholed.
         // Mirrors Python's `unpack_from_bytes` blackhole check (commit 2ac2b10).
-        // `srcHash` is the sender's lxmf.delivery destination hash; we recall
-        // the underlying Identity and check its hash against the blackhole list.
+        // `srcHash` is the sender's lxmf.delivery destination hash. The
+        // underlying Identity is recalled from it and its hash checked against the
+        // blackhole list.
         // When `Reticulum.shared` is not initialised (test harness), or when
         // the source identity cannot be recalled, default to `false`.
         if let transport = Reticulum.shared?.transport,
@@ -756,7 +757,7 @@ public final class LXMessage {
         guard packed.count > hlen + hlen + slen else { return false }
         let rawPayload = packed.advanced(by: hlen + hlen + slen)
 
-        // Strip stamp (5th element) if present — hash/signature covers only the 4-element payload.
+        // Strip stamp (fifth element) if present—hash/signature covers only the 4-element payload.
         let corePayload: Data
         if let decoded = try? MsgPack.decode(rawPayload),
            case .array(let parts) = decoded, parts.count >= 5 {
@@ -907,8 +908,8 @@ public extension LXMessage {
             throw LXMessageError.notPaperMethod
         }
         if packed == nil { try pack() }
-        // Python encodes `paper_packed` — the destination hash followed by the payload
-        // encrypted to the destination identity — never `packed` (`LXMessage.py:702-704`).
+        // Python encodes `paper_packed`—the destination hash followed by the payload
+        // encrypted to the destination identity—never `packed` (`LXMessage.py:702-704`).
         // Encoding `packed` here is what put the message in cleartext on every printed
         // QR code (`bugs/026`).
         guard let raw = paperPacked else { throw LXMessageError.notPaperMethod }
@@ -953,7 +954,7 @@ public extension LXMessage {
     /// a plaintext destination hash followed by the payload encrypted to that destination.
     ///
     /// Mirrors the decoding half of Python's `LXMRouter.ingest_lxm_uri()`
-    /// (`LXMRouter.py:2543-2549`). The result is *not* a wire-format LXM — it cannot be
+    /// (`LXMRouter.py:2543-2549`). The result is *not* a wire-format LXM—it cannot be
     /// unpacked without the addressed identity's private key. Use
     /// `fromURI(_:destination:)`, or `LXMRouter.ingestLXMURI(_:)` for the full
     /// inbound-delivery path.
@@ -1037,7 +1038,7 @@ public extension LXMessage {
     /// Generate (or return cached) a proof-of-work stamp for propagation-node delivery.
     ///
     /// The stamp is computed over `messageID` (the message hash, set by `pack()`)
-    /// using `LXStamper.pnExpandRounds` rounds — a reduced workblock versus the regular stamp.
+    /// using `LXStamper.pnExpandRounds` rounds—a reduced workblock versus the regular stamp.
     ///
     /// Returns `nil` if the message has not been packed yet (`messageID` is nil).
     ///
@@ -1046,7 +1047,7 @@ public extension LXMessage {
         // Return instance-cached stamp if already computed
         if let cached = propagationStamp { return cached }
 
-        // Need messageID — only set after pack()
+        // Need messageID—only set after pack()
         guard let tid = messageID else { return nil }
 
         guard let stamp = LXStamper.generateStamp(
@@ -1065,7 +1066,7 @@ public extension LXMessage {
     ///
     /// Uses `LXStamper.generatePNStamp` (Python-compatible SHA-256 based workblock) so the
     /// stamp passes validation by a Python propagation node.  The `transient_id` is computed
-    /// as `fullHash(lxmfDataWithoutStamp)` — identical to Python's `LXMessage.transient_id`.
+    /// as `fullHash(lxmfDataWithoutStamp)`—identical to Python's `LXMessage.transient_id`.
     ///
     /// - Parameter cost: Minimum leading-zero-bit cost required by the propagation node.
     func attachPropagationStamp(cost: Int) {
@@ -1083,7 +1084,7 @@ public extension LXMessage {
               case .bytes(let lxmfDataNoStamp) = msgs[0]
         else { return }
 
-        // transient_id = fullHash(lxmfDataWithoutStamp) — matches Python's LXMessage.transient_id.
+        // transient_id = fullHash(lxmfDataWithoutStamp)—matches Python's LXMessage.transient_id.
         let transientID = Hashes.fullHash(lxmfDataNoStamp)
 
         // Generate PN stamp using the standard HKDF-based workblock (pnExpandRounds = 1000).
@@ -1148,7 +1149,7 @@ public extension LXMessage {
             (.string("method"),              .uint(UInt64(method.rawValue))),
         ]
         // Python includes transport_encryption as a string or None.
-        // We include it when non-nil.
+        // It is included when non-nil.
         if let enc = transportEncryptionDescription {
             pairs.append((.string("transport_encryption"), .string(enc)))
         } else {
@@ -1242,7 +1243,7 @@ public extension LXMessage {
         let name = h.map { String(format: "%02x", $0) }.joined()
         let fileURL = directory.appendingPathComponent(name)
         // Tmp filename: include PID and 8 random bytes so two concurrent writes
-        // to the same hash (e.g. from different threads or processes) cannot
+        // to the same hash (for example, from different threads or processes) cannot
         // collide. Mirrors Python's `write_to_directory` tmp name in LXMF
         // commit 5be161c: `name + ".tmp." + pid + "." + hex(urandom(8))`.
         let rndHex = SecureRandom.bytes(8).map { String(format: "%02x", $0) }.joined()
@@ -1251,7 +1252,7 @@ public extension LXMessage {
         )
         do {
             try containerData.write(to: tmpURL, options: .atomic)
-            // Atomic replace — matches Python's os.replace(tmp_path, file_path)
+            // Atomic replace—matches Python's os.replace(tmp_path, file_path)
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 try FileManager.default.removeItem(at: fileURL)
             }
