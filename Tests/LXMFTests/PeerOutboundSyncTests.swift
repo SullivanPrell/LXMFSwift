@@ -806,8 +806,19 @@ final class PeerOutboundSyncTests: XCTestCase {
             return XCTFail("the outbound machine's region marker moved; update this guard")
         }
 
+        // Members of the machine sit at the region marker's own indentation, so read it from
+        // the marker. The width belongs to `.swift-format`, and matching any indentation would
+        // let a local function inside a method body read as part of the surface.
+        let lineStart = source[..<syncRegion.lowerBound].lastIndex(of: "\n")
+            .map { source.index(after: $0) } ?? source.startIndex
+        let indent = String(source[lineStart..<syncRegion.lowerBound])
+        guard indent.allSatisfy({ $0 == " " }) else {
+            return XCTFail("the region marker is no longer the first thing on its line")
+        }
+
         // Declarations in the machine's region that are not private.
-        let pattern = #"^    (?!private )(?:@discardableResult\n    )?(?:public )?func ([a-zA-Z]+)"#
+        let pattern =
+            #"^\#(indent)(?!private )(?:@discardableResult\n\#(indent))?(?:public )?func ([a-zA-Z]+)"#
         let regex = try NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])
         let tail = String(source[syncRegion.lowerBound...])
         let matches = regex.matches(in: tail, range: NSRange(tail.startIndex..., in: tail))
