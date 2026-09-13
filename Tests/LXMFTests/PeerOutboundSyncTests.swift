@@ -302,7 +302,8 @@ final class PeerOutboundSyncTests: XCTestCase {
 
   /// T18—a peer with no path gets a path request, and **does not** burn sync backoff for it.
   ///
-  /// Python bumps the backoff at `:321`, after the path gate, not before.
+  /// Python charges the peer only after `PATH_REQUEST_GRACE` has passed with the request
+  /// unanswered (`LXMPeer.py:295-303`).
   func testAMissingPathRequestsOneWithoutBurningBackoff() throws {
     net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
     let peer = try net.announceBToA()
@@ -323,11 +324,49 @@ final class PeerOutboundSyncTests: XCTestCase {
     XCTAssertEqual(
       peer.syncBackoff, 0,
       """
-      waiting for a path is not a failed sync. Python bumps the backoff at \
-      LXMPeer.py:321 — *after* the path gate — so a node that is merely waiting \
-      for a path answer is not pushed into a 12-minute penalty for it.
+      a request still inside its grace is not a failed sync, so a node merely \
+      waiting for a path answer is not pushed into a 12-minute penalty for it \
+      (LXMPeer.py:295-299).
       """)
     XCTAssertEqual(peer.nextSyncAttempt, 0)
+  }
+
+  /// T18b—once the grace passes with no answer, the unanswered request *is* a failed sync.
+  ///
+  /// `LXMPeer.py:299-303`. Python sleeps the grace and re-checks inline; this port re-checks
+  /// on the following sync attempt, so the test ages the outstanding request instead.
+  func testAnUnansweredPathRequestBurnsBackoffOnceTheGracePasses() throws {
+    net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
+    let peer = try net.announceBToA()
+    XCTAssertTrue(peer.generatePeeringKey())
+    _ = try net.storeMessage(in: net.routerA, size: 400)
+
+    _ = net.transportA.dropPath(for: net.bPropagationHash)
+    XCTAssertFalse(net.transportA.hasPath(to: net.bPropagationHash), "precondition")
+
+    peer.sync()
+    net.settle(0.3)
+    XCTAssertEqual(peer.syncBackoff, 0, "the first request is still inside its grace")
+
+    // B answers over the loopback, so drop the path again: the case being modelled is a
+    // request nothing replies to.
+    _ = net.transportA.dropPath(for: net.bPropagationHash)
+    peer.seedSyncState(
+      alive: true,
+      pathRequestedAt: Date().timeIntervalSince1970 - LXMPeer.pathRequestGrace - 1)
+    net.interfaceA.clearSent()
+
+    let before = Date().timeIntervalSince1970
+    peer.sync()
+
+    XCTAssertFalse(
+      net.interfaceA.sentPathRequests().isEmpty,
+      "every attempt without a path still asks for one (LXMPeer.py:295-297)")
+    XCTAssertEqual(
+      peer.syncBackoff, LXMPeer.syncBackoffStep,
+      "an unanswered path request is a failed sync (LXMPeer.py:299-303)")
+    XCTAssertGreaterThanOrEqual(peer.nextSyncAttempt, before + LXMPeer.syncBackoffStep)
+    XCTAssertFalse(peer.alive, "and the peer is no longer counted as reachable")
   }
 
   // MARK: - The offer (design STEP 6)
