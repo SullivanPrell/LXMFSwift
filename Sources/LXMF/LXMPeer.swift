@@ -222,6 +222,18 @@ public final class LXMPeer {
   }
   private var unsafeSyncBackoff: TimeInterval = 0
 
+  /// Unix timestamp of the outstanding path request, `nil` while a path is known.
+  ///
+  /// Python waits `PATH_REQUEST_GRACE` inline and re-checks (`LXMPeer.py:295-303`). Sleeping
+  /// there blocks the LXMF job loop, so the re-check is the following sync attempt and this
+  /// records when the grace started.
+  var pathRequestedAt: TimeInterval? {
+    peerLock.lock()
+    defer { peerLock.unlock() }
+    return unsafePathRequestedAt
+  }
+  private var unsafePathRequestedAt: TimeInterval?
+
   /// Timebase of the remote peer node.
   public var peeringTimebase: TimeInterval {
     peerLock.lock()
@@ -469,8 +481,8 @@ public final class LXMPeer {
   // (`handledMessagesQueue` / `unhandledMessagesQueue`), the count caches
   // (`hmCount` / `umCount` / `hmCountsSynced` / `umCountsSynced`), and the sync
   // state machine (`state` / `link` / `nextSyncAttempt` / `lastSyncAttempt` /
-  // `syncBackoff` / `currentlyTransferringMessages` / `lastOffer` / `alive` /
-  // `lastHeard` / `offered` / `outgoing` / `txBytes`). The router drives these from
+  // `syncBackoff` / `pathRequestedAt` / `currentlyTransferringMessages` / `lastOffer` /
+  // `alive` / `lastHeard` / `offered` / `outgoing` / `txBytes`). The router drives these from
   // its PN methods (flush / sync / addPeer / savePeers) which—post the router-side
   // hardening—run OUTSIDE the router lock, so two threads can enter the same peer's
   // `processQueues()` / `sync()` / `toBytes()` concurrently.
@@ -518,6 +530,7 @@ public final class LXMPeer {
     nextSyncAttempt: TimeInterval? = nil,
     lastSyncAttempt: TimeInterval? = nil,
     syncBackoff: TimeInterval? = nil,
+    pathRequestedAt: TimeInterval? = nil,
     syncStrategy: LXMSyncStrategy? = nil
   ) {
     peerLock.lock()
@@ -528,6 +541,7 @@ public final class LXMPeer {
     if let v = nextSyncAttempt { self.unsafeNextSyncAttempt = v }
     if let v = lastSyncAttempt { self.unsafeLastSyncAttempt = v }
     if let v = syncBackoff { self.unsafeSyncBackoff = v }
+    if let v = pathRequestedAt { self.unsafePathRequestedAt = v }
     if let v = syncStrategy { self.unsafeSyncStrategy = v }
   }
 
@@ -1211,19 +1225,32 @@ public final class LXMPeer {
     // Everything past this point needs the outside world (`:304-309`, `:392-393`).
     guard let ctx = router?.makePeerSyncContext(for: self) else { return }
 
-    // The path gate, and the reason the backoff bump is *below* it (`:295-301` vs `:321`):
-    // waiting for a path answer is not a failed sync, and charging it 12 minutes of backoff
-    // would punish a peer for the network being slow to answer.
-    //
-    // Python sleeps `PATH_REQUEST_GRACE` (7.5 s) here and re-checks. That is dropped: it would
-    // block the whole LXMF job loop, whose tick is 4 s (`LXMRouter.swift:414`), and the
-    // `syncPeers` cadence of 24 s already exceeds the grace it was buying. Strictly slower to
-    // notice a new path, never wrong. `LXMPeer.pathRequestGrace` documents the constant this
-    // deliberately does not use.
+    // The path gate (`:295-303`). Python requests a path, sleeps `PATH_REQUEST_GRACE` (7.5 s),
+    // re-checks, and only then charges the peer a backoff step. Sleeping here would block the
+    // whole LXMF job loop, whose tick is 4 s (`LXMRouter.swift:414`), so the re-check is the
+    // following sync attempt and `unsafePathRequestedAt` carries the start of the grace across
+    // the two calls. The `syncPeers` cadence of 24 s already exceeds the grace, so an
+    // unanswered request is charged one attempt later than Python charges it, never sooner.
     guard ctx.transport.hasPath(to: destinationHash) else {
       try? ctx.transport.requestPath(for: destinationHash)
+      peerLock.lock()
+      let graceExpired =
+        unsafePathRequestedAt.map { now - $0 >= LXMPeer.pathRequestGrace } ?? false
+      if graceExpired {
+        unsafeSyncBackoff += LXMPeer.syncBackoffStep
+        unsafeNextSyncAttempt = now + unsafeSyncBackoff
+        unsafeAlive = false
+      }
+      // A request still inside its grace keeps the timestamp it started from; a charged one
+      // starts the next grace, so each further attempt is charged exactly once.
+      if graceExpired || unsafePathRequestedAt == nil { unsafePathRequestedAt = now }
+      peerLock.unlock()
       return
     }
+
+    peerLock.lock()
+    unsafePathRequestedAt = nil
+    peerLock.unlock()
 
     // `unhandledMessageCount` self-locks (and routes through the router), so read it
     // WITHOUT `peerLock` held. Guard order is preserved: unhandled>0, then
