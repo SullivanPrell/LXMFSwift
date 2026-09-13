@@ -5,6 +5,20 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+### An unanswered path request now costs a propagation peer a backoff step
+
+LXMF 1.1.1 charges a peer `SYNC_BACKOFF_STEP` and marks it not alive when its path request
+goes unanswered (`LXMPeer.py:299-303`). Before that, a peer with no path was asked for one on
+every 24 s sync tick, forever, and kept reporting as alive.
+
+Python waits `PATH_REQUEST_GRACE` inline and re-checks. Sleeping there would block the LXMF
+job loop, so the peer records when its request went out and the re-check is the following sync
+attempt: a request still inside its grace is unchanged, one past it is charged. An unanswered
+request is therefore charged one attempt later than the reference charges it, never sooner.
+
+The release's other change lowers the log level of a display-name decode failure
+(`LXMF.py:168`); this port logs nothing on that path.
+
 ### A stale link is no longer treated as a dead one
 
 ReticulumSwift 1.10.2 changed what `Link.status == .stale` means. It used to be a marker set
