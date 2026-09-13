@@ -1183,15 +1183,12 @@ public final class LXMPeer {
   /// Attempt a sync with this peer.
   ///
   /// Mirrors Python's `LXMPeer.sync()`.
-  /// In production this would establish an RNS Link; here the method exposes
-  /// the decision logic as testable state changes.
   public func sync() {
     let now = Date().timeIntervalSince1970
 
-    // The announce-negotiated fields DO have a concurrent writer: the router applies them from
+    // The announce-negotiated fields have a concurrent writer: the router applies them from
     // the announce-callback thread via `adoptAnnouncedTerms`, under `peerLock`
-    // (`swift_devel/bugs/055`). This comment used to say they had none, which was only ever
-    // true in the sense that the router's write was unsynchronized too.
+    // (`swift_devel/bugs/055`).
     //
     // Read under the lock, then release it before `peeringKeyReady()`—that self-locks, and
     // `peerLock` is a non-reentrant `NSLock`.
