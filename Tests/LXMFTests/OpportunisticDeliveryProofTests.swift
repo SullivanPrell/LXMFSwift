@@ -21,12 +21,6 @@ import XCTest
 /// The delivery destination keeps the default `PROVE_NONE` strategy, so the router's call is the
 /// only thing that proves an opportunistic packet.
 ///
-/// This port proved link data (`Link.proveInboundData`) but not opportunistic packets, so a
-/// Python sender's message to a Swift receiver arrived and was never confirmed: the
-/// reticulum-interop case `LXMF oci-app→mac-swift/opportunistic` reported `received=True
-/// delivered=False` in both recorded cross-host runs, and passed both times, because the case
-/// checked receipt only.
-///
 /// The sender here is built the way the reference builds one (`LXMessage.__as_packet` then
 /// `Packet.send`), not through this port's router, so the assertion depends on the receiver
 /// alone.

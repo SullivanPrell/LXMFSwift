@@ -9,13 +9,9 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 The reference's `LXMRouter.delivery_packet` calls `packet.prove()` before it parses anything
 (`LXMRouter.py:1927`). The delivery destination keeps the default prove-none strategy, so that
-call is the only proof an opportunistic sender ever gets. This router proved link data but not
-opportunistic packets. A Python sender's message to a Swift receiver arrived, but the sender's
-receipt never validated: it retried the message and then marked it failed.
-
-reticulum-interop's `LXMF oci-app→mac-swift/opportunistic` case reported `received=True
-delivered=False` in both recorded cross-host runs, 2026-07-21 and 2026-09-22, and passed both
-times because the case judged by receipt alone.
+call is the only proof an opportunistic sender gets. Without it, a Python or Go sender's
+message reached this router but the sender's receipt never validated, so the sender retried the
+message and then marked it failed.
 
 ### An unanswered path request now costs a propagation peer a backoff step
 
