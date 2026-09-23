@@ -5,6 +5,29 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+### Public names follow the Google Swift style, and the 1.7.1 names still compile
+
+Nine top-level constants take lowerCamelCase names. Each 1.7.1 name remains as an alias marked
+`@available(*, deprecated, renamed:)`, so existing code compiles unchanged. 2.0.0 removes the
+aliases.
+
+| 1.7.1 (deprecated) | Current |
+|---|---|
+| `APP_NAME` | `appName` |
+| `SF_COMPRESSION` | `sfCompression` |
+| `PN_META_VERSION` | `pnMetaVersion` |
+| `PN_META_NAME` | `pnMetaName` |
+| `PN_META_SYNC_STRATUM` | `pnMetaSyncStratum` |
+| `PN_META_SYNC_THROTTLE` | `pnMetaSyncThrottle` |
+| `PN_META_AUTH_BAND` | `pnMetaAuthBand` |
+| `PN_META_UTIL_PRESSURE` | `pnMetaUtilPressure` |
+| `PN_META_CUSTOM` | `pnMetaCustom` |
+
+`AudioMode`'s `codec2_*` cases keep their 1.7.1 names until 2.0.0. An alias can't stand in for
+an enum case in an exhaustive `switch`, so renaming them is a source break.
+
+`swift package diagnose-api-breaking-changes 1.7.1` reports no breaking changes.
+
 ### An unanswered path request now costs a propagation peer a backoff step
 
 LXMF 1.1.1 charges a peer `SYNC_BACKOFF_STEP` and marks it not alive when its path request
