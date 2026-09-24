@@ -154,8 +154,9 @@ final class OpportunisticProofGatedDeliveryTests: XCTestCase {
 
 /// Two routers on two transports joined by a loopback that can drop or hold selected packets.
 ///
-/// The receiver's delivery destination proves every packet, so the only thing deciding whether
-/// a proof reaches the sender is the interface.
+/// The receiver's router proves each opportunistic packet it accepts, as the reference does
+/// (`LXMRouter.py:1927`), so the only thing deciding whether a proof reaches the sender is the
+/// interface.
 private final class OpportunisticPair {
   let senderTransport = Transport()
   let receiverTransport = Transport()
@@ -195,7 +196,6 @@ private final class OpportunisticPair {
       identity: senderIdentity, transport: senderTransport)
     receiverDestination = try receiverRouter.register(
       identity: receiverIdentity, transport: receiverTransport)
-    receiverDestination.proofStrategy = .proveAll
     receiverRouter.onMessageReceived = { [received] _ in received.increment() }
 
     // A real path, so every attempt sends instead of taking the pathless branch.
