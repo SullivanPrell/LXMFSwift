@@ -1459,7 +1459,10 @@ public final class LXMRouter {
 
     for msg in snapshot {
       switch msg.state {
-      case .delivered, .sent:
+      // `.sent` is not here: for an opportunistic message it means only that the packet
+      // left, and the reference keeps it queued for another attempt until the receipt's proof
+      // marks it DELIVERED (`LXMRouter.py:2686`, `LXMessage.py:467-472`).
+      case .delivered:
         removePending(msg)
         msg.onDelivery?(msg)
       case .rejected, .cancelled:
@@ -1468,7 +1471,7 @@ public final class LXMRouter {
       case .failed:
         removePending(msg)
         msg.onFailed?(msg)
-      case .outbound, .sending:
+      case .outbound, .sending, .sent:
         attemptDelivery(msg)
       default:
         break
@@ -1535,7 +1538,10 @@ public final class LXMRouter {
       let packed = msg.packed
     else { return }
 
-    msg.state = .sending
+    // A proof for an earlier attempt can arrive at any point in this one; it must not be
+    // overwritten, and a delivered message is not sent again.
+    msg.transition(to: .sending, unlessIn: [.delivered])
+    guard msg.state != .delivered else { return }
 
     // For opportunistic delivery the packet body omits the leading
     // destination hash (the packet's destination_hash field already
@@ -1552,11 +1558,40 @@ public final class LXMRouter {
         destinationHash: destHash,
         data: ciphertext
       )
-      try transport.send(packet)
-      msg.state = .sent
+      // `bugs/014`: only the receipt's proof marks the message delivered. The reference hangs
+      // `__mark_delivered` on the receipt (`LXMessage.py:469`); an unproved message stays SENT
+      // and is sent again.
+      let receipt = try transport.send(packet)
+      // Before the callback is set: a proof that already arrived replays on assignment, and
+      // would otherwise be overwritten back to `.sent`.
+      if msg.transition(to: .sent, unlessIn: [.delivered]) { msg.progress = 0.50 }
+      if let receipt {
+        msg.deliveryReceipt = receipt
+        // Every attempt's receipt keeps its callback, so a proof for an earlier attempt still
+        // delivers the message, as in the reference.
+        receipt.onDelivery = { [weak self, weak msg] _ in
+          guard let self, let msg else { return }
+          self.markDelivered(msg)
+        }
+      }
     } catch {
-      msg.state = .outbound
+      msg.transition(to: .outbound, unlessIn: [.delivered])
     }
+  }
+
+  /// Mark an outbound message delivered, dequeue it, and fire its delivery callback.
+  ///
+  /// Mirrors `LXMessage.__mark_delivered` (`LXMessage.py:561-568`). A second proof, for an
+  /// earlier attempt of the same message, does nothing.
+  private func markDelivered(_ msg: LXMessage) {
+    // Removed from the queue before the state flips, so a concurrent `processOutbound` cannot
+    // see a delivered message still pending and fire the application callback a second time.
+    removePending(msg)
+    guard msg.transition(to: .delivered) else { return }
+    msg.progress = 1.0
+    // Retain destination announce data (LXMF commit 8bdb434).
+    _ = transport.retainDestinationData(msg.destinationHash)
+    msg.onDelivery?(msg)
   }
 
   // MARK: - Direct delivery
@@ -1802,15 +1837,7 @@ public final class LXMRouter {
 
         receipt.onDelivery = { [weak self, weak msg] _ in
           guard let self, let msg else { return }
-          // Removed from the queue before the state flips, so a concurrent
-          // `processOutbound` cannot see a delivered message still pending and fire
-          // the application callback a second time.
-          self.removePending(msg)
-          msg.state = .delivered
-          msg.progress = 1.0
-          // Retain destination announce data (LXMF commit 8bdb434).
-          _ = self.transport.retainDestinationData(msg.destinationHash)
-          msg.onDelivery?(msg)
+          self.markDelivered(msg)
         }
 
         receipt.onTimeout = { [weak msg] _ in

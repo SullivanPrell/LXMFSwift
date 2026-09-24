@@ -185,14 +185,26 @@ public final class LXMessage {
       defer { stateLock.unlock() }
       return unsafeState
     }
-    set {
-      stateLock.lock()
-      let changed = unsafeState != newValue
-      unsafeState = newValue
-      let notify = changed ? onStateChange : nil
+    set { _ = transition(to: newValue) }
+  }
+
+  /// Set `state` and report whether it changed, as one atomic step.
+  ///
+  /// Two callers racing to the same state see exactly one `true`. A message whose state is in
+  /// `kept` is left unchanged.
+  @discardableResult
+  func transition(to newValue: State, unlessIn kept: Set<State> = []) -> Bool {
+    stateLock.lock()
+    guard !kept.contains(unsafeState) else {
       stateLock.unlock()
-      notify?(self)
+      return false
     }
+    let changed = unsafeState != newValue
+    unsafeState = newValue
+    let notify = changed ? onStateChange : nil
+    stateLock.unlock()
+    notify?(self)
+    return changed
   }
   private var unsafeState: State = .generating
   private let stateLock = NSLock()

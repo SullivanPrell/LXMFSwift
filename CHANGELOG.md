@@ -13,6 +13,21 @@ call is the only proof an opportunistic sender gets. Without it, a Python or Go 
 message reached this router but the sender's receipt never validated, so the sender retried the
 message and then marked it failed.
 
+### An opportunistic message is delivered only when the recipient proves it
+
+The reference hangs `__mark_delivered` on the packet receipt, and SENT means only that the
+packet left (`LXMessage.py:467-472`). `process_outbound` dequeues a message at DELIVERED
+(`LXMRouter.py:2686`), so an unproved opportunistic message is sent again every
+`DELIVERY_RETRY_WAIT` and failed after `MAX_DELIVERY_ATTEMPTS` (`:2736-2761`).
+
+`processOutbound` now does the same. It no longer treats `.sent` as `.delivered`, which reported
+delivery for a message nobody received. The receipt is kept in `deliveryReceipt` and its proof
+marks the message delivered. Every attempt's receipt keeps that callback, so a proof for an
+earlier attempt still counts. `bugs/014` applied the same rule to DIRECT delivery.
+
+A receiver that never proves an opportunistic packet, such as reticulum-go-mf, leaves the
+message `.failed` after its retries.
+
 ### Public names follow the Google Swift style, and the 1.7.1 names still compile
 
 Nine top-level constants take lowerCamelCase names. Each 1.7.1 name remains as an alias marked
