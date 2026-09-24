@@ -5,6 +5,8 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.8.0]—opportunistic delivery is proved
+
 ### An opportunistic delivery is now proved back to its sender
 
 The reference's `LXMRouter.delivery_packet` calls `packet.prove()` before it parses anything
@@ -65,6 +67,13 @@ request is therefore charged one attempt later than the reference charges it, ne
 The release's other change lowers the log level of a display-name decode failure
 (`LXMF.py:168`); this port logs nothing on that path.
 
+### License and provenance
+
+`LICENSE` carries the upstream copyright line, and the README states that this package
+translates the Python reference.
+
+## [1.7.1]—a stale link is recoverable
+
 ### A stale link is no longer treated as a dead one
 
 ReticulumSwift 1.10.2 changed what `Link.status == .stale` means. It used to be a marker set
@@ -85,6 +94,8 @@ out. The direct-link and propagation-link paths now do the same, and
 
 Found by the post-release adversarial audit—a cross-package interaction that neither package's
 own test suite could see.
+
+## [1.7.0]—propagation-sync terminality, the packet upload path, and the retry ladder
 
 ### The outbound retry ladder runs on the reference's numbers and gate (`bugs/013 §9`)
 
