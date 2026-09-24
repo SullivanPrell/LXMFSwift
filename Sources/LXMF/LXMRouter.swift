@@ -2286,6 +2286,14 @@ public final class LXMRouter {
     guard let identity = destination.identity else { return }
     guard let plaintext = try? destination.decrypt(packet.data) else { return }
 
+    // Prove receipt before parsing, as `LXMRouter.delivery_packet` does with `packet.prove()`
+    // (LXMRouter.py:1927). The delivery destination keeps the default prove-none strategy, so
+    // this is the only proof an opportunistic sender gets; without it the sender's receipt
+    // times out and the message is never marked delivered.
+    if let receivingInterface = packet.receivingInterface {
+      transport.provePacket(packet, from: receivingInterface, destination: destination)
+    }
+
     // Prepend the destination hash that was stripped for wire-efficiency.
     let wire = destination.hash + plaintext
     guard let msg = try? LXMessage.unpack(wire) else { return }

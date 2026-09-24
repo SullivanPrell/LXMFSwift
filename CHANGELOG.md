@@ -5,6 +5,14 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+### An opportunistic delivery is now proved back to its sender
+
+The reference's `LXMRouter.delivery_packet` calls `packet.prove()` before it parses anything
+(`LXMRouter.py:1927`). The delivery destination keeps the default prove-none strategy, so that
+call is the only proof an opportunistic sender gets. Without it, a Python or Go sender's
+message reached this router but the sender's receipt never validated, so the sender retried the
+message and then marked it failed.
+
 ### An unanswered path request now costs a propagation peer a backoff step
 
 LXMF 1.1.1 charges a peer `SYNC_BACKOFF_STEP` and marks it not alive when its path request
