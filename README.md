@@ -1,14 +1,15 @@
 # LXMFSwift
 
-> **Reticulum and LXMF are the work of [Mark Qvist](https://github.com/markqvist).** This is an
-> independent, community Swift implementation of LXMF—**not an official Reticulum project**.
-> The canonical project and reference (Python) implementation live at
+> **Reticulum and LXMF are the work of [Mark Qvist](https://github.com/markqvist).** LXMFSwift
+> is a community translation of his Python LXMF implementation into Swift. It's
+> **not an official Reticulum project** and **not a clean-room implementation**. The
+> canonical project and reference implementation live at
 > **[github.com/markqvist/LXMF](https://github.com/markqvist/LXMF)**, part of the broader
-> **[Reticulum](https://github.com/markqvist/Reticulum)** network created by Mark; please look
-> there first to understand the protocol itself.
+> **[Reticulum](https://github.com/markqvist/Reticulum)** network created by Mark Qvist;
+> start there to understand the protocol itself. See [Provenance](#provenance).
 
 A Swift port of [LXMF](https://github.com/markqvist/LXMF)—the **Lightweight
-Extensible Message Format**—wire-compatible with the Python reference
+Extensible Message Format**—built to interoperate with the Python reference
 implementation.
 
 [![Platforms](https://img.shields.io/badge/platforms-iOS%2016%2B%20%7C%20macOS%2013%2B-blue)](#requirements)
@@ -22,18 +23,20 @@ like Sideband and NomadNet. It provides store-and-forward, end-to-end encrypted
 messages that can travel opportunistically, over a direct link, or be parked on a
 **propagation node** for later pickup, all without any central server.
 
-**LXMFSwift** implements that format and its router in Swift, on top of
-[ReticulumSwift](https://github.com/SullivanPrell/ReticulumSwift). A message sent
-from a Swift node is delivered to, and readable by, a Python LXMF node (and vice
-versa).
+**LXMFSwift** translates that format and its router into Swift, on top of
+[ReticulumSwift](https://github.com/SullivanPrell/ReticulumSwift). In the
+interoperability suite, Swift and Python LXMF nodes deliver messages to each other in
+both directions.
 
 This is part of the [ReticulumSwift stack](https://github.com/SullivanPrell/ReticulumSwift#the-reticulumswift-stack).
 
 ## Status
 
-LXMFSwift implements the full LXMF 0.9.9 message format and router—both a
-client and a propagation-node server—and is wire-compatible with the Python
-reference. Covered by 434 unit tests (~77% line coverage).
+LXMFSwift is **experimental**. It tracks Python LXMF 1.1.0 and covers the message
+format and the router, which runs as a client or as a propagation node. It hasn't had an
+independent security review. The Python implementation is the authority on how LXMF
+behaves. Where this port differs from it, the port is wrong. Unit tests cover about
+77% of lines.
 
 - LXMessage: wire-compatible pack/unpack, packed-container files, URI, QR, compression.
 - Stamps & tickets: proof-of-work stamps, ticket stamps, cost enforcement.
@@ -111,8 +114,21 @@ swift test
 RETICULUM_LOCAL_DEPS=1 swift test
 ```
 
+## Provenance
+
+LXMFSwift is a translation of the Python LXMF implementation, not an independent or
+clean-room implementation of the protocol. Its authors wrote it from the Python source,
+and the code follows that source closely: types, functions, constants, and control flow
+mirror their Python counterparts, and doc comments in 8 of 10 of the files in `Sources/`
+cite the Python file, function, or line that each part translates. That makes it a
+derivative work of LXMF. See [NOTICE](NOTICE).
+
+Its authors wrote most of the code with machine assistance (Claude Code). Commits made
+that way carry a `Co-Authored-By: Claude` trailer.
+
 ## License
 
 Released under the **Reticulum License** (no use in harm-capable systems; no use
 for AI/ML training datasets). See [LICENSE](LICENSE). LXMFSwift is a derivative
-work of [LXMF](https://github.com/markqvist/LXMF) by Mark Qvist; see [NOTICE](NOTICE).
+work of [LXMF](https://github.com/markqvist/LXMF) by Mark Qvist, as
+[Provenance](#provenance) describes. See [NOTICE](NOTICE).

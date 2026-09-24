@@ -8,6 +8,12 @@ round-trip with the reference implementation (<https://github.com/markqvist/LXMF
 - **Test-driven**: failing test first, implement to green, commit. The full
   `swift test` suite must stay green (no regressions).
 - **Wire format is checked against Python** captured bytes where possible.
+- **Cite the reference.** LXMFSwift is a translation of the Python implementation, not
+  a clean-room one. When a change ports Python behavior, its doc comment names the
+  Python file and function it translates.
+- **Disclose machine assistance.** If a tool generated part of a change, say so in
+  the pull request and add a `Co-Authored-By` trailer. The pull request's author
+  answers for all of it.
 
 ## Setup
 
