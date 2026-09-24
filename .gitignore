@@ -11,3 +11,7 @@ DerivedData/
 .claude/
 .build-linux/
 __pycache__/
+
+# Agent instructions stay local; they are not published.
+CLAUDE.md
+CLAUDE.local.md
