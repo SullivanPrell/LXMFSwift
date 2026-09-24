@@ -593,10 +593,9 @@ public final class LXMPeer {
 
   // MARK: - Mutators the router uses (`swift_devel/bugs/055`)
   //
-  // `LXMRouter` used to write these fields directly—thirteen of them, across three sites, all
-  // from callback threads and none holding `peerLock`, while this peer's own `sync()` read seven
-  // of them under it. That is a live race, not a hazard awaiting an external consumer: the
-  // router *is* the consumer.
+  // `LXMRouter` writes these fields only through the mutators below. Its writes come from
+  // callback threads, while this peer's own `sync()` reads seven of the fields under `peerLock`,
+  // so a direct write races the sync: the router *is* the consumer.
   //
   // Each of these takes `peerLock` once for the whole set. Nine separate locked setters would
   // leave the peer observable half-updated, which is a different bug from the one being fixed.
@@ -649,8 +648,7 @@ public final class LXMPeer {
   /// Credit this peer for an inbound propagated message.
   ///
   /// Python: `LXMRouter.py` increments `peer.incoming` and `peer.rx_bytes` on the inbound path.
-  /// The doc comment on `unsafeIncoming`/`unsafeRxBytes` used to claim they had no runtime writer; the
-  /// router has always been one.
+  /// The router is the runtime writer of `unsafeIncoming` and `unsafeRxBytes`.
   func creditInbound(bytes: Int) {
     peerLock.lock()
     defer { peerLock.unlock() }
@@ -819,10 +817,9 @@ public final class LXMPeer {
     // Snapshot the lock-guarded scalars (concurrent sync()/resourceConcluded() may write
     // them); `handledMessages`/`unhandledMessages` self-lock, so they run below.
     //
-    // This used to claim `incoming`/`rxBytes` had no runtime writer and read them outside the
-    // lock. The router has always been one—it credits the sending peer on every inbound
-    // propagated message (`swift_devel/bugs/055`)—so that read raced serialization against
-    // the inbound path. They are snapshotted with the rest now.
+    // The router writes `incoming`/`rxBytes`: it credits the sending peer on every inbound
+    // propagated message (`swift_devel/bugs/055`). A read outside the lock would race
+    // serialization against the inbound path, so they are snapshotted with the rest.
     peerLock.lock()
     let sAlive = unsafeAlive
     let sLastHeard = unsafeLastHeard

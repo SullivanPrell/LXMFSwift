@@ -330,10 +330,10 @@ public final class LXMessage {
   /// Fires on every change of ``state``, from wherever the change was made.
   ///
   /// `onDelivery` reports one terminal outcome; an application that shows progress needs the
-  /// transitions in between. Once delivery became proof-gated (`bugs/014`) a message dwells in
+  /// transitions in between. Delivery is proof-gated (`bugs/014`), so a message dwells in
   /// `.sending` for as long as the network takes and can drop back to `.outbound` on a
-  /// timeout—real states a user should see, and previously invisible because nothing fired
-  /// between send and delivery.
+  /// timeout—real states a user should see, which only this callback reports between send and
+  /// delivery.
   ///
   /// Deliberately hung off the ``state`` property itself rather than called from each site that
   /// assigns one. There are more than a dozen such sites across four delivery methods, and
