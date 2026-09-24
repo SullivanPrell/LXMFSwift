@@ -5,29 +5,28 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+### An opportunistic delivery is now proved back to its sender
+
+The reference's `LXMRouter.delivery_packet` calls `packet.prove()` before it parses anything
+(`LXMRouter.py:1927`). The delivery destination keeps the default prove-none strategy, so that
+call is the only proof an opportunistic sender gets. Without it, a Python or Go sender's
+message reached this router but the sender's receipt never validated, so the sender retried the
+message and then marked it failed.
+
 ### An opportunistic message is delivered only when the recipient proves it
 
-The reference hangs `__mark_delivered` on the packet receipt and sets SENT, which means only
-that the packet left (`LXMessage.py:467-472`). `process_outbound` dequeues a message at
-DELIVERED (`LXMRouter.py:2686`), so an unproved opportunistic message is sent again every
+The reference hangs `__mark_delivered` on the packet receipt, and SENT means only that the
+packet left (`LXMessage.py:467-472`). `process_outbound` dequeues a message at DELIVERED
+(`LXMRouter.py:2686`), so an unproved opportunistic message is sent again every
 `DELIVERY_RETRY_WAIT` and failed after `MAX_DELIVERY_ATTEMPTS` (`:2736-2761`).
 
-This router discarded the receipt, and `processOutbound` treated `.sent` like `.delivered`. The
-next pass dequeued the message and fired `onDelivery`, whether or not anyone received it, and
-the message was never retried. `bugs/014` fixed the same defect for DIRECT.
+`processOutbound` now does the same. It no longer treats `.sent` as `.delivered`, which reported
+delivery for a message nobody received. The receipt is kept in `deliveryReceipt` and its proof
+marks the message delivered. Every attempt's receipt keeps that callback, so a proof for an
+earlier attempt still counts. `bugs/014` applied the same rule to DIRECT delivery.
 
-The receipt is now kept in `deliveryReceipt`, and its proof marks the message delivered. The
-receipt of every attempt keeps that callback, so a proof for an earlier attempt still counts.
-A message stays `.sent` and queued until the proof arrives, and fails after the
-reference's attempts.
-
-A Swift receiver must prove opportunistic packets for a Swift-to-Swift opportunistic message to
-reach `.delivered`. Until that receiver-side change ships, such a message now reports `.failed`
-after its retries, where it used to report `.delivered` without evidence.
-
-reticulum-interop's local LXMF probe reported `swift→go` opportunistic as `delivered=true`
-on 2026-09-22, although reticulum-go-mf never proves an opportunistic delivery;
-`py→go` and `go→go` reported `delivered=false`.
+A receiver that never proves an opportunistic packet, such as reticulum-go-mf, leaves the
+message `.failed` after its retries.
 
 ### An unanswered path request now costs a propagation peer a backoff step
 

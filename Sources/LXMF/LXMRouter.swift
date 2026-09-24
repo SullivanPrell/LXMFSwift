@@ -1558,10 +1558,9 @@ public final class LXMRouter {
         destinationHash: destHash,
         data: ciphertext
       )
-      // `bugs/014`'s defect on the opportunistic path. The receipt used to be discarded and
-      // `.sent` treated as delivered, so an unproved message was dequeued and reported
-      // delivered on the next pass. The reference hangs `__mark_delivered` on the receipt
-      // (`LXMessage.py:469`), and an unproved message stays SENT and is sent again.
+      // `bugs/014`: only the receipt's proof marks the message delivered. The reference hangs
+      // `__mark_delivered` on the receipt (`LXMessage.py:469`); an unproved message stays SENT
+      // and is sent again.
       let receipt = try transport.send(packet)
       // Before the callback is set: a proof that already arrived replays on assignment, and
       // would otherwise be overwritten back to `.sent`.
@@ -2313,6 +2312,14 @@ public final class LXMRouter {
 
     guard let identity = destination.identity else { return }
     guard let plaintext = try? destination.decrypt(packet.data) else { return }
+
+    // Prove receipt before parsing, as `LXMRouter.delivery_packet` does with `packet.prove()`
+    // (LXMRouter.py:1927). The delivery destination keeps the default prove-none strategy, so
+    // this is the only proof an opportunistic sender gets; without it the sender's receipt
+    // times out and the message is never marked delivered.
+    if let receivingInterface = packet.receivingInterface {
+      transport.provePacket(packet, from: receivingInterface, destination: destination)
+    }
 
     // Prepend the destination hash that was stripped for wire-efficiency.
     let wire = destination.hash + plaintext
