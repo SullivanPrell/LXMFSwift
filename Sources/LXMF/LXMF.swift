@@ -72,17 +72,21 @@ public enum ContinuationField: UInt8 {
 
 // MARK: - Audio mode identifiers
 
+// swift-format-ignore: AlwaysUseLowerCamelCase
 /// Codec and mode an audio field was encoded with.
+///
+/// The `codec2_*` names keep their 1.7.1 spelling until 2.0.0: a renamed case breaks every
+/// exhaustive `switch` over this type.
 public enum AudioMode: UInt8 {
-  case codec2Mode450PWB = 0x01  // Python: AM_CODEC2_450PWB
-  case codec2Mode450 = 0x02  // Python: AM_CODEC2_450
-  case codec2Mode700C = 0x03  // Python: AM_CODEC2_700C
-  case codec2Mode1200 = 0x04  // Python: AM_CODEC2_1200
-  case codec2Mode1300 = 0x05  // Python: AM_CODEC2_1300
-  case codec2Mode1400 = 0x06  // Python: AM_CODEC2_1400
-  case codec2Mode1600 = 0x07  // Python: AM_CODEC2_1600
-  case codec2Mode2400 = 0x08  // Python: AM_CODEC2_2400
-  case codec2Mode3200 = 0x09  // Python: AM_CODEC2_3200
+  case codec2_450PWB = 0x01  // Python: AM_CODEC2_450PWB
+  case codec2_450 = 0x02  // Python: AM_CODEC2_450
+  case codec2_700C = 0x03  // Python: AM_CODEC2_700C
+  case codec2_1200 = 0x04  // Python: AM_CODEC2_1200
+  case codec2_1300 = 0x05  // Python: AM_CODEC2_1300
+  case codec2_1400 = 0x06  // Python: AM_CODEC2_1400
+  case codec2_1600 = 0x07  // Python: AM_CODEC2_1600
+  case codec2_2400 = 0x08  // Python: AM_CODEC2_2400
+  case codec2_3200 = 0x09  // Python: AM_CODEC2_3200
   case opusOgg = 0x10
   case opusLBW = 0x11
   case opusMBW = 0x12
