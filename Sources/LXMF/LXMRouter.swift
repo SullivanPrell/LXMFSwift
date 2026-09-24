@@ -335,10 +335,10 @@ public final class LXMRouter {
   /// announce is processed—at that point `transport.recall(identity:)` already
   /// has the identity, so validation is immediate rather than poll-based.
   ///
-  /// NOTE: Inbound delivery no longer *defers* messages from unknown sources—they
+  /// NOTE: Inbound delivery does not *defer* messages from unknown sources—they
   /// are delivered immediately as unverified, matching Python (bug 006), so
-  /// this queue is normally empty. `notifyAnnounced` still drains it (a harmless
-  /// no-op) and remains as a public hook for callers that queue messages here
+  /// this queue is normally empty. `notifyAnnounced` drains it (a no-op when it
+  /// is empty) and is a public hook for callers that queue messages here
   /// through some other path.
   private var pendingSignatureValidation: [(message: LXMessage, received: Date)] = []
 
@@ -674,7 +674,6 @@ public final class LXMRouter {
     timer.schedule(deadline: .now() + 4, repeating: 4)
     // One line, because the schedule is `jobSchedule` and not this closure: a routine added to
     // the reference is added there, where a test compares it against `LXMRouter.py:880-911`.
-    // This block previously ran three of the reference's ten routines, and nothing said so.
     timer.setEventHandler { [weak self] in self?.jobs() }
     timer.resume()
     jobTimer = timer
@@ -2349,7 +2348,7 @@ public final class LXMRouter {
   /// Runs, in order: ticket ingest (so future outbound messages to this source
   /// can skip proof-of-work), stamp validation + enforcement, ignore-list
   /// filtering, and duplicate suppression—then fires `onMessageReceived`.
-  /// All previously direct `onMessageReceived?(msg)` inbound calls funnel
+  /// Every inbound `onMessageReceived?(msg)` call funnels
   /// through here so the policy is applied uniformly regardless of whether the
   /// message arrived opportunistically, over a direct link, or after deferred
   /// signature validation.
@@ -3085,11 +3084,9 @@ public final class LXMRouter {
 
   // MARK: - Seeding, for tests (`swift_devel/bugs/055`)
   //
-  // Tests used to build a message store by assigning straight into `propagationEntries`. Those
-  // assignments were the largest population of unsynchronized writes in the package and, worse,
-  // a worked example: every one of them showed the next contributor that reaching into the
-  // router's state was normal. They are unsynchronized in the same way the application-side
-  // reads were, and there were 24 of them.
+  // A test builds a message store through these, never by assigning into `propagationEntries`.
+  // Such an assignment is an unsynchronized write that races the job loop, and it shows the next
+  // contributor that reaching into the router's state is normal.
   //
   // These are `internal`, not `public`—a test can reach them through `@testable import`, an
   // application cannot reach them at all. Each takes `lock` exactly like the production path it
@@ -3948,8 +3945,8 @@ public final class LXMRouter {
   ///   - link: the link the request arrived on. Two different hashes are derived from it and
   ///     they are not interchangeable: the peering key is computed over the remote's *identity*
   ///     hash (`LXMRouter.py:2298`), while the throttle is keyed by its *propagation destination*
-  ///     hash (`:2269-2270`). Taking a pre-narrowed identity hash here, as this method used to,
-  ///     makes the second one underivable (design D1).
+  ///     hash (`:2269-2270`). A pre-narrowed identity hash would leave the second one
+  ///     underivable (design D1), so the method takes the link.
   /// - Returns: Response value:
   ///   - `LXMPeerError.noIdentity` if not identified
   ///   - `LXMPeerError.throttled` if the remote is inside a throttle window
@@ -4252,9 +4249,8 @@ public final class LXMRouter {
     lock.lock()
     let snapshot = locallyDeliveredTransientIDs
     lock.unlock()
-    // Python persists this as a msgpack dict {transient_id: timestamp}; the
-    // port previously wrote a bare array, which had nowhere to put the
-    // timestamp the expiry job needs.
+    // Python persists this as a msgpack dict {transient_id: timestamp}, which
+    // carries the timestamp the expiry job needs.
     let value = MsgPack.Value.map(
       snapshot.map { (MsgPack.Value.bytes($0.key), MsgPack.Value.double($0.value)) })
     try? MsgPack.encode(value).write(
