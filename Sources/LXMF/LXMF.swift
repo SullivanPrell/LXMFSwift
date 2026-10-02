@@ -234,6 +234,29 @@ public let pnMetaUtilPressure: UInt8 = 0x05
 ///
 /// Python: `PN_META_CUSTOM = 0xFF`
 public let pnMetaCustom: UInt8 = 0xFF
+/// Metadata key holding the name of the implementation running the node.
+///
+/// Python: `PN_META_IMPL_NAME = 0xFE` (`LXMF.py:138`).
+public let pnMetaImplName: UInt8 = 0xFE
+
+// MARK: - Versions
+
+/// This package's release.
+///
+/// A propagation node announces it under `pnMetaVersion`.
+public let lxmfSwiftVersion = "1.8.0"
+
+/// The LXMF release this package matches.
+///
+/// It moves only when parity with a new release is verified.
+public let lxmfProtocolVersion = "1.2.0"
+
+/// The implementation name a propagation node announces under `pnMetaImplName`.
+///
+/// Python announces `"lxmd"` (`LXMRouter.py:327`). The field lets a consumer tell one
+/// implementation from another, so this package announces its own name and release, as
+/// ReticulumSwift does in interface discovery.
+public let pnImplementationName = "LXMFSwift"
 
 // MARK: - Message renderer modes (mirrors LXMF.py RENDERER_* constants)
 

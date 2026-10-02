@@ -395,6 +395,11 @@ public final class LXMRouter {
 
   // MARK: - Propagation node server state
 
+  /// This propagation node's name, announced under `pnMetaName` when set and not empty.
+  ///
+  /// Python: `LXMRouter.name`, from lxmd's `node_name` (`LXMRouter.py:129`).
+  public var name: String?
+
   /// Whether this router is currently acting as a propagation node.
   ///
   /// Python: `LXMRouter.propagation_node`.
@@ -896,6 +901,23 @@ public final class LXMRouter {
     return MsgPack.encode(.array([displayNameValue, stampCostValue, supportedFunctionality]))
   }
 
+  /// The metadata map a propagation node announces, in the reference's key order.
+  ///
+  /// The implementation name and version go in as strings, and the name, when set and not
+  /// empty, as UTF-8 bytes.
+  ///
+  /// Python: `get_propagation_node_announce_metadata()` (`LXMRouter.py:325-330`).
+  public func getPropagationNodeAnnounceMetadata() -> [(MsgPack.Value, MsgPack.Value)] {
+    var metadata: [(MsgPack.Value, MsgPack.Value)] = [
+      (.uint(UInt64(pnMetaImplName)), .string(pnImplementationName)),
+      (.uint(UInt64(pnMetaVersion)), .string(lxmfSwiftVersion)),
+    ]
+    if let name, !name.isEmpty {
+      metadata.append((.uint(UInt64(pnMetaName)), .bytes(Data(name.utf8))))
+    }
+    return metadata
+  }
+
   /// Build the msgpack announce app data for the propagation destination.
   ///
   /// Format: `[False, timestamp, nodeState, perTransferLimit, perSyncLimit, [stampCost, flexibility, peeringCost], metadata]`
@@ -913,8 +935,7 @@ public final class LXMRouter {
       .int(Int64(propagationStampCostFlexibility)),
       .int(Int64(peeringCost)),
     ])
-    // name and other metadata can be added via subclass/config
-    let metaMap: MsgPack.Value = .map([])
+    let metaMap: MsgPack.Value = .map(getPropagationNodeAnnounceMetadata())
     return MsgPack.encode(
       .array([
         .bool(false),  // 0: legacy PN support flag

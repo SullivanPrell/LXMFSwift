@@ -159,6 +159,7 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
       "propagationTransferMaxMessages": "as above",
       "deliveryPerTransferLimit": "configuration",
       "retainSyncedOnNode": "configuration",
+      "name": "configuration",
       "wantsDownloadOnPathAvailableFrom": "client-side download intent",
       "wantsDownloadOnPathAvailableTo": "as above",
       "wantsDownloadOnPathAvailableTimeout": "as above",
