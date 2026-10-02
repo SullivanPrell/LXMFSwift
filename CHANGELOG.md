@@ -3,7 +3,7 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [1.9.0]—LXMF 1.2.0 parity
 
 LXMFSwift now tracks Python LXMF 1.2.0, and requires ReticulumSwift 1.23.0, which ports the
 RNS 1.5.5 path timeouts that LXMF 1.2.0 reads.
