@@ -70,8 +70,17 @@ public final class LXMRouter {
   public static let maxPathlessTries = 1
   /// Python: `LXMRouter.DELIVERY_RETRY_WAIT = 10` (`LXMRouter.py:32`).
   public static let deliveryRetryWait: TimeInterval = 10
-  /// Python: `LXMRouter.PATH_REQUEST_WAIT = 7` (`LXMRouter.py:33`).
+  /// Python: `LXMRouter.PATH_REQUEST_WAIT = 7` (`LXMRouter.py:35`).
   public static let pathRequestWait: TimeInterval = 7
+  /// How long a repeat path request is suppressed while an interface slower than
+  /// `slowInterfaceBitrate` is online.
+  ///
+  /// Python: `LXMRouter.PATH_REQUEST_DEBOUNCE = 60` (`LXMRouter.py:36`).
+  public static let pathRequestDebounce: TimeInterval = 60
+  /// The bitrate, in bits per second, below which an online interface counts as slow.
+  ///
+  /// Python: `LXMRouter.SLOW_INTERFACE_BITRATE = 2000` (`LXMRouter.py:37`).
+  public static let slowInterfaceBitrate = 2000
 
   /// RNS request path for fetching/delivering messages to/from a propagation node.
   ///
@@ -145,6 +154,13 @@ public final class LXMRouter {
 
   /// Active outbound direct links, keyed by the remote destination hash.
   private(set) var directLinks: [Data: Link] = [:]
+
+  /// When this router last requested a path to each destination, for the debounce.
+  ///
+  /// Python: `LXMRouter.path_request_times`, guarded by `path_request_lock`
+  /// (`LXMRouter.py:115-116`).
+  private var unsafePathRequestTimes: [Data: TimeInterval] = [:]
+  private let pathRequestLock = NSLock()
 
   /// Messages awaiting delivery.
   ///
@@ -224,6 +240,16 @@ public final class LXMRouter {
   ///
   /// Mirrors Python's `LXMRouter.wants_download_on_path_available_from`.
   public var wantsDownloadOnPathAvailableFrom: Data? = nil
+
+  /// The identity the download resumes as once the path arrives.
+  ///
+  /// Mirrors Python's `LXMRouter.wants_download_on_path_available_to`.
+  public var wantsDownloadOnPathAvailableTo: Identity? = nil
+
+  /// When the wait for a path to the propagation node runs out.
+  ///
+  /// Mirrors Python's `LXMRouter.wants_download_on_path_available_timeout`.
+  public var wantsDownloadOnPathAvailableTimeout: TimeInterval? = nil
 
   // MARK: - Auth and allow/disallow lists
 
@@ -1378,6 +1404,93 @@ public final class LXMRouter {
     return deliverInboundResource(destHash + plaintext, noStampEnforcement: true)
   }
 
+  // MARK: - Path requests and attempt timing
+
+  /// A full round trip for one MTU on the slowest online interface, plus one hop's grace, or
+  /// zero when no bitrate is known.
+  ///
+  /// Python: `medium_path_timeout()` (`LXMRouter.py:1754-1756`). Python asks
+  /// `RNS.Reticulum.get_instance()`, which a shared-instance client forwards to the daemon. This
+  /// router asks the transport it was built with.
+  public func mediumPathTimeout() -> TimeInterval {
+    transport.mediumPathTimeout()
+  }
+
+  /// A delivery round trip to `destinationHash`: twice the first hop's MTU time plus one hop's
+  /// grace, or `mediumPathTimeout()` when there's no path.
+  ///
+  /// Python: `destination_round_trip(destination_hash)` (`LXMRouter.py:1758-1763`).
+  public func destinationRoundTrip(_ destinationHash: Data) -> TimeInterval {
+    guard transport.hasPath(to: destinationHash) else { return mediumPathTimeout() }
+    let perHop = Constants.defaultPerHopTimeout
+    let mtuTime = transport.firstHopTimeout(for: destinationHash) - perHop
+    return 2 * max(mtuTime, 0) + perHop
+  }
+
+  /// How long to wait for a path request's answer: `pathRequestWait`, or longer when the slowest
+  /// medium needs it.
+  ///
+  /// Python: `path_request_wait()` (`LXMRouter.py:1765-1766`).
+  public func effectivePathRequestWait() -> TimeInterval {
+    max(LXMRouter.pathRequestWait, mediumPathTimeout())
+  }
+
+  /// Whether an online interface runs below `slowInterfaceBitrate`.
+  ///
+  /// Python: `slow_interface_online()` (`LXMRouter.py:1768-1771`).
+  public func slowInterfaceOnline() -> Bool {
+    guard let bitrate = transport.lowestInterfaceBitrate else { return false }
+    return bitrate < LXMRouter.slowInterfaceBitrate
+  }
+
+  /// Requests a path to `destinationHash` unless this router requested one inside the debounce
+  /// window, and returns whether it sent the request.
+  ///
+  /// The window is `pathRequestDebounce` while a slow interface is online, and
+  /// `effectivePathRequestWait()` otherwise. Every path request the router and its peers make
+  /// goes through here.
+  ///
+  /// Python: `request_path(destination_hash)` (`LXMRouter.py:1773-1786`).
+  @discardableResult
+  public func requestPath(_ destinationHash: Data) -> Bool {
+    let window =
+      slowInterfaceOnline() ? LXMRouter.pathRequestDebounce : effectivePathRequestWait()
+    pathRequestLock.lock()
+    let now = Date().timeIntervalSince1970
+    if let last = unsafePathRequestTimes[destinationHash], now - last < window {
+      pathRequestLock.unlock()
+      return false
+    }
+    unsafePathRequestTimes = unsafePathRequestTimes.filter { now - $0.value < window }
+    unsafePathRequestTimes[destinationHash] = now
+    pathRequestLock.unlock()
+
+    try? transport.requestPath(for: destinationHash)
+    return true
+  }
+
+  /// Whether this router requested a path to `destinationHash` within
+  /// `effectivePathRequestWait()`.
+  ///
+  /// Python: `path_request_pending(destination_hash)` (`LXMRouter.py:1788-1792`).
+  public func pathRequestPending(_ destinationHash: Data) -> Bool {
+    let window = effectivePathRequestWait()
+    pathRequestLock.lock()
+    defer { pathRequestLock.unlock() }
+    guard let last = unsafePathRequestTimes[destinationHash] else { return false }
+    return Date().timeIntervalSince1970 - last < window
+  }
+
+  /// Records a path request this router makes without the debounce.
+  ///
+  /// The stale-path rediscovery records its request here before dropping the path
+  /// (`LXMRouter.py:2827`).
+  private func recordPathRequest(_ destinationHash: Data) {
+    pathRequestLock.lock()
+    unsafePathRequestTimes[destinationHash] = Date().timeIntervalSince1970
+    pathRequestLock.unlock()
+  }
+
   // MARK: - Outbound
 
   /// Enqueue a message for delivery.
@@ -1509,7 +1622,7 @@ public final class LXMRouter {
     // LXMRouter.py:2737-2742.
     if msg.deliveryAttempts >= LXMRouter.maxPathlessTries && !transport.hasPath(to: destHash) {
       msg.deliveryAttempts += 1
-      try? transport.requestPath(for: destHash)
+      requestPath(destHash)
       msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
       return
     }
@@ -1617,7 +1730,7 @@ public final class LXMRouter {
         lock.lock()
         directLinks.removeValue(forKey: destHash)
         lock.unlock()
-        try? transport.requestPath(for: destHash)
+        requestPath(destHash)
         msg.deliveryAttempts += 1
         msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
       case .pending, .handshake, .stale:
@@ -1634,7 +1747,7 @@ public final class LXMRouter {
 
     // No link—check for a path and open one.
     guard transport.hasPath(to: destHash) else {
-      try? transport.requestPath(for: destHash)
+      requestPath(destHash)
       msg.deliveryAttempts += 1
       msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
       return
@@ -1713,7 +1826,7 @@ public final class LXMRouter {
     }
 
     guard transport.hasPath(to: nodeHash) else {
-      try? transport.requestPath(for: nodeHash)
+      requestPath(nodeHash)
       msg.deliveryAttempts += 1
       msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
       return
@@ -1925,12 +2038,49 @@ public final class LXMRouter {
           self?.reapClosedOutboundPropagationLink()
         }
       } else {
-        propagationTransferState = .pathRequested
+        // `LXMRouter.py:543-548`.
+        requestPath(nodeHash)
         wantsDownloadOnPathAvailableFrom = nodeHash
-        try? transport.requestPath(for: nodeHash)
+        wantsDownloadOnPathAvailableTo = identity
+        wantsDownloadOnPathAvailableTimeout =
+          Date().timeIntervalSince1970
+          + max(LXMRouter.prPathTimeout, effectivePathRequestWait())
+        propagationTransferState = .pathRequested
+        requestMessagesPathJob()
       }
     }
     // else: link is establishing—wait for onEstablished callback
+  }
+
+  /// Waits on a background queue for the path a download needs, polling every 0.1 seconds.
+  ///
+  /// Python: `request_messages_path_job()` (`LXMRouter.py:1464-1477`).
+  private func requestMessagesPathJob() {
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      while let self, !self.checkDownloadPath(now: Date().timeIntervalSince1970) {
+        Thread.sleep(forTimeInterval: 0.1)
+      }
+    }
+  }
+
+  /// One pass of a download's wait for its path, returning whether the wait is over.
+  ///
+  /// Once the path exists, the download resumes as `wantsDownloadOnPathAvailableTo`. Once
+  /// `wantsDownloadOnPathAvailableTimeout` passes, the sync fails (`LXMRouter.py:1469-1477`).
+  /// A cancelled download ends the wait: Python keeps polling a cleared hash until the timeout
+  /// and then marks the cancelled sync `PR_NO_PATH`.
+  func checkDownloadPath(now: TimeInterval) -> Bool {
+    guard let nodeHash = wantsDownloadOnPathAvailableFrom else { return true }
+    if transport.hasPath(to: nodeHash) {
+      if let identity = wantsDownloadOnPathAvailableTo {
+        requestMessagesFromPropagationNode(
+          identity: identity, maxMessages: propagationTransferMaxMessages)
+      }
+      return true
+    }
+    guard let timeout = wantsDownloadOnPathAvailableTimeout, now >= timeout else { return false }
+    acknowledgeSyncCompletion(failureState: .failed)
+    return true
   }
 
   /// Cancel any in-progress propagation sync, tear down the link, and reset state.
@@ -1946,6 +2096,7 @@ public final class LXMRouter {
     propagationTransferProgress = 0.0
     propagationTransferSize = nil
     wantsDownloadOnPathAvailableFrom = nil
+    wantsDownloadOnPathAvailableTo = nil
   }
 
   func handleMessageListResponse(_ data: Data, receipt: RequestReceipt) {
@@ -2054,11 +2205,9 @@ public final class LXMRouter {
   ///     left in place so it stays visible until explicitly acknowledged.
   ///   - failureState: state to move to instead of `.idle`.
   ///
-  /// Without this, `propagationTransferSize` survived a successful sync and the
-  /// next one showed the previous transfer's size until its first progress
-  /// callback landed. (Python additionally clears
-  /// `propagation_transfer_last_result` and `wants_download_on_path_available_to`;
-  /// neither field exists here.)
+  /// Clearing `propagationTransferSize` keeps the next sync from showing this transfer's size
+  /// before its first progress callback. Python also clears `propagation_transfer_last_result`,
+  /// which this port doesn't carry (`LXMRouter.py:1664-1673`).
   /// Mirrors Python's `LXMRouter.acknowledge_sync_completion(reset_state, failure_state)`.
   public func acknowledgeSyncCompletion(
     resetState: Bool = false,
@@ -2072,6 +2221,7 @@ public final class LXMRouter {
     propagationTransferProgress = 0.0
     propagationTransferSize = nil
     wantsDownloadOnPathAvailableFrom = nil
+    wantsDownloadOnPathAvailableTo = nil
   }
 
   /// The sync state machine's answer to its outbound propagation link closing—the outbound
@@ -2581,7 +2731,7 @@ public final class LXMRouter {
       // Python's `if not static_peer in self.peers` (`:635`)—a peer restored from disk
       // keeps its terms and sync history rather than being replaced with a blank one.
       let peer = addPeer(destinationHash: staticPeer)
-      if peer.lastHeard == 0 { try? transport.requestPath(for: staticPeer) }
+      if peer.lastHeard == 0 { requestPath(staticPeer) }
     }
 
     // Load saved node statistics.
@@ -3135,6 +3285,20 @@ public final class LXMRouter {
     if let v = unpeeredRxBytes { unsafeUnpeeredPropagationRxBytes = v }
   }
 
+  /// Set or clear the time this router last requested a path to `destinationHash`.
+  func seedPathRequestTime(_ destinationHash: Data, _ time: TimeInterval?) {
+    pathRequestLock.lock()
+    defer { pathRequestLock.unlock() }
+    unsafePathRequestTimes[destinationHash] = time
+  }
+
+  /// The recorded path request times.
+  func pathRequestTimesSnapshot() -> [Data: TimeInterval] {
+    pathRequestLock.lock()
+    defer { pathRequestLock.unlock() }
+    return unsafePathRequestTimes
+  }
+
   // MARK: - Static peers
 
   /// Declare the propagation destinations this node is always peered with.
@@ -3218,6 +3382,7 @@ public final class LXMRouter {
       peerIdentity: peerIdentity,
       destination: destination,
       transport: transport,
+      requestPath: { [weak self] in self?.requestPath($0) },
       now: { Date().timeIntervalSince1970 },
       messageBytes: { [weak self] transientID in
         guard let path = self?.peerEntry(transientID)?.filePath else { return nil }

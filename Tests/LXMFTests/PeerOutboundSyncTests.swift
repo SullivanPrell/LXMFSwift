@@ -351,9 +351,11 @@ final class PeerOutboundSyncTests: XCTestCase {
     // B answers over the loopback, so drop the path again: the case being modelled is a
     // request nothing replies to.
     _ = net.transportA.dropPath(for: net.bPropagationHash)
-    peer.seedSyncState(
-      alive: true,
-      pathRequestedAt: Date().timeIntervalSince1970 - LXMPeer.pathRequestGrace - 1)
+    let aged = Date().timeIntervalSince1970 - LXMPeer.pathRequestGrace - 1
+    peer.seedSyncState(alive: true, pathRequestedAt: aged)
+    // Python sleeps the grace between the two requests, and the grace outlasts the router's
+    // path request wait, so its second request clears the debounce (`LXMRouter.py:1773-1786`).
+    net.routerA.seedPathRequestTime(net.bPropagationHash, aged)
     net.interfaceA.clearSent()
 
     let before = Date().timeIntervalSince1970
@@ -367,6 +369,30 @@ final class PeerOutboundSyncTests: XCTestCase {
       "an unanswered path request is a failed sync (LXMPeer.py:299-303)")
     XCTAssertGreaterThanOrEqual(peer.nextSyncAttempt, before + LXMPeer.syncBackoffStep)
     XCTAssertFalse(peer.alive, "and the peer is no longer counted as reachable")
+  }
+
+  /// T18c—a peer's path request goes through the router's debounce.
+  ///
+  /// LXMF 1.2.0 sends it with `self.router.request_path` (`LXMPeer.py:297`), which suppresses a
+  /// repeat inside the router's window (`LXMRouter.py:1773-1786`).
+  func testAPeerPathRequestInsideTheRouterWindowIsSuppressed() throws {
+    net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
+    let peer = try net.announceBToA()
+    XCTAssertTrue(peer.generatePeeringKey())
+    _ = try net.storeMessage(in: net.routerA, size: 400)
+
+    _ = net.transportA.dropPath(for: net.bPropagationHash)
+    XCTAssertFalse(net.transportA.hasPath(to: net.bPropagationHash), "precondition")
+    XCTAssertTrue(net.routerA.requestPath(net.bPropagationHash))
+    _ = net.transportA.dropPath(for: net.bPropagationHash)
+    net.interfaceA.clearSent()
+
+    peer.sync()
+    net.settle(0.3)
+
+    XCTAssertTrue(
+      net.interfaceA.sentPathRequests().isEmpty,
+      "the router sent a request for this peer inside its window (LXMRouter.py:1776-1778)")
   }
 
   // MARK: - The offer (design STEP 6)
