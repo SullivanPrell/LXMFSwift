@@ -75,7 +75,9 @@ struct PropagationNodeMetadataTests {
   /// A msgpack `fixstr` or `str8`, as `umsgpack` packs a short Python `str`.
   static func str(_ value: String) -> Data {
     let bytes = Data(value.utf8)
-    var out = bytes.count < 32 ? Data([0xA0 | UInt8(bytes.count)]) : Data([0xD9, UInt8(bytes.count)])
+    var out =
+      bytes.count < 32
+      ? Data([0xA0 | UInt8(bytes.count)]) : Data([0xD9, UInt8(bytes.count)])
     out.append(bytes)
     return out
   }

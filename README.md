@@ -32,7 +32,7 @@ This is part of the [ReticulumSwift stack](https://github.com/SullivanPrell/Reti
 
 ## Status
 
-LXMFSwift is **experimental**. It tracks Python LXMF 1.1.0 and covers the message
+LXMFSwift is **experimental**. It tracks Python LXMF 1.2.0 and covers the message
 format and the router, which runs as a client or as a propagation node. It hasn't had an
 independent security review. The Python implementation is the authority on how LXMF
 behaves. Where this port differs from it, the port is wrong. Unit tests cover about
@@ -47,7 +47,7 @@ behaves. Where this port differs from it, the port is wrong. Unit tests cover ab
 ## Requirements
 
 - Swift 5.9+, iOS 16+ / macOS 13+
-- Depends on [ReticulumSwift](https://github.com/SullivanPrell/ReticulumSwift) 1.0.0+
+- Depends on [ReticulumSwift](https://github.com/SullivanPrell/ReticulumSwift) 1.23.0+
 
 ## Installation
 

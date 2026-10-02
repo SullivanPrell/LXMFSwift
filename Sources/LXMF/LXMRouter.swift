@@ -1663,8 +1663,10 @@ public final class LXMRouter {
     message.maxDeliveryAttempts ?? LXMRouter.maxDeliveryAttempts
   }
 
-  /// Whether `message`'s next attempt is due: its scheduled time has passed, or it waits on a
-  /// path to `destinationHash` that now exists.
+  /// Whether the message's next attempt is due.
+  ///
+  /// It's due when its scheduled time has passed, or when it waits on a path to
+  /// `destinationHash` that now exists.
   ///
   /// Python: `attempt_due(lxmessage, destination_hash)` (`LXMRouter.py:1798-1801`).
   public func attemptDue(_ message: LXMessage, destinationHash: Data) -> Bool {
@@ -1672,7 +1674,7 @@ public final class LXMRouter {
     return message.awaitingPath && transport.hasPath(to: destinationHash)
   }
 
-  /// Schedules `message`'s next attempt and sets its attempt limit.
+  /// Schedules the message's next attempt and sets its attempt limit.
   ///
   /// After a path request, the attempt waits `pathRequestWait` or the medium's path timeout,
   /// and the message is marked as waiting on the path. Otherwise it waits

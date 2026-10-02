@@ -5,6 +5,75 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+LXMFSwift now tracks Python LXMF 1.2.0, and requires ReticulumSwift 1.23.0, which ports the
+RNS 1.5.5 path timeouts that LXMF 1.2.0 reads.
+
+### One opportunistic packet carries at most 287 bytes of content
+
+`ENCRYPTED_PACKET_MDU` is `RNS.Packet.ENCRYPTED_MDU`, with no `TIMESTAMP_SIZE` added
+(`LXMessage.py:68-79`). The single-packet content limit falls from 295 bytes to 287, so a
+message of 288 to 295 bytes goes over a link. `encryptedPacketMDU`,
+`encryptedPacketMaxContent`, `linkPacketMDU`, and `linkPacketMaxContent` expose the limits.
+`encryptionDescriptionAES` reads "AES-256" (`LXMessage.py:98`).
+
+### Path requests are debounced, and wait longer on a slow medium
+
+Every router path request goes through `requestPath(_:)`, which suppresses a repeat inside the
+path request wait, or inside `pathRequestDebounce` (60 s) while an interface slower than
+`slowInterfaceBitrate` (2000 bit/s) is online (`LXMRouter.py:1754-1792`). Propagation peers
+share the router's record, so a peer and the router no longer ask for the same path twice.
+
+The wait is the larger of `PATH_REQUEST_WAIT` and the transport's medium path timeout. Python
+calls this `path_request_wait()`. It's `effectivePathRequestWait()` here, because the constant
+already holds the name `pathRequestWait`.
+
+### A propagation download resumes when its path arrives
+
+A download from a node with no known path records the identity and waits for the path,
+then requests the messages (`LXMRouter.py:543-548`, `:1469-1477`). Before this, the download
+stopped at `.pathRequested` and nothing resumed it. A path that doesn't arrive in time fails the
+transfer, and cancelling the download clears the wait.
+
+### Delivery attempts are scheduled by round trip
+
+`scheduleAttempt` spaces attempts by the destination's round trip, or by the medium path
+timeout when there's no path, and `attemptLimit` caps them at `max(3, round(50 / rt))` with
+`MAX_DELIVERY_ATTEMPTS` as the fast-path limit (`LXMRouter.py:1794-1813`). The opportunistic,
+direct, and propagated branches of `processOutbound` follow LXMF 1.2.0
+(`LXMRouter.py:2805-2997`):
+
+- A message past its limit fails only when its next attempt falls due.
+- A direct link that closes stays recorded until its branch runs, which requests the path again
+  and reschedules. Link callbacks no longer count attempts, so one failure costs one attempt.
+- A failed resource transfer returns the message to the queue unless the recipient rejected it.
+- A stale link is waited out rather than counted.
+- An exception while encrypting or sending fails the message (`LXMRouter.py:2640-2646`).
+
+`send(_:)` requests an unknown path before it queues an opportunistic message, and the first
+attempt waits for that path (`LXMRouter.py:1845-1861`). An announce, or a propagation node
+announce, brings forward only the messages marked `awaitingPath` (`Handlers.py:23-31`,
+`:46-53`).
+
+### A propagation node announces its implementation, version, and name
+
+The metadata map in a propagation node's announce carries the implementation name under
+`pnMetaImplName` (`0xFE`), the version under `pnMetaVersion`, and the node name under
+`pnMetaName` when `name` is set (`LXMRouter.py:324-329`). The map was empty before, so a
+Python node displayed no name for a Swift propagation node.
+
+The implementation name is "LXMFSwift" and the version is `lxmfSwiftVersion`, where Python
+announces "lxmd" and its own version. ReticulumSwift's interface discovery names itself
+the same way.
+
+### Not ported
+
+- A propagated transfer that completes marks the message `.delivered`. Python marks it SENT
+  through `__mark_propagated`.
+- A direct send whose receipt is `nil` returns the message to the queue. Python leaves it
+  SENDING.
+- The router reads path state from its own transport. Python asks the shared instance over RPC
+  when it's a client.
+
 ## [1.8.0]—opportunistic delivery is proved
 
 ### An opportunistic delivery is now proved back to its sender

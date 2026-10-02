@@ -14,11 +14,11 @@ import Testing
 
 @testable import LXMF
 
-/// How the outbound queue spaces, counts and ends delivery attempts, against LXMF 1.2.0.
+/// How the outbound queue spaces, counts, and ends delivery attempts, against LXMF 1.2.0.
 ///
 /// `schedule_attempt` spaces each attempt by the destination's round trip and lowers a
 /// message's attempt limit on a slow medium. `attempt_due` lets a message waiting on a path go
-/// as soon as the path arrives. A message past its limit fails only once its last attempt is due
+/// when the path arrives. A message past its limit fails only once its last attempt is due
 /// (`LXMRouter.py:1794-1813`, `:2805-2997`). Every expected delay and limit below was read from
 /// LXMF 1.2.0's own methods on RNS 1.5.5.
 @Suite("Delivery attempt scheduling")
