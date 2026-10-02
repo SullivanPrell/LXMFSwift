@@ -6,14 +6,29 @@ on:
   pull_request:
 
 jobs:
-  build-test:
-    name: Build & test (macOS)
+  # The oldest toolchain this package supports builds the library. Tests aren't built here:
+  # they use Swift Testing, which ships with Xcode 16 and later.
+  build-minimum:
+    name: Build (Swift 5.10)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - name: Show toolchain
         run: swift --version
       # Resolves ReticulumSwift from its published GitHub release.
+      - name: Build
+        run: swift build
+
+  build-test:
+    name: Build & test (macOS)
+    runs-on: macos-15
+    # Pinned, so the toolchain doesn't change when the runner image does.
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: swift --version
       - name: Build
         run: swift build
       - name: Test
