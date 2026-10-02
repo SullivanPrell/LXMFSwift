@@ -111,7 +111,7 @@ final class LXMFConstantsTests: XCTestCase {
   }
 
   func testEncryptionDescAES() {
-    XCTAssertEqual(LXMessage.encryptionDescriptionAES, "AES-128")
+    XCTAssertEqual(LXMessage.encryptionDescriptionAES, "AES-256")
   }
 
   func testEncryptionDescUnencrypted() {

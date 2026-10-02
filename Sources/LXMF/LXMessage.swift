@@ -87,6 +87,28 @@ public final class LXMessage {
   public static let lxmfOverhead =
     2 * destinationLength + signatureLength + timestampSize + structOverhead
 
+  /// The most data one encrypted packet carries: RNS's encrypted MDU, 383 bytes at the default
+  /// MTU.
+  ///
+  /// It carries no allowance for the timestamp, which sits inside the payload it bounds.
+  ///
+  /// Python: `ENCRYPTED_PACKET_MDU = RNS.Packet.ENCRYPTED_MDU` (`LXMessage.py:68`).
+  public static let encryptedPacketMDU = Packet.encryptedMdu
+  /// The most content a message sent as one opportunistic packet carries, 287 bytes by default.
+  ///
+  /// The packet omits the destination hash, which its header carries, so that length comes
+  /// back. Python: `ENCRYPTED_PACKET_MAX_CONTENT` (`LXMessage.py:79`).
+  public static let encryptedPacketMaxContent =
+    encryptedPacketMDU - lxmfOverhead + destinationLength
+  /// The most data one link packet carries.
+  ///
+  /// Python: `LINK_PACKET_MDU = RNS.Link.MDU` (`LXMessage.py:84`).
+  public static let linkPacketMDU = Constants.linkMdu
+  /// The most content a message sent as one link packet carries, 319 bytes by default.
+  ///
+  /// Python: `LINK_PACKET_MAX_CONTENT` (`LXMessage.py:90`).
+  public static let linkPacketMaxContent = linkPacketMDU - lxmfOverhead
+
   // MARK: - Properties
 
   /// Destination hash the message is addressed to.
@@ -228,7 +250,7 @@ public final class LXMessage {
   /// Human-readable description of the transport encryption in use.
   ///
   /// Mirrors Python's `LXMessage.transport_encryption` string attribute.
-  /// Possible values: `"Curve25519"`, `"AES-128"`, `"Unencrypted"`, or `nil`.
+  /// Possible values: `"Curve25519"`, `"AES-256"`, `"Unencrypted"`, or `nil`.
   public var transportEncryptionDescription: String?
 
   // MARK: - Encryption description constants (mirrors Python class attrs)
@@ -237,10 +259,10 @@ public final class LXMessage {
   ///
   /// Python: `LXMessage.ENCRYPTION_DESCRIPTION_EC = "Curve25519"`
   public static let encryptionDescriptionEC = "Curve25519"
-  /// Description used for AES-128-encrypted messages.
+  /// Description used for messages to a group destination, which RNS encrypts with AES-256.
   ///
-  /// Python: `LXMessage.ENCRYPTION_DESCRIPTION_AES = "AES-128"`
-  public static let encryptionDescriptionAES = "AES-128"
+  /// Python: `LXMessage.ENCRYPTION_DESCRIPTION_AES = "AES-256"` (`LXMessage.py:98`).
+  public static let encryptionDescriptionAES = "AES-256"
   /// Description used for unencrypted messages.
   ///
   /// Python: `LXMessage.ENCRYPTION_DESCRIPTION_UNENCRYPTED = "Unencrypted"`
@@ -608,10 +630,8 @@ public final class LXMessage {
   }
 
   private func selectMethod(contentSize: Int) {
-    // MDU constants (match Python defaults)
-    // RNS.Packet.ENCRYPTED_MDU + TIMESTAMP_SIZE - LXMF_OVERHEAD + DESTINATION_LENGTH
-    let encryptedPacketMaxContent = 295
-    let linkPacketMaxContent = 319  // RNS.Link.MDU - LXMF_OVERHEAD
+    let encryptedPacketMaxContent = LXMessage.encryptedPacketMaxContent
+    let linkPacketMaxContent = LXMessage.linkPacketMaxContent
 
     let method = desiredMethod ?? .direct
     switch method {
@@ -1033,7 +1053,7 @@ extension LXMessage {
   ///
   /// Possible outcomes:
   /// - `LXMessage.encryptionDescriptionEC`          ("Curve25519") for SINGLE destinations
-  /// - `LXMessage.encryptionDescriptionAES`         ("AES-128")    for GROUP destinations
+  /// - `LXMessage.encryptionDescriptionAES`         ("AES-256")    for GROUP destinations
   /// - `LXMessage.encryptionDescriptionUnencrypted` ("Unencrypted") for PLAIN or unknown
   public func determineTransportEncryption() {
     func descriptionForDestination(_ dest: Destination?) -> String {
