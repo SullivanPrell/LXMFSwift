@@ -295,6 +295,25 @@ public final class LXMessage {
   public var deliveryAttempts: Int = 0
   /// Unix timestamp of the next delivery attempt.
   public var nextDeliveryAttempt: TimeInterval = 0
+  /// Whether the last opportunistic attempt went out on a known path.
+  ///
+  /// The router rediscovers a path only after an attempt was sent on it.
+  ///
+  /// Python: `LXMessage.sent_on_path` (`LXMessage.py:181`).
+  public var sentOnPath = false
+  /// Whether the next attempt waits on a requested path, and goes as soon as the path arrives.
+  ///
+  /// Python: `LXMessage.awaiting_path` (`LXMessage.py:182`).
+  public var awaitingPath = false
+  /// This message's own attempt limit, which the router sets from the round trip; `nil` means
+  /// `LXMRouter.maxDeliveryAttempts`.
+  ///
+  /// Python: `LXMessage.max_delivery_attempts` (`LXMessage.py:183`).
+  public var maxDeliveryAttempts: Int?
+  /// Whether the router has re-requested the path after a link that never activated.
+  ///
+  /// Python sets the attribute `path_request_retried` on the message (`LXMRouter.py:2890-2893`).
+  var pathRequestRetried = false
   /// Delivery progress, from zero to one.
   public var progress: Double = 0
 

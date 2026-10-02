@@ -16,15 +16,15 @@ import XCTest
 /// The outbound retry loop against the reference's numbers and gate—`bugs/013 §9`.
 ///
 /// Three constants and one comparison decide how fast a message converges on a destination
-/// the sender has no path to. The reference (LXMF 1.1.0, `LXMRouter.py:30-34`):
+/// the sender has no path to. The reference (LXMF 1.2.0, `LXMRouter.py:32-38`):
 ///
 ///     MAX_DELIVERY_ATTEMPTS = 5
 ///     DELIVERY_RETRY_WAIT   = 10
 ///     PATH_REQUEST_WAIT     = 7
 ///     MAX_PATHLESS_TRIES    = 1
 ///
-/// and the gate is `delivery_attempts <= MAX_DELIVERY_ATTEMPTS` (`LXMRouter.py:2736`), so a
-/// message is really tried six times before `fail_message`. The port shipped `2 / 12 / 15`
+/// and the opportunistic gate is `delivery_attempts <= attempt_limit` (`LXMRouter.py:2806`), so
+/// an opportunistic message is tried six times before `fail_message`. The port shipped `2 / 12 / 15`
 /// (the middle one is LXMF's pre-0.2.8 value) and fails fast on `>=`—every number an
 /// interop partner would time is different, and delivery to a pathless destination converges
 /// roughly twice as slowly as the reference's.
@@ -37,25 +37,25 @@ final class OutboundRetryParityTests: XCTestCase {
   // MARK: - The constants are the reference's
 
   func testRetryConstantsMatchPythonReference() {
-    // LXMRouter.py:30-34, LXMF 1.1.0.
+    // LXMRouter.py:32-38, LXMF 1.2.0.
     XCTAssertEqual(
       LXMRouter.maxDeliveryAttempts, 5,
-      "MAX_DELIVERY_ATTEMPTS (LXMRouter.py:30)")
+      "MAX_DELIVERY_ATTEMPTS (LXMRouter.py:32)")
     XCTAssertEqual(
       LXMRouter.deliveryRetryWait, 10,
-      "DELIVERY_RETRY_WAIT (LXMRouter.py:32) — 12 is LXMF's pre-0.2.8 value")
+      "DELIVERY_RETRY_WAIT (LXMRouter.py:34) — 12 is LXMF's pre-0.2.8 value")
     XCTAssertEqual(
       LXMRouter.pathRequestWait, 7,
-      "PATH_REQUEST_WAIT (LXMRouter.py:33)")
+      "PATH_REQUEST_WAIT (LXMRouter.py:35)")
     XCTAssertEqual(
       LXMRouter.maxPathlessTries, 1,
-      "MAX_PATHLESS_TRIES (LXMRouter.py:34)")
+      "MAX_PATHLESS_TRIES (LXMRouter.py:38)")
   }
 
   // MARK: - Pathless opportunistic pacing
 
   /// One pathless try, then the path request—with the reference's waits on each side.
-  /// `LXMRouter.py:2737-2742` (path request after MAX_PATHLESS_TRIES) and `:2753-2758`
+  /// `LXMRouter.py:2811-2817` (path request after MAX_PATHLESS_TRIES) and `:2835-2838`
   /// (retry spacing of the try itself).
   func testOnePathlessTryThenPathRequestWithReferenceWaits() throws {
     let net = try SingleNode()
@@ -70,7 +70,7 @@ final class OutboundRetryParityTests: XCTestCase {
       "a path request before MAX_PATHLESS_TRIES tries is premature")
     XCTAssertEqual(
       msg.nextDeliveryAttempt - before1, 10, accuracy: 0.5,
-      "a failed try is spaced by DELIVERY_RETRY_WAIT = 10 (LXMRouter.py:32,:2756)")
+      "a failed try is spaced by DELIVERY_RETRY_WAIT = 10 (LXMRouter.py:34,:2838)")
 
     // Pass 2: attempts == MAX_PATHLESS_TRIES and still no path—request one.
     msg.nextDeliveryAttempt = 0
@@ -79,17 +79,17 @@ final class OutboundRetryParityTests: XCTestCase {
     XCTAssertEqual(
       net.iface.sentPathRequests().count, 1,
       "after MAX_PATHLESS_TRIES = 1 pathless tries the router requests a path "
-        + "(LXMRouter.py:2737-2741)")
+        + "(LXMRouter.py:2811-2815)")
     XCTAssertEqual(msg.deliveryAttempts, 2)
     XCTAssertEqual(
       msg.nextDeliveryAttempt - before2, 7, accuracy: 0.5,
-      "a path request is waited out for PATH_REQUEST_WAIT = 7 (LXMRouter.py:33,:2741)")
+      "a path request is waited out for PATH_REQUEST_WAIT = 7 (LXMRouter.py:35,:2816)")
   }
 
   // MARK: - The <= gate: six real attempts, then fail_message
 
-  /// `LXMRouter.py:2736` gates with `<=`, so attempts run 1...6 before `fail_message`
-  /// (`:2761`).
+  /// `LXMRouter.py:2806` gates with `<=`, so attempts run 1...6 before `fail_message`
+  /// (`:2844-2846`).
   ///
   /// Failing fast on `>=` grants five.
   func testOpportunisticMessageGetsSixAttemptsBeforeFailing() throws {
@@ -110,17 +110,19 @@ final class OutboundRetryParityTests: XCTestCase {
       "a pathless opportunistic message must eventually fail, not retry forever")
     XCTAssertEqual(
       msg.deliveryAttempts, 6,
-      "the <= gate (LXMRouter.py:2736) allows MAX_DELIVERY_ATTEMPTS + 1 = 6 attempts")
+      "the <= gate (LXMRouter.py:2806) allows MAX_DELIVERY_ATTEMPTS + 1 = 6 attempts")
     XCTAssertTrue(
       failedCallbackFired,
-      "fail_message fires the failed callback (LXMRouter.py:2570-2571)")
+      "fail_message fires the failed callback (LXMRouter.py:2646)")
     XCTAssertFalse(
       net.router.pendingOutbound.contains { $0 === msg },
-      "fail_message removes the message from pending_outbound (LXMRouter.py:2567)")
+      "fail_message removes the message from pending_outbound (LXMRouter.py:2644)")
   }
 
-  /// The direct branch has the same gate (`LXMRouter.py:2766`, fail at `:2841-2842`).
-  func testDirectMessageGetsSixAttemptsBeforeFailing() throws {
+  /// The direct branch counts an attempt before it checks the limit with `<`
+  /// (`LXMRouter.py:2911-2915`), so a pathless direct message fails on its fifth attempt
+  /// (`:2927-2929`).
+  func testDirectMessageFailsOnItsFifthAttempt() throws {
     let net = try SingleNode()
     let msg = try net.enqueueMessage(method: .direct)
     var failedCallbackFired = false
@@ -135,19 +137,19 @@ final class OutboundRetryParityTests: XCTestCase {
 
     XCTAssertEqual(msg.state, .failed)
     XCTAssertEqual(
-      msg.deliveryAttempts, 6,
-      "the <= gate (LXMRouter.py:2766) allows MAX_DELIVERY_ATTEMPTS + 1 = 6 attempts")
+      msg.deliveryAttempts, 5,
+      "the attempt is counted, then checked with < (LXMRouter.py:2911-2915)")
     XCTAssertTrue(failedCallbackFired)
     XCTAssertFalse(
       net.router.pendingOutbound.contains { $0 === msg },
-      "fail_message removes the message from pending_outbound (LXMRouter.py:2567)")
+      "fail_message removes the message from pending_outbound (LXMRouter.py:2644)")
   }
 
   // MARK: - Stale-path rediscovery
 
-  /// A path that exists but keeps failing to deliver is stale: at
+  /// A path that carried an attempt and keeps failing to deliver is stale: at
   /// `delivery_attempts == MAX_PATHLESS_TRIES + 1` the reference drops it and re-requests
-  /// half a second later (`LXMRouter.py:2743-2752`, `rediscover_job`), instead of retrying
+  /// half a second later (`LXMRouter.py:2818-2834`, `rediscover_job`), instead of retrying
   /// into the dead path until the message fails.
   ///
   /// This is the only branch that can recover
@@ -192,6 +194,8 @@ final class OutboundRetryParityTests: XCTestCase {
     try msg.pack()
     msg.state = .outbound
     msg.deliveryAttempts = LXMRouter.maxPathlessTries + 1
+    // The previous attempt went out on this path (`LXMRouter.py:2818`).
+    msg.sentOnPath = true
     router.testInjectPendingOutbound(msg)
 
     ifaceA.clearSent()
@@ -200,25 +204,25 @@ final class OutboundRetryParityTests: XCTestCase {
 
     XCTAssertFalse(
       transportA.hasPath(to: destB.hash),
-      "the stale path is dropped (LXMRouter.py:2746)")
+      "the stale path is dropped (LXMRouter.py:2828)")
     XCTAssertTrue(
       ifaceA.sent.filter { $0.destinationHash == destB.hash }.isEmpty,
       "the rediscovery pass must not send into the path it just judged stale")
     XCTAssertEqual(
       msg.deliveryAttempts, LXMRouter.maxPathlessTries + 2,
-      "the rediscovery counts as an attempt (LXMRouter.py:2745)")
+      "the rediscovery counts as an attempt (LXMRouter.py:2820)")
     XCTAssertEqual(
       msg.nextDeliveryAttempt - before, LXMRouter.pathRequestWait, accuracy: 0.5,
-      "the rediscovery is waited out for PATH_REQUEST_WAIT (LXMRouter.py:2751)")
+      "the rediscovery is waited out for PATH_REQUEST_WAIT (LXMRouter.py:2833)")
 
-    // The re-request runs 0.5 s after the drop (LXMRouter.py:2747-2750).
+    // The re-request runs 0.5 s after the drop (LXMRouter.py:2829-2832).
     let requested = Date().addingTimeInterval(2.5)
     while ifaceA.sentPathRequests().isEmpty && Date() < requested {
       RunLoop.current.run(until: Date().addingTimeInterval(0.05))
     }
     XCTAssertEqual(
       ifaceA.sentPathRequests().count, 1,
-      "the dropped path is re-requested (LXMRouter.py:2749)")
+      "the dropped path is re-requested (LXMRouter.py:2831)")
   }
 }
 

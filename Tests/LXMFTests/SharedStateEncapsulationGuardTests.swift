@@ -160,6 +160,8 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
       "deliveryPerTransferLimit": "configuration",
       "retainSyncedOnNode": "configuration",
       "wantsDownloadOnPathAvailableFrom": "client-side download intent",
+      "wantsDownloadOnPathAvailableTo": "as above",
+      "wantsDownloadOnPathAvailableTimeout": "as above",
       "enforceRatchets": "configuration",
       "storagePath": "configuration; its `didSet` loads persisted state",
       "messagePath": "configuration",
