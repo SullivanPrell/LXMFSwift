@@ -49,6 +49,11 @@ struct PeerSyncContext {
   /// this is never `Reticulum.shared`.
   let transport: Transport
 
+  /// Requests a path to a destination through the router's debounce.
+  ///
+  /// Python: `self.router.request_path(self.destination_hash)` (`LXMPeer.py:297`).
+  let requestPath: (Data) -> Void
+
   /// Injected so a test can pin a timestamp without stubbing the clock globally.
   let now: () -> TimeInterval
 

@@ -1226,7 +1226,7 @@ public final class LXMPeer {
     // the two calls. The `syncPeers` cadence of 24 s already exceeds the grace, so an
     // unanswered request is charged one attempt later than Python charges it, never sooner.
     guard ctx.transport.hasPath(to: destinationHash) else {
-      try? ctx.transport.requestPath(for: destinationHash)
+      ctx.requestPath(destinationHash)
       peerLock.lock()
       let graceExpired =
         unsafePathRequestedAt.map { now - $0 >= LXMPeer.pathRequestGrace } ?? false

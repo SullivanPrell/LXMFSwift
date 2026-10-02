@@ -70,8 +70,17 @@ public final class LXMRouter {
   public static let maxPathlessTries = 1
   /// Python: `LXMRouter.DELIVERY_RETRY_WAIT = 10` (`LXMRouter.py:32`).
   public static let deliveryRetryWait: TimeInterval = 10
-  /// Python: `LXMRouter.PATH_REQUEST_WAIT = 7` (`LXMRouter.py:33`).
+  /// Python: `LXMRouter.PATH_REQUEST_WAIT = 7` (`LXMRouter.py:35`).
   public static let pathRequestWait: TimeInterval = 7
+  /// How long a repeat path request is suppressed while an interface slower than
+  /// `slowInterfaceBitrate` is online.
+  ///
+  /// Python: `LXMRouter.PATH_REQUEST_DEBOUNCE = 60` (`LXMRouter.py:36`).
+  public static let pathRequestDebounce: TimeInterval = 60
+  /// The bitrate, in bits per second, below which an online interface counts as slow.
+  ///
+  /// Python: `LXMRouter.SLOW_INTERFACE_BITRATE = 2000` (`LXMRouter.py:37`).
+  public static let slowInterfaceBitrate = 2000
 
   /// RNS request path for fetching/delivering messages to/from a propagation node.
   ///
@@ -145,6 +154,13 @@ public final class LXMRouter {
 
   /// Active outbound direct links, keyed by the remote destination hash.
   private(set) var directLinks: [Data: Link] = [:]
+
+  /// When this router last requested a path to each destination, for the debounce.
+  ///
+  /// Python: `LXMRouter.path_request_times`, guarded by `path_request_lock`
+  /// (`LXMRouter.py:115-116`).
+  private var unsafePathRequestTimes: [Data: TimeInterval] = [:]
+  private let pathRequestLock = NSLock()
 
   /// Messages awaiting delivery.
   ///
@@ -224,6 +240,16 @@ public final class LXMRouter {
   ///
   /// Mirrors Python's `LXMRouter.wants_download_on_path_available_from`.
   public var wantsDownloadOnPathAvailableFrom: Data? = nil
+
+  /// The identity the download resumes as once the path arrives.
+  ///
+  /// Mirrors Python's `LXMRouter.wants_download_on_path_available_to`.
+  public var wantsDownloadOnPathAvailableTo: Identity? = nil
+
+  /// When the wait for a path to the propagation node runs out.
+  ///
+  /// Mirrors Python's `LXMRouter.wants_download_on_path_available_timeout`.
+  public var wantsDownloadOnPathAvailableTimeout: TimeInterval? = nil
 
   // MARK: - Auth and allow/disallow lists
 
@@ -368,6 +394,11 @@ public final class LXMRouter {
   private(set) var outboundStampCosts: [Data: Int] = [:]
 
   // MARK: - Propagation node server state
+
+  /// This propagation node's name, announced under `pnMetaName` when set and not empty.
+  ///
+  /// Python: `LXMRouter.name`, from lxmd's `node_name` (`LXMRouter.py:129`).
+  public var name: String?
 
   /// Whether this router is currently acting as a propagation node.
   ///
@@ -870,6 +901,23 @@ public final class LXMRouter {
     return MsgPack.encode(.array([displayNameValue, stampCostValue, supportedFunctionality]))
   }
 
+  /// The metadata map a propagation node announces, in the reference's key order.
+  ///
+  /// The implementation name and version go in as strings, and the name, when set and not
+  /// empty, as UTF-8 bytes.
+  ///
+  /// Python: `get_propagation_node_announce_metadata()` (`LXMRouter.py:325-330`).
+  public func getPropagationNodeAnnounceMetadata() -> [(MsgPack.Value, MsgPack.Value)] {
+    var metadata: [(MsgPack.Value, MsgPack.Value)] = [
+      (.uint(UInt64(pnMetaImplName)), .string(pnImplementationName)),
+      (.uint(UInt64(pnMetaVersion)), .string(lxmfSwiftVersion)),
+    ]
+    if let name, !name.isEmpty {
+      metadata.append((.uint(UInt64(pnMetaName)), .bytes(Data(name.utf8))))
+    }
+    return metadata
+  }
+
   /// Build the msgpack announce app data for the propagation destination.
   ///
   /// Format: `[False, timestamp, nodeState, perTransferLimit, perSyncLimit, [stampCost, flexibility, peeringCost], metadata]`
@@ -887,8 +935,7 @@ public final class LXMRouter {
       .int(Int64(propagationStampCostFlexibility)),
       .int(Int64(peeringCost)),
     ])
-    // name and other metadata can be added via subclass/config
-    let metaMap: MsgPack.Value = .map([])
+    let metaMap: MsgPack.Value = .map(getPropagationNodeAnnounceMetadata())
     return MsgPack.encode(
       .array([
         .bool(false),  // 0: legacy PN support flag
@@ -1378,6 +1425,93 @@ public final class LXMRouter {
     return deliverInboundResource(destHash + plaintext, noStampEnforcement: true)
   }
 
+  // MARK: - Path requests and attempt timing
+
+  /// A full round trip for one MTU on the slowest online interface, plus one hop's grace, or
+  /// zero when no bitrate is known.
+  ///
+  /// Python: `medium_path_timeout()` (`LXMRouter.py:1754-1756`). Python asks
+  /// `RNS.Reticulum.get_instance()`, which a shared-instance client forwards to the daemon. This
+  /// router asks the transport it was built with.
+  public func mediumPathTimeout() -> TimeInterval {
+    transport.mediumPathTimeout()
+  }
+
+  /// A delivery round trip to `destinationHash`: twice the first hop's MTU time plus one hop's
+  /// grace, or `mediumPathTimeout()` when there's no path.
+  ///
+  /// Python: `destination_round_trip(destination_hash)` (`LXMRouter.py:1758-1763`).
+  public func destinationRoundTrip(_ destinationHash: Data) -> TimeInterval {
+    guard transport.hasPath(to: destinationHash) else { return mediumPathTimeout() }
+    let perHop = Constants.defaultPerHopTimeout
+    let mtuTime = transport.firstHopTimeout(for: destinationHash) - perHop
+    return 2 * max(mtuTime, 0) + perHop
+  }
+
+  /// How long to wait for a path request's answer: `pathRequestWait`, or longer when the slowest
+  /// medium needs it.
+  ///
+  /// Python: `path_request_wait()` (`LXMRouter.py:1765-1766`).
+  public func effectivePathRequestWait() -> TimeInterval {
+    max(LXMRouter.pathRequestWait, mediumPathTimeout())
+  }
+
+  /// Whether an online interface runs below `slowInterfaceBitrate`.
+  ///
+  /// Python: `slow_interface_online()` (`LXMRouter.py:1768-1771`).
+  public func slowInterfaceOnline() -> Bool {
+    guard let bitrate = transport.lowestInterfaceBitrate else { return false }
+    return bitrate < LXMRouter.slowInterfaceBitrate
+  }
+
+  /// Requests a path to `destinationHash` unless this router requested one inside the debounce
+  /// window, and returns whether it sent the request.
+  ///
+  /// The window is `pathRequestDebounce` while a slow interface is online, and
+  /// `effectivePathRequestWait()` otherwise. Every path request the router and its peers make
+  /// goes through here.
+  ///
+  /// Python: `request_path(destination_hash)` (`LXMRouter.py:1773-1786`).
+  @discardableResult
+  public func requestPath(_ destinationHash: Data) -> Bool {
+    let window =
+      slowInterfaceOnline() ? LXMRouter.pathRequestDebounce : effectivePathRequestWait()
+    pathRequestLock.lock()
+    let now = Date().timeIntervalSince1970
+    if let last = unsafePathRequestTimes[destinationHash], now - last < window {
+      pathRequestLock.unlock()
+      return false
+    }
+    unsafePathRequestTimes = unsafePathRequestTimes.filter { now - $0.value < window }
+    unsafePathRequestTimes[destinationHash] = now
+    pathRequestLock.unlock()
+
+    try? transport.requestPath(for: destinationHash)
+    return true
+  }
+
+  /// Whether this router requested a path to `destinationHash` within
+  /// `effectivePathRequestWait()`.
+  ///
+  /// Python: `path_request_pending(destination_hash)` (`LXMRouter.py:1788-1792`).
+  public func pathRequestPending(_ destinationHash: Data) -> Bool {
+    let window = effectivePathRequestWait()
+    pathRequestLock.lock()
+    defer { pathRequestLock.unlock() }
+    guard let last = unsafePathRequestTimes[destinationHash] else { return false }
+    return Date().timeIntervalSince1970 - last < window
+  }
+
+  /// Records a path request this router makes without the debounce.
+  ///
+  /// The stale-path rediscovery records its request here before dropping the path
+  /// (`LXMRouter.py:2827`).
+  private func recordPathRequest(_ destinationHash: Data) {
+    pathRequestLock.lock()
+    unsafePathRequestTimes[destinationHash] = Date().timeIntervalSince1970
+    pathRequestLock.unlock()
+  }
+
   // MARK: - Outbound
 
   /// Enqueue a message for delivery.
@@ -1440,11 +1574,21 @@ public final class LXMRouter {
       }
     }
 
+    // LXMRouter.py:1845-1850—an opportunistic message to a destination with no path requests
+    // one up front, and waits for it rather than trying a pathless attempt first.
+    var unknownPathRequested = false
+    if message.method == .opportunistic && !transport.hasPath(to: message.destinationHash) {
+      requestPath(message.destinationHash)
+      scheduleAttempt(message, destinationHash: message.destinationHash, pathRequest: true)
+      unknownPathRequested = true
+    }
+
     message.state = .outbound
     lock.lock()
     unsafePendingOutbound.append(message)
     lock.unlock()
-    processOutbound()
+    // LXMRouter.py:1857-1861.
+    if !unknownPathRequested { processOutbound() }
   }
 
   /// Drive the outbound delivery queue.
@@ -1460,7 +1604,7 @@ public final class LXMRouter {
       switch msg.state {
       // `.sent` is not here: for an opportunistic message it means only that the packet
       // left, and the reference keeps it queued for another attempt until the receipt's proof
-      // marks it DELIVERED (`LXMRouter.py:2686`, `LXMessage.py:467-472`).
+      // marks it DELIVERED (`LXMRouter.py:2758`, `LXMessage.py:472-479`).
       case .delivered:
         removePending(msg)
         msg.onDelivery?(msg)
@@ -1478,9 +1622,13 @@ public final class LXMRouter {
     }
   }
 
+  /// Hands a pending message to its method's delivery branch.
+  ///
+  /// Each branch decides for itself whether an attempt is due, because a message waiting on a
+  /// link or a path goes before its scheduled time (`LXMRouter.py:2799-2997`).
   private func attemptDelivery(_ msg: LXMessage) {
-    let now = Date().timeIntervalSince1970
-    guard now >= msg.nextDeliveryAttempt else { return }
+    // `LXMRouter.py:2802`.
+    if msg.progress < 0.01 { msg.progress = 0.01 }
 
     switch msg.method {
     case .opportunistic:
@@ -1494,44 +1642,112 @@ public final class LXMRouter {
     }
   }
 
+  // MARK: - Attempt scheduling
+
+  /// The attempt limit for a delivery whose round trip is `roundTrip` seconds.
+  ///
+  /// A round trip longer than `deliveryRetryWait` spaces attempts further apart, so the limit
+  /// falls in proportion, to no fewer than three. Python's `round` rounds half to even.
+  ///
+  /// Python: the last two lines of `schedule_attempt` (`LXMRouter.py:1812-1813`).
+  public static func deliveryAttemptLimit(roundTrip: TimeInterval) -> Int {
+    guard roundTrip > deliveryRetryWait else { return maxDeliveryAttempts }
+    let scaled = Double(maxDeliveryAttempts) * deliveryRetryWait / roundTrip
+    return max(3, Int(scaled.rounded(.toNearestOrEven)))
+  }
+
+  /// The number of attempts `message` gets: its own limit, or `maxDeliveryAttempts`.
+  ///
+  /// Python: `attempt_limit(lxmessage)` (`LXMRouter.py:1794-1796`).
+  public func attemptLimit(_ message: LXMessage) -> Int {
+    message.maxDeliveryAttempts ?? LXMRouter.maxDeliveryAttempts
+  }
+
+  /// Whether the message's next attempt is due.
+  ///
+  /// It's due when its scheduled time has passed, or when it waits on a path to
+  /// `destinationHash` that now exists.
+  ///
+  /// Python: `attempt_due(lxmessage, destination_hash)` (`LXMRouter.py:1798-1801`).
+  public func attemptDue(_ message: LXMessage, destinationHash: Data) -> Bool {
+    if Date().timeIntervalSince1970 > message.nextDeliveryAttempt { return true }
+    return message.awaitingPath && transport.hasPath(to: destinationHash)
+  }
+
+  /// Schedules the message's next attempt and sets its attempt limit.
+  ///
+  /// After a path request, the attempt waits `pathRequestWait` or the medium's path timeout,
+  /// and the message is marked as waiting on the path. Otherwise it waits
+  /// `deliveryRetryWait` or the round trip to `destinationHash`.
+  ///
+  /// Python: `schedule_attempt(lxmessage, destination_hash, path_request)`
+  /// (`LXMRouter.py:1803-1813`).
+  public func scheduleAttempt(
+    _ message: LXMessage, destinationHash: Data, pathRequest: Bool = false
+  ) {
+    let now = Date().timeIntervalSince1970
+    let roundTrip: TimeInterval
+    if pathRequest {
+      roundTrip = mediumPathTimeout()
+      message.nextDeliveryAttempt = now + max(LXMRouter.pathRequestWait, roundTrip)
+      message.awaitingPath = true
+    } else {
+      roundTrip = destinationRoundTrip(destinationHash)
+      message.nextDeliveryAttempt = now + max(LXMRouter.deliveryRetryWait, roundTrip)
+    }
+    message.maxDeliveryAttempts = LXMRouter.deliveryAttemptLimit(roundTrip: roundTrip)
+  }
+
   // MARK: - Opportunistic delivery
 
   private func deliverOpportunistically(_ msg: LXMessage) {
     let destHash = msg.destinationHash
 
-    // LXMRouter.py:2736—the gate is `<=`, so the message is attempted
-    // maxDeliveryAttempts + 1 times before fail_message (LXMRouter.py:2760-2761).
-    guard msg.deliveryAttempts <= LXMRouter.maxDeliveryAttempts else {
-      failMessage(msg)
+    // LXMRouter.py:2806—the gate is `<=`, so the message gets attemptLimit + 1 attempts. Past
+    // it, the message fails once its last attempt is due (`:2844-2846`).
+    guard msg.deliveryAttempts <= attemptLimit(msg) else {
+      if attemptDue(msg, destinationHash: destHash) { failMessage(msg) }
+      return
+    }
+    guard attemptDue(msg, destinationHash: destHash) else { return }
+    let pathKnown = transport.hasPath(to: destHash)
+    msg.awaitingPath = false
+
+    // LXMRouter.py:2811-2817.
+    if msg.deliveryAttempts >= LXMRouter.maxPathlessTries && !pathKnown {
+      msg.deliveryAttempts += 1
+      msg.sentOnPath = false
+      requestPath(destHash)
+      scheduleAttempt(msg, destinationHash: destHash, pathRequest: true)
+      msg.progress = 0.01
       return
     }
 
-    // LXMRouter.py:2737-2742.
-    if msg.deliveryAttempts >= LXMRouter.maxPathlessTries && !transport.hasPath(to: destHash) {
+    // LXMRouter.py:2818-2834—a path that carried an attempt and hasn't delivered by
+    // MAX_PATHLESS_TRIES + 1 attempts is stale: drop it and rediscover, unless a path request
+    // is already pending, rather than retrying into the dead path until the message fails.
+    if msg.deliveryAttempts == LXMRouter.maxPathlessTries + 1 && pathKnown && msg.sentOnPath {
       msg.deliveryAttempts += 1
-      try? transport.requestPath(for: destHash)
-      msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
-      return
-    }
-
-    // LXMRouter.py:2743-2752—a path that exists but has not delivered by
-    // MAX_PATHLESS_TRIES + 1 attempts is treated as stale: drop it and rediscover,
-    // rather than retrying into the dead path until the message fails.
-    if msg.deliveryAttempts == LXMRouter.maxPathlessTries + 1 && transport.hasPath(to: destHash) {
-      msg.deliveryAttempts += 1
-      transport.dropPath(for: destHash)
-      // LXMRouter.py:2747-2750 (`rediscover_job`): the re-request runs 0.5 s after the drop.
-      DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [transport] in
-        try? transport.requestPath(for: destHash)
+      msg.sentOnPath = false
+      msg.awaitingPath = true
+      if !pathRequestPending(destHash) {
+        recordPathRequest(destHash)
+        transport.dropPath(for: destHash)
+        // `rediscover_job` (`:2829-2832`): the re-request runs 0.5 s after the drop.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [transport] in
+          try? transport.requestPath(for: destHash)
+        }
       }
-      msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
+      msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + effectivePathRequestWait()
+      msg.progress = 0.01
       return
     }
 
-    // LXMRouter.py:2754-2756—the attempt is counted and spaced before the send,
-    // whether or not the send itself can proceed.
+    // LXMRouter.py:2835-2843—the attempt is counted and spaced before the send, whether or
+    // not the send itself can proceed.
     msg.deliveryAttempts += 1
-    msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+    msg.sentOnPath = pathKnown
+    scheduleAttempt(msg, destinationHash: destHash)
 
     guard let identity = transport.recall(identity: destHash),
       let packed = msg.packed
@@ -1547,18 +1763,26 @@ public final class LXMRouter {
     // carries it). Mirrors Python: `packed[DESTINATION_LENGTH:]`.
     let body = packed.dropFirst(LXMessage.destinationLength)
 
+    // Encrypt to the destination identity (using ratchet if known). A send that raises fails
+    // the message (`:2840-2843`).
+    let ciphertext: Data
     do {
-      // Encrypt to the destination identity (using ratchet if known).
       let ratchet = transport.knownRatchets[destHash]
-      let ciphertext = try identity.encrypt(Data(body), ratchetPublicKey: ratchet)
-      let packet = Packet(
-        destinationType: .single,
-        packetType: .data,
-        destinationHash: destHash,
-        data: ciphertext
-      )
+      ciphertext = try identity.encrypt(Data(body), ratchetPublicKey: ratchet)
+    } catch {
+      failMessage(msg)
+      return
+    }
+
+    let packet = Packet(
+      destinationType: .single,
+      packetType: .data,
+      destinationHash: destHash,
+      data: ciphertext
+    )
+    do {
       // `bugs/014`: only the receipt's proof marks the message delivered. The reference hangs
-      // `__mark_delivered` on the receipt (`LXMessage.py:469`); an unproved message stays SENT
+      // `__mark_delivered` on the receipt (`LXMessage.py:475`); an unproved message stays SENT
       // and is sent again.
       let receipt = try transport.send(packet)
       // Before the callback is set: a proof that already arrived replays on assignment, and
@@ -1574,6 +1798,7 @@ public final class LXMRouter {
         }
       }
     } catch {
+      // An interface error. Python's `Transport.transmit` logs one and the attempt stands.
       msg.transition(to: .outbound, unlessIn: [.delivered])
     }
   }
@@ -1598,9 +1823,10 @@ public final class LXMRouter {
   private func deliverDirect(_ msg: LXMessage) {
     let destHash = msg.destinationHash
 
-    // LXMRouter.py:2766—`<=`, mirrored from the opportunistic gate; fail at :2841-2842.
-    guard msg.deliveryAttempts <= LXMRouter.maxDeliveryAttempts else {
-      failMessage(msg)
+    // LXMRouter.py:2852—`<=`, as in the opportunistic gate. Past it, the message fails once its
+    // last attempt is due (`:2931-2933`).
+    guard msg.deliveryAttempts <= attemptLimit(msg) else {
+      if attemptDue(msg, destinationHash: destHash) { failMessage(msg) }
       return
     }
 
@@ -1611,32 +1837,49 @@ public final class LXMRouter {
     if let link = existingLink {
       switch link.status {
       case .active:
+        // LXMRouter.py:2870-2879.
+        if msg.progress < 0.05 { msg.progress = 0.05 }
         sendOverLink(msg, link: link)
       case .closed, .failed:
-        // Link died—open a new one after requesting the path.
+        // LXMRouter.py:2885-2902. The link stays in `directLinks` until this pass sees it
+        // closed, so a link that closed after activating always gets its path re-requested.
+        if link.activatedAt != nil {
+          requestPath(destHash)
+        } else if !msg.pathRequestRetried {
+          requestPath(destHash)
+          msg.pathRequestRetried = true
+        }
         lock.lock()
         directLinks.removeValue(forKey: destHash)
         lock.unlock()
-        try? transport.requestPath(for: destHash)
-        msg.deliveryAttempts += 1
-        msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
+        if msg.deliveryAttempts + 1 < attemptLimit(msg) {
+          scheduleAttempt(msg, destinationHash: destHash)
+        }
       case .pending, .handshake, .stale:
         // `.stale` is NOT terminal. Python branches only on ACTIVE and CLOSED
-        // (`LXMRouter.py:2784`, `:2797`); a stale link falls through both and is simply
-        // waited out, because RNS holds it for a grace tick and any inbound packet
-        // promotes it back to active (`Link.py:753-755`, `:939`). ReticulumSwift 1.10.2
-        // ported exactly that, so abandoning the link here would burn a delivery attempt
-        // and orphan a session the stack is still keeping alive.
-        break  // still establishing or recoverable—wait
+        // (`LXMRouter.py:2870`, `:2885`); a stale link falls through both and is waited out,
+        // because RNS holds it for a grace tick and any inbound packet promotes it back to
+        // active (`Link.py:753-755`, `:939`). Abandoning the link here would burn a delivery
+        // attempt and orphan a session the stack is still keeping alive.
+        break
       }
       return
     }
 
-    // No link—check for a path and open one.
+    // LXMRouter.py:2906-2929—no link, so establish one once an attempt is due.
+    guard attemptDue(msg, destinationHash: destHash) else { return }
+    msg.deliveryAttempts += 1
+    msg.awaitingPath = false
+    scheduleAttempt(msg, destinationHash: destHash)
+
+    guard msg.deliveryAttempts < attemptLimit(msg) else {
+      failMessage(msg)
+      return
+    }
     guard transport.hasPath(to: destHash) else {
-      try? transport.requestPath(for: destHash)
-      msg.deliveryAttempts += 1
-      msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
+      requestPath(destHash)
+      scheduleAttempt(msg, destinationHash: destHash, pathRequest: true)
+      msg.progress = 0.01
       return
     }
 
@@ -1651,38 +1894,33 @@ public final class LXMRouter {
       )
     else { return }
 
-    do {
-      let link = try Link.initiate(destination: destination, transport: transport)
-      lock.lock()
-      directLinks[destHash] = link
-      lock.unlock()
-
-      link.onEstablished = { [weak self] l in
-        self?.sendOverLink(msg, link: l)
-      }
-      link.onClosed = { [weak self] _ in
-        self?.lock.lock()
-        self?.directLinks.removeValue(forKey: destHash)
-        self?.lock.unlock()
-      }
-    } catch {
-      msg.deliveryAttempts += 1
-      msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+    // A link that can't be built leaves the counted, scheduled attempt standing. Python's
+    // `RNS.Link` raising escapes to the job loop's handler.
+    guard let link = try? Link.initiate(destination: destination, transport: transport) else {
+      return
+    }
+    lock.lock()
+    directLinks[destHash] = link
+    lock.unlock()
+    msg.progress = 0.03
+    link.onEstablished = { [weak self] l in
+      self?.sendOverLink(msg, link: l)
     }
   }
 
   // MARK: - Propagated delivery
 
   private func deliverPropagated(_ msg: LXMessage) {
-    // LXMRouter.py:2850-2851.
+    // LXMRouter.py:2940-2942.
     guard let nodeHash = outboundPropagationNode else {
       failMessage(msg)
       return
     }
 
-    // LXMRouter.py:2853—`<=`, mirrored from the opportunistic gate; fail at :2898-2899.
-    guard msg.deliveryAttempts <= LXMRouter.maxDeliveryAttempts else {
-      failMessage(msg)
+    // LXMRouter.py:2944—`<=`, as in the opportunistic gate. Past it, the message fails once its
+    // last attempt is due (`:2995-2997`).
+    guard msg.deliveryAttempts <= attemptLimit(msg) else {
+      if attemptDue(msg, destinationHash: nodeHash) { failMessage(msg) }
       return
     }
 
@@ -1693,29 +1931,36 @@ public final class LXMRouter {
     if let link = existingLink {
       switch link.status {
       case .active:
+        // LXMRouter.py:2949-2956.
         sendPropagatedOverLink(msg, link: link)
-      case .closed, .failed, .stale:
+      case .closed, .failed:
+        // LXMRouter.py:2962-2965.
         lock.lock()
         outboundPropagationLink = nil
         lock.unlock()
-        msg.deliveryAttempts += 1
-        msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+        if msg.deliveryAttempts + 1 < attemptLimit(msg) {
+          scheduleAttempt(msg, destinationHash: nodeHash)
+        }
       case .pending, .handshake, .stale:
-        // `.stale` is NOT terminal. Python branches only on ACTIVE and CLOSED
-        // (`LXMRouter.py:2784`, `:2797`); a stale link falls through both and is simply
-        // waited out, because RNS holds it for a grace tick and any inbound packet
-        // promotes it back to active (`Link.py:753-755`, `:939`). ReticulumSwift 1.10.2
-        // ported exactly that, so abandoning the link here would burn a delivery attempt
-        // and orphan a session the stack is still keeping alive.
+        // `.stale` is waited out, as on the direct branch (`LXMRouter.py:2966-2969`).
         break
       }
       return
     }
 
+    // LXMRouter.py:2970-2993—no link, so establish one once an attempt is due.
+    guard attemptDue(msg, destinationHash: nodeHash) else { return }
+    msg.deliveryAttempts += 1
+    msg.awaitingPath = false
+    scheduleAttempt(msg, destinationHash: nodeHash)
+
+    guard msg.deliveryAttempts < attemptLimit(msg) else {
+      failMessage(msg)
+      return
+    }
     guard transport.hasPath(to: nodeHash) else {
-      try? transport.requestPath(for: nodeHash)
-      msg.deliveryAttempts += 1
-      msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.pathRequestWait
+      requestPath(nodeHash)
+      scheduleAttempt(msg, destinationHash: nodeHash, pathRequest: true)
       return
     }
 
@@ -1723,27 +1968,18 @@ public final class LXMRouter {
       let nodeDest = try? Destination(
         identity: nodeIdentity, direction: .out, kind: .single,
         appName: appName, aspects: ["propagation"]
-      )
-    else {
-      msg.deliveryAttempts += 1
-      msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
-      return
-    }
+      ),
+      let link = try? Link.initiate(destination: nodeDest, transport: transport)
+    else { return }
 
-    do {
-      let link = try Link.initiate(destination: nodeDest, transport: transport)
-      lock.lock()
-      outboundPropagationLink = link
-      lock.unlock()
-      link.onEstablished = { [weak self] l in
-        self?.sendPropagatedOverLink(msg, link: l)
-      }
-      link.onClosed = { [weak self] _ in
-        self?.reapClosedOutboundPropagationLink()
-      }
-    } catch {
-      msg.deliveryAttempts += 1
-      msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+    lock.lock()
+    outboundPropagationLink = link
+    lock.unlock()
+    link.onEstablished = { [weak self] l in
+      self?.sendPropagatedOverLink(msg, link: l)
+    }
+    link.onClosed = { [weak self] _ in
+      self?.reapClosedOutboundPropagationLink()
     }
   }
 
@@ -1760,18 +1996,18 @@ public final class LXMRouter {
       _ = self?.transport.retainDestinationData(msg.destinationHash)
       msg.onDelivery?(msg)
     }
-    transfer.onFailed = { [weak self, weak msg] _, _ in
-      guard let msg else { return }
-      self?.removePending(msg)
-      msg.state = .failed
-      msg.onFailed?(msg)
+    // `__propagation_resource_concluded` (`LXMessage.py:615-621`): a failed transfer tears the
+    // link down and returns the message to the queue for another attempt.
+    transfer.onFailed = { [weak msg] _, _ in
+      guard let msg, msg.state != .cancelled else { return }
+      try? link.teardown()
+      msg.state = .outbound
     }
     do {
       try transfer.send(payload: pp)
     } catch {
-      msg.state = .outbound
-      msg.deliveryAttempts += 1
-      msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+      // LXMRouter.py:2953-2956.
+      failMessage(msg)
     }
   }
 
@@ -1792,42 +2028,42 @@ public final class LXMRouter {
         _ = self?.transport.retainDestinationData(msg.destinationHash)
         msg.onDelivery?(msg)
       }
-      transfer.onFailed = { [weak self, weak msg] _, _ in
+      // `__resource_concluded` (`LXMessage.py:604-613`): a rejected transfer is a rejection,
+      // and any other failure tears the link down and returns the message to the queue.
+      transfer.onFailed = { [weak msg] _, status in
         guard let msg else { return }
-        self?.removePending(msg)
-        msg.state = .failed
-        msg.onFailed?(msg)
+        if status == .rejected {
+          msg.state = .rejected
+        } else if msg.state != .cancelled {
+          try? link.teardown()
+          msg.state = .outbound
+        }
       }
       do {
         try transfer.send(payload: packed)
       } catch {
-        msg.state = .outbound
-        msg.deliveryAttempts += 1
-        msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+        // LXMRouter.py:2876-2879.
+        failMessage(msg)
       }
     } else {
       // Small message: send as a single link packet.
       // Python DIRECT delivery sends the FULL packed bytes (destHash included).
       // Mirrors Python LXMessage.__as_packet(): `RNS.Packet(delivery_dest, self.packed)`.
       //
-      // `bugs/014`. This used to set `.delivered` and fire `onDelivery` on the line after
-      // `link.send(...)` returned. Returning from a send call means the bytes were handed
-      // to an interface, not that anyone received them—so a message dropped by the very
-      // next hop was reported delivered, and the recipient never saw it. The reference
-      // reaches DELIVERED only from the receipt's delivery callback
-      // (`LXMessage.py:479-483`, `__mark_delivered` at `:563-568`).
+      // `bugs/014`: returning from a send call means the bytes were handed to an interface,
+      // not that anyone received them. The reference reaches DELIVERED only from the receipt's
+      // delivery callback (`LXMessage.py:486-491`, `__mark_delivered` at `:563-568`).
       msg.state = .sending
       do {
         let receipt = try link.send(packed)
 
         guard let receipt else {
           // Python tears the delivery destination down when no receipt came back
-          // (`LXMessage.py:484-486`)—without one there is no way to ever learn
-          // whether the message arrived, so the link is not worth keeping.
+          // (`LXMessage.py:492-494`)—without one there is no way to ever learn
+          // whether the message arrived, so the link is not worth keeping. Python leaves the
+          // message SENDING, which no later pass sends again; this returns it to the queue.
           try? link.teardown()
           msg.state = .outbound
-          msg.deliveryAttempts += 1
-          msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
           return
         }
 
@@ -1842,19 +2078,15 @@ public final class LXMRouter {
         receipt.onTimeout = { [weak msg] _ in
           guard let msg, msg.state != .cancelled else { return }
           // Python tears the link down and returns the message to OUTBOUND for
-          // another attempt (`__link_packet_timed_out`, `LXMessage.py:616-621`). The
+          // another attempt (`__link_packet_timed_out`, `LXMessage.py:623-628`). The
           // link is torn down because a proof that never came back is evidence about
           // the link, not just about this packet.
           try? link.teardown()
           msg.state = .outbound
-          msg.progress = 0
-          msg.deliveryAttempts += 1
-          msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
         }
       } catch {
-        msg.state = .outbound
-        msg.deliveryAttempts += 1
-        msg.nextDeliveryAttempt = Date().timeIntervalSince1970 + LXMRouter.deliveryRetryWait
+        // LXMRouter.py:2876-2879.
+        failMessage(msg)
       }
     }
   }
@@ -1925,12 +2157,49 @@ public final class LXMRouter {
           self?.reapClosedOutboundPropagationLink()
         }
       } else {
-        propagationTransferState = .pathRequested
+        // `LXMRouter.py:543-548`.
+        requestPath(nodeHash)
         wantsDownloadOnPathAvailableFrom = nodeHash
-        try? transport.requestPath(for: nodeHash)
+        wantsDownloadOnPathAvailableTo = identity
+        wantsDownloadOnPathAvailableTimeout =
+          Date().timeIntervalSince1970
+          + max(LXMRouter.prPathTimeout, effectivePathRequestWait())
+        propagationTransferState = .pathRequested
+        requestMessagesPathJob()
       }
     }
     // else: link is establishing—wait for onEstablished callback
+  }
+
+  /// Waits on a background queue for the path a download needs, polling every 0.1 seconds.
+  ///
+  /// Python: `request_messages_path_job()` (`LXMRouter.py:1464-1477`).
+  private func requestMessagesPathJob() {
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      while let self, !self.checkDownloadPath(now: Date().timeIntervalSince1970) {
+        Thread.sleep(forTimeInterval: 0.1)
+      }
+    }
+  }
+
+  /// One pass of a download's wait for its path, returning whether the wait is over.
+  ///
+  /// Once the path exists, the download resumes as `wantsDownloadOnPathAvailableTo`. Once
+  /// `wantsDownloadOnPathAvailableTimeout` passes, the sync fails (`LXMRouter.py:1469-1477`).
+  /// A cancelled download ends the wait: Python keeps polling a cleared hash until the timeout
+  /// and then marks the cancelled sync `PR_NO_PATH`.
+  func checkDownloadPath(now: TimeInterval) -> Bool {
+    guard let nodeHash = wantsDownloadOnPathAvailableFrom else { return true }
+    if transport.hasPath(to: nodeHash) {
+      if let identity = wantsDownloadOnPathAvailableTo {
+        requestMessagesFromPropagationNode(
+          identity: identity, maxMessages: propagationTransferMaxMessages)
+      }
+      return true
+    }
+    guard let timeout = wantsDownloadOnPathAvailableTimeout, now >= timeout else { return false }
+    acknowledgeSyncCompletion(failureState: .failed)
+    return true
   }
 
   /// Cancel any in-progress propagation sync, tear down the link, and reset state.
@@ -1946,6 +2215,7 @@ public final class LXMRouter {
     propagationTransferProgress = 0.0
     propagationTransferSize = nil
     wantsDownloadOnPathAvailableFrom = nil
+    wantsDownloadOnPathAvailableTo = nil
   }
 
   func handleMessageListResponse(_ data: Data, receipt: RequestReceipt) {
@@ -2054,11 +2324,9 @@ public final class LXMRouter {
   ///     left in place so it stays visible until explicitly acknowledged.
   ///   - failureState: state to move to instead of `.idle`.
   ///
-  /// Without this, `propagationTransferSize` survived a successful sync and the
-  /// next one showed the previous transfer's size until its first progress
-  /// callback landed. (Python additionally clears
-  /// `propagation_transfer_last_result` and `wants_download_on_path_available_to`;
-  /// neither field exists here.)
+  /// Clearing `propagationTransferSize` keeps the next sync from showing this transfer's size
+  /// before its first progress callback. Python also clears `propagation_transfer_last_result`,
+  /// which this port doesn't carry (`LXMRouter.py:1664-1673`).
   /// Mirrors Python's `LXMRouter.acknowledge_sync_completion(reset_state, failure_state)`.
   public func acknowledgeSyncCompletion(
     resetState: Bool = false,
@@ -2072,6 +2340,7 @@ public final class LXMRouter {
     propagationTransferProgress = 0.0
     propagationTransferSize = nil
     wantsDownloadOnPathAvailableFrom = nil
+    wantsDownloadOnPathAvailableTo = nil
   }
 
   /// The sync state machine's answer to its outbound propagation link closing—the outbound
@@ -2458,10 +2727,13 @@ public final class LXMRouter {
     pendingSignatureValidation.removeAll { $0.message.sourceHash == destinationHash }
     lock.unlock()
 
-    for msg in matches where msg.method == .direct || msg.method == .opportunistic {
-      msg.nextDeliveryAttempt = 0
+    // `Handlers.py:23-31`: only a message waiting on a path is brought forward.
+    let awaiting = matches.filter {
+      ($0.method == .direct || $0.method == .opportunistic) && $0.awaitingPath
     }
-    if !matches.isEmpty { processOutbound() }
+    let now = Date().timeIntervalSince1970
+    for msg in awaiting { msg.nextDeliveryAttempt = now }
+    if !awaiting.isEmpty { processOutbound() }
 
     // Validate inbound messages whose source identity has just been announced.
     // By the time `handleAnnounceForDestination` is called, the transport has
@@ -2581,7 +2853,7 @@ public final class LXMRouter {
       // Python's `if not static_peer in self.peers` (`:635`)—a peer restored from disk
       // keeps its terms and sync history rather than being replaced with a blank one.
       let peer = addPeer(destinationHash: staticPeer)
-      if peer.lastHeard == 0 { try? transport.requestPath(for: staticPeer) }
+      if peer.lastHeard == 0 { requestPath(staticPeer) }
     }
 
     // Load saved node statistics.
@@ -3135,6 +3407,20 @@ public final class LXMRouter {
     if let v = unpeeredRxBytes { unsafeUnpeeredPropagationRxBytes = v }
   }
 
+  /// Set or clear the time this router last requested a path to `destinationHash`.
+  func seedPathRequestTime(_ destinationHash: Data, _ time: TimeInterval?) {
+    pathRequestLock.lock()
+    defer { pathRequestLock.unlock() }
+    unsafePathRequestTimes[destinationHash] = time
+  }
+
+  /// The recorded path request times.
+  func pathRequestTimesSnapshot() -> [Data: TimeInterval] {
+    pathRequestLock.lock()
+    defer { pathRequestLock.unlock() }
+    return unsafePathRequestTimes
+  }
+
   // MARK: - Static peers
 
   /// Declare the propagation destinations this node is always peered with.
@@ -3218,6 +3504,7 @@ public final class LXMRouter {
       peerIdentity: peerIdentity,
       destination: destination,
       transport: transport,
+      requestPath: { [weak self] in self?.requestPath($0) },
       now: { Date().timeIntervalSince1970 },
       messageBytes: { [weak self] transientID in
         guard let path = self?.peerEntry(transientID)?.filePath else { return nil }
@@ -4494,9 +4781,11 @@ public final class LXMRouter {
   /// Mirrors Python `Handlers.PropagationNodeAnnounceHandler` (LXMF 0.9.9).
   internal func triggerPropagatedOutbound() {
     lock.lock()
-    let propagated = unsafePendingOutbound.filter { $0.desiredMethod == .propagated }
+    // `Handlers.py:46-53`: only a propagated message waiting on a path is brought forward.
+    let propagated = unsafePendingOutbound.filter { $0.method == .propagated && $0.awaitingPath }
     lock.unlock()
-    for msg in propagated { msg.nextDeliveryAttempt = 0 }
+    let now = Date().timeIntervalSince1970
+    for msg in propagated { msg.nextDeliveryAttempt = now }
     if !propagated.isEmpty {
       DispatchQueue.global(qos: .utility).async { [weak self] in self?.processOutbound() }
     }

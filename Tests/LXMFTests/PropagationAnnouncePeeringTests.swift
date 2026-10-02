@@ -92,20 +92,19 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
     net.node.outboundPropagationNode = net.remotePropagationHash
 
     let queued = try net.queuePropagatedMessage()
-    queued.nextDeliveryAttempt = Date().timeIntervalSince1970 + 3600
-    XCTAssertGreaterThan(
-      queued.nextDeliveryAttempt ?? 0, 0,
-      "precondition: the message is waiting on a retry timer")
+    let later = Date().timeIntervalSince1970 + 3600
+    queued.nextDeliveryAttempt = later
+    queued.awaitingPath = true
 
     try net.announceRemote()
 
-    XCTAssertEqual(
-      queued.nextDeliveryAttempt, 0,
+    XCTAssertLessThan(
+      queued.nextDeliveryAttempt, later - 60,
       """
       the configured outbound propagation node announced and the propagated \
-      message kept its retry timer (Handlers.py:46-54). The message then waits \
-      out a back-off that the announce just made unnecessary — the node is \
-      reachable now.
+      message waiting on its path kept its retry timer (Handlers.py:46-53). The \
+      message then waits out a back-off that the announce just made unnecessary — \
+      the node is reachable now.
       """)
   }
 

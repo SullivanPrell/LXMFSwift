@@ -53,6 +53,29 @@ final class PropagationSyncTests: XCTestCase {
     net.routerA.outboundPropagationNode = net.bPropagationHash
   }
 
+  // MARK: - A download that waits for its path
+
+  /// A path that arrives after the request resumes the download.
+  ///
+  /// `request_messages_path_job` polls for the path and, once it exists, calls
+  /// `request_messages_from_propagation_node` again (`LXMRouter.py:1469-1475`).
+  func testAPathThatArrivesResumesTheDownload() throws {
+    try makeClient()
+    _ = net.transportA.dropPath(for: net.bPropagationHash)
+    XCTAssertFalse(net.transportA.hasPath(to: net.bPropagationHash), "precondition")
+
+    net.routerA.requestMessagesFromPropagationNode(identity: net.identityA)
+
+    let deadline = Date().addingTimeInterval(3)
+    while net.routerA.propagationTransferState == .pathRequested && Date() < deadline {
+      net.settle(0.05)
+    }
+    XCTAssertNotEqual(
+      net.routerA.propagationTransferState, .pathRequested,
+      "the path arrived, and the download must resume (LXMRouter.py:1474-1475)")
+    XCTAssertNotEqual(net.routerA.propagationTransferState, .failed)
+  }
+
   // MARK: - 6.3: link closure reaches a terminal state, from both pre-close phases
 
   /// Closure point one: before the link is established (`state < PR_LINK_ESTABLISHED` →
