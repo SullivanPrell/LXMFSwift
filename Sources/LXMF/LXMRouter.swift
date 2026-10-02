@@ -155,6 +155,16 @@ public final class LXMRouter {
   /// Active outbound direct links, keyed by the remote destination hash.
   private(set) var directLinks: [Data: Link] = [:]
 
+  /// Inbound delivery links whose remote identified, keyed by the remote's delivery hash.
+  ///
+  /// Python: `LXMRouter.backchannel_links` (`LXMRouter.py:114`).
+  private(set) var backchannelLinks: [Data: Link] = [:]
+
+  /// IDs of the outbound direct links this router has identified on.
+  ///
+  /// Python marks the link itself, `backchannel_identified` (`LXMRouter.py:2774`, `:2781`).
+  private var backchannelIdentifiedLinkIDs: Set<Data> = []
+
   /// When this router last requested a path to each destination, for the debounce.
   ///
   /// Python: `LXMRouter.path_request_times`, guarded by `path_request_lock`
@@ -775,69 +785,91 @@ public final class LXMRouter {
       self?.handleInboundPacket(packet, destination: dest)
     }
 
-    // When a remote peer establishes a delivery link to this router, configure it to handle
-    // both small messages (link DATA packets) and large messages (Resource).
     delivery.onLinkEstablished = { [weak self] link in
-      guard let self else { return }
-
-      // Small message: plain data packet on the link.
-      //
-      // Python wire format differences by delivery method:
-      //   DIRECT—sender puts self.packed (FULL bytes, dest hash included) on the link.
-      //                 Receiver's delivery_packet: `lxmf_data = data`—no prefix added.
-      //   OPPORTUNISTIC—sender strips dest hash: `packed[DESTINATION_LENGTH:]`.
-      //                   Receiver's delivery_packet: prepends `packet.destination.hash + data`.
-      //
-      // For link-based (DIRECT) delivery, `data` already contains the full packed message.
-      // Do NOT prepend destHash—it's already the first 16 bytes of `data`.
-      link.onDataReceived = { [weak self] data, inboundLink in
-        // Prove receipt immediately—mirrors Python LXMRouter.delivery_packet
-        // which calls `packet.prove()` before any other processing (line 1825).
-        // Without this, the sender's PacketReceipt times out and the message
-        // is retransmitted in a loop.
-        inboundLink.proveInboundData()
-
-        guard let self else { return }
-        guard let msg = try? LXMessage.unpack(data) else { return }
-        // Drop messages from blackholed source identities before any
-        // delivery. Mirrors Python `LXMRouter.lxmf_delivery` blackhole
-        // check (LXMF commit 2ac2b10).
-        if msg.sourceBlackholed { return }
-        msg.incoming = true
-        msg.state = .delivered
-
-        // Validate the signature if the source identity is known;
-        // otherwise deliver immediately as unverified (SOURCE_UNKNOWN),
-        // matching Python—never hold the message back. See bug 006.
-        if let srcIdentity = self.transport.recall(identity: msg.sourceHash) {
-          msg.validateSignature(knownIdentity: srcIdentity)
-          self.finalizeInboundDelivery(msg)
-        } else {
-          self.deliverWithUnknownSource(msg)
-        }
-      }
-
-      // Large message: resource transfer (full packed bytes including dest hash).
-      link.resourceStrategy = .acceptApp
-      // Check per-transfer size limit. Mirrors Python's delivery_resource_advertised.
-      link.onResourceAdvertised = { [weak self] resource, _ -> Bool in
-        guard let self else { return true }
-        if let limitKB = self.deliveryPerTransferLimit {
-          return Int(resource.dataSize) <= limitKB * 1000
-        }
-        return true
-      }
-      // Register the transfer as it begins so it can be listed and
-      // cancelled while it is still arriving.
-      // Mirrors Python's `delivery_resource_transfer_began` callback.
-      link.onResourceStarted = { [weak self] transfer in
-        self?.trackIncomingDeliveryResource(transfer)
-      }
-      link.onResourceConcluded = { [weak self] data, _, _ in
-        self?.deliverInboundResource(data)
-      }
+      self?.deliveryLinkEstablished(link)
     }
     return delivery
+  }
+
+  /// Configures a link to carry deliveries to this router: small messages as link packets,
+  /// large ones as resources.
+  ///
+  /// Python: `LXMRouter.delivery_link_established` (`LXMRouter.py:2025-2032`). Runs for each
+  /// inbound delivery link, and for an outbound direct link once this router identifies on it.
+  private func deliveryLinkEstablished(_ link: Link) {
+    link.trackPhyStats = true
+
+    // Small message: plain data packet on the link.
+    //
+    // Python wire format differences by delivery method:
+    //   DIRECT—sender puts self.packed (FULL bytes, dest hash included) on the link.
+    //                 Receiver's delivery_packet: `lxmf_data = data`—no prefix added.
+    //   OPPORTUNISTIC—sender strips dest hash: `packed[DESTINATION_LENGTH:]`.
+    //                   Receiver's delivery_packet: prepends `packet.destination.hash + data`.
+    //
+    // For link-based (DIRECT) delivery, `data` already contains the full packed message.
+    // Do NOT prepend destHash—it's already the first 16 bytes of `data`.
+    link.onDataReceived = { [weak self] data, inboundLink in
+      // Prove receipt immediately—mirrors Python LXMRouter.delivery_packet
+      // which calls `packet.prove()` before any other processing (line 1825).
+      // Without this, the sender's PacketReceipt times out and the message
+      // is retransmitted in a loop.
+      inboundLink.proveInboundData()
+
+      guard let self else { return }
+      guard let msg = try? LXMessage.unpack(data) else { return }
+      // Drop messages from blackholed source identities before any
+      // delivery. Mirrors Python `LXMRouter.lxmf_delivery` blackhole
+      // check (LXMF commit 2ac2b10).
+      if msg.sourceBlackholed { return }
+      msg.incoming = true
+      msg.state = .delivered
+
+      // Validate the signature if the source identity is known;
+      // otherwise deliver immediately as unverified (SOURCE_UNKNOWN),
+      // matching Python—never hold the message back. See bug 006.
+      if let srcIdentity = self.transport.recall(identity: msg.sourceHash) {
+        msg.validateSignature(knownIdentity: srcIdentity)
+        self.finalizeInboundDelivery(msg)
+      } else {
+        self.deliverWithUnknownSource(msg)
+      }
+    }
+
+    // Large message: resource transfer (full packed bytes including dest hash).
+    link.resourceStrategy = .acceptApp
+    // Check per-transfer size limit. Mirrors Python's delivery_resource_advertised.
+    link.onResourceAdvertised = { [weak self] resource, _ -> Bool in
+      guard let self else { return true }
+      if let limitKB = self.deliveryPerTransferLimit {
+        return Int(resource.dataSize) <= limitKB * 1000
+      }
+      return true
+    }
+    // Register the transfer as it begins so it can be listed and
+    // cancelled while it is still arriving.
+    // Mirrors Python's `delivery_resource_transfer_began` callback.
+    link.onResourceStarted = { [weak self] transfer in
+      self?.trackIncomingDeliveryResource(transfer)
+    }
+    link.onResourceConcluded = { [weak self] data, _, _ in
+      self?.deliverInboundResource(data)
+    }
+    link.onRemoteIdentified = { [weak self] link, identity in
+      self?.deliveryRemoteIdentified(link, identity: identity)
+    }
+  }
+
+  /// Files an inbound delivery link under the delivery hash of the identity that identified on
+  /// it, so this router can send to that identity over the link.
+  ///
+  /// Python: `LXMRouter.delivery_remote_identified` (`LXMRouter.py:2064-2067`).
+  private func deliveryRemoteIdentified(_ link: Link, identity: Identity) {
+    let destinationHash = Destination.hash(
+      identity: identity, appName: appName, aspects: ["delivery"])
+    lock.lock()
+    backchannelLinks[destinationHash] = link
+    lock.unlock()
   }
 
   // MARK: - Delivery destination announce API
@@ -977,13 +1009,14 @@ public final class LXMRouter {
     _ = try dest.announce(appData: appData, attachedInterface: attachedInterface)
   }
 
-  /// Returns `true` if an active direct delivery link exists to `destinationHash`.
+  /// Returns `true` if this router holds a direct link or a backchannel to `destinationHash`.
   ///
-  /// Mirrors Python's `LXMRouter.delivery_link_available(destination_hash)`.
+  /// Mirrors Python's `LXMRouter.delivery_link_available(destination_hash)`
+  /// (`LXMRouter.py:769-771`).
   public func deliveryLinkAvailable(destinationHash: Data) -> Bool {
     lock.lock()
     defer { lock.unlock() }
-    return directLinks[destinationHash] != nil
+    return directLinks[destinationHash] != nil || backchannelLinks[destinationHash] != nil
   }
 
   /// Returns the stamp cost required by the configured outbound propagation node,
@@ -1608,6 +1641,7 @@ public final class LXMRouter {
       case .delivered:
         removePending(msg)
         msg.onDelivery?(msg)
+        identifyBackchannel(after: msg)
       case .rejected, .cancelled:
         removePending(msg)
         msg.onFailed?(msg)
@@ -1816,6 +1850,30 @@ public final class LXMRouter {
     // Retain destination announce data (LXMF commit 8bdb434).
     _ = transport.retainDestinationData(msg.destinationHash)
     msg.onDelivery?(msg)
+    identifyBackchannel(after: msg)
+  }
+
+  /// Identifies as a delivered DIRECT message's source on the direct link that carried it, so
+  /// the recipient can send back over that link.
+  ///
+  /// Python: the DELIVERED branch of `process_outbound` (`LXMRouter.py:2770-2783`). Once per
+  /// link, only on a link this router initiated, and only as one of its own delivery identities.
+  private func identifyBackchannel(after msg: LXMessage) {
+    guard msg.method == .direct else { return }
+    lock.lock()
+    guard let link = directLinks[msg.destinationHash], link.role == .initiator,
+      let linkID = link.linkID, !backchannelIdentifiedLinkIDs.contains(linkID),
+      let identity = deliveryDestinations[msg.sourceHash]?.identity
+    else {
+      lock.unlock()
+      return
+    }
+    backchannelIdentifiedLinkIDs.insert(linkID)
+    lock.unlock()
+    // `identify` sends only on an active link, as `RNS.Link.identify` does (`Link.py:463` in
+    // RNS 1.5.5); the router counts the link identified either way.
+    try? link.identify(as: identity)
+    deliveryLinkEstablished(link)
   }
 
   // MARK: - Direct delivery
@@ -1830,8 +1888,9 @@ public final class LXMRouter {
       return
     }
 
+    // LXMRouter.py:2856-2867—a direct link first, then a backchannel.
     lock.lock()
-    let existingLink = directLinks[destHash]
+    let existingLink = directLinks[destHash] ?? backchannelLinks[destHash]
     lock.unlock()
 
     if let link = existingLink {
@@ -1841,8 +1900,9 @@ public final class LXMRouter {
         if msg.progress < 0.05 { msg.progress = 0.05 }
         sendOverLink(msg, link: link)
       case .closed, .failed:
-        // LXMRouter.py:2885-2902. The link stays in `directLinks` until this pass sees it
-        // closed, so a link that closed after activating always gets its path re-requested.
+        // LXMRouter.py:2885-2902. The link stays in `directLinks` or `backchannelLinks` until
+        // this pass finds it closed, so a link that closed after activating always gets its
+        // path re-requested.
         if link.activatedAt != nil {
           requestPath(destHash)
         } else if !msg.pathRequestRetried {
@@ -1851,6 +1911,8 @@ public final class LXMRouter {
         }
         lock.lock()
         directLinks.removeValue(forKey: destHash)
+        backchannelLinks.removeValue(forKey: destHash)
+        if let linkID = link.linkID { backchannelIdentifiedLinkIDs.remove(linkID) }
         lock.unlock()
         if msg.deliveryAttempts + 1 < attemptLimit(msg) {
           scheduleAttempt(msg, destinationHash: destHash)
@@ -2020,13 +2082,10 @@ public final class LXMRouter {
       // (including the leading destination hash)—matches Python LXMessage.__as_resource().
       msg.state = .sending
       let transfer = ResourceTransfer(link: link)
+      // `__resource_concluded` marks a completed transfer delivered (`LXMessage.py:604-606`).
       transfer.onComplete = { [weak self, weak msg] _ in
         guard let msg else { return }
-        self?.removePending(msg)
-        msg.state = .delivered
-        // Retain destination announce data (LXMF commit 8bdb434).
-        _ = self?.transport.retainDestinationData(msg.destinationHash)
-        msg.onDelivery?(msg)
+        self?.markDelivered(msg)
       }
       // `__resource_concluded` (`LXMessage.py:604-613`): a rejected transfer is a rejection,
       // and any other failure tears the link down and returns the message to the queue.
@@ -3928,6 +3987,7 @@ public final class LXMRouter {
       lock.lock()
       directLinks.removeValue(forKey: destinationHash)
       unsafeValidatedPeerLinks.removeValue(forKey: ObjectIdentifier(link))
+      if let linkID = link.linkID { backchannelIdentifiedLinkIDs.remove(linkID) }
       lock.unlock()
     }
 

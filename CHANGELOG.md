@@ -3,6 +3,23 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### A reply goes back over the link the sender opened
+
+After delivering a DIRECT message, the sender identifies on its link as the message's source. It
+does so once per link, and only on a link it initiated, as one of its registered delivery
+identities (`LXMRouter.py:2770-2783`). The receiver files that link in `backchannelLinks` under
+the sender's delivery hash (`:2064-2067`), and a DIRECT message to that hash goes over it rather
+than over a new link. A direct link takes precedence when both exist, and a send that finds a
+backchannel closed drops it (`:2856-2902`). `deliveryLinkAvailable(destinationHash:)` counts
+backchannels (`:769-771`).
+
+The sender configures its link as it configures an inbound delivery link, so the link accepts
+packets and resources, and every delivery link tracks physical-layer statistics (`:2025-2032`).
+A DIRECT message delivered as a resource ends as one delivered as a packet does: progress
+reaches 1.0, and a repeated completion doesn't call `onDelivery` again (`LXMessage.py:604-606`).
+
 ## [1.9.0]—LXMF 1.2.0 parity
 
 LXMFSwift now tracks Python LXMF 1.2.0, and requires ReticulumSwift 1.23.0, which ports the
