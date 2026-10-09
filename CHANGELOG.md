@@ -5,6 +5,15 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.10.0]—backchannel links, and peering depth in Python's hops
+
+LXMFSwift requires ReticulumSwift 1.24.0, whose `Transport.hopsTo` answers Python's hop count:
+one more than the wire count, except on a local client's interface or the interface to a shared
+instance. Automatic peering compares that count with `autopeer_maxdepth`, as `LXMRouter.py:2482`
+does. With the default depth of 4, a
+propagation node 5 hops away by Python's count no longer peers. Under 1.9.0 it did, because
+`hopsTo` answered the wire count, 4.
+
 ### A reply goes back over the link the sender opened
 
 After delivering a DIRECT message, the sender identifies on its link as the message's source. It
