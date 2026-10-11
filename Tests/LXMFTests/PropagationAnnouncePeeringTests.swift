@@ -262,6 +262,34 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
       """)
   }
 
+  // MARK: - Delivery announces
+
+  /// A delivery announce teaches the router the peer's stamp cost, path responses included
+  /// (`Handlers.py:12`).
+  ///
+  /// It learned nothing from any announce: the router's handler implemented the three-argument
+  /// `receivedAnnounce`, which `AnnounceHandler`'s default bridge never dispatches to, and it also
+  /// dropped path responses, the way an unknown peer's keys arrive. Messages left unstamped, and a
+  /// receiver enforcing stamps (MeshChatX by default) discards those silently.
+  func testADeliveryPathResponseTeachesTheStampCost() throws {
+    let net = try makeTwoNodes()
+    let delivery = try XCTUnwrap(net.remote.deliveryDestinations.values.first)
+    _ = try net.remoteTransport.announce(
+      destination: delivery,
+      appData: MsgPack.encode(.array([.bytes(Data("remote".utf8)), .int(8)])),
+      isPathResponse: true)
+
+    let learned = expectation(description: "stamp cost learned")
+    DispatchQueue.global().async {
+      for _ in 0..<100 where net.node.getOutboundStampCost(destinationHash: delivery.hash) == nil {
+        Thread.sleep(forTimeInterval: 0.02)
+      }
+      learned.fulfill()
+    }
+    wait(for: [learned], timeout: 5.0)
+    XCTAssertEqual(net.node.getOutboundStampCost(destinationHash: delivery.hash), 8)
+  }
+
   // MARK: - Harness
 
   private var retained: [AnyObject] = []

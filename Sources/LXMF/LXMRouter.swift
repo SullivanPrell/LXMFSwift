@@ -367,7 +367,7 @@ public final class LXMRouter {
   /// Keyed entry holds the received
   /// message and the time it arrived (for diagnostics / timeout ordering).
   ///
-  /// The `DeliveryAnnounceHandler` fires when the source's lxmf.delivery
+  /// The `LXMFDeliveryAnnounceHandler` fires when the source's lxmf.delivery
   /// announce is processed—at that point `transport.recall(identity:)` already
   /// has the identity, so validation is immediate rather than poll-based.
   ///
@@ -633,7 +633,7 @@ public final class LXMRouter {
   private var unsafeUnpeeredPropagationRxBytes: Int = 0
 
   // Announce handlers kept alive so ARC doesn't release them.
-  private var deliveryAnnounceHandler: DeliveryAnnounceHandler?
+  private var deliveryAnnounceHandler: LXMFDeliveryAnnounceHandler?
   private var propagationNodeAnnounceHandler: PropagationNodeAnnounceHandler?
 
   /// Periodic job timer—mirrors Python's `LXMRouter.jobloop()` / `PROCESSING_INTERVAL = 4`.
@@ -688,7 +688,7 @@ public final class LXMRouter {
     self.propagationStampCostFlexibility = propagationStampCostFlexibility
     self.peeringCost = peeringCost
     self.transport = transport
-    let delivery = DeliveryAnnounceHandler(router: self)
+    let delivery = LXMFDeliveryAnnounceHandler(router: self)
     let propagation = PropagationNodeAnnounceHandler(router: self)
     deliveryAnnounceHandler = delivery
     propagationNodeAnnounceHandler = propagation
@@ -4853,23 +4853,6 @@ public final class LXMRouter {
 }
 
 // MARK: - Internal announce handlers
-
-private final class DeliveryAnnounceHandler: AnnounceHandler {
-  let aspectFilter: String? = appName + ".delivery"
-  weak var router: LXMRouter?
-
-  init(router: LXMRouter) { self.router = router }
-
-  func receivedAnnounce(destinationHash: Data, identity: Identity, appData: Data?) {
-    // Store the outbound stamp cost from the delivery announce.
-    // Mirrors Python's LXMFDeliveryAnnounceHandler.received_announce → update_stamp_cost.
-    let stampCost = stampCostFromAppData(appData)
-    if let cost = stampCost {
-      router?.setOutboundStampCost(destinationHash: destinationHash, stampCost: cost)
-    }
-    router?.handleAnnounceForDestination(destinationHash)
-  }
-}
 
 /// Listens for propagation-node announces: triggers outbound processing when the configured
 /// outbound PN announces, and peers when the router is itself a propagation node.

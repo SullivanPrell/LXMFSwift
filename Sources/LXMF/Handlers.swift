@@ -53,10 +53,15 @@ public final class LXMFDeliveryAnnounceHandler: AnnounceHandler {
   ///
   /// Mirrors `LXMFDeliveryAnnounceHandler.received_announce()` in Python:
   /// updates the stamp cost and triggers outbound delivery for matching messages.
+  ///
+  /// The full signature, not the three-argument one: `AnnounceHandler`'s default bridge to the
+  /// shorter forms dispatches statically, so a shorter override is never called.
   public func receivedAnnounce(
     destinationHash: Data,
     identity: Identity,
-    appData: Data?
+    appData: Data?,
+    announcePacketHash: Data,
+    isPathResponse: Bool
   ) {
     guard let router else { return }
 
