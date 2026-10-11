@@ -5,6 +5,17 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Messages left without a stamp, and peers that enforce stamps dropped them.** The router never
+  learned a peer's stamp cost from its announce. Its delivery handler implemented the
+  three-argument `receivedAnnounce`, and `AnnounceHandler`'s default bridge dispatches
+  statically, so the method never ran. The handler also ignored path responses, which is how an
+  unknown peer's keys arrive. MeshChatX enforces a stamp cost of 8 by default, so it discarded
+  every message from this port without telling the sender. The router now registers
+  `LXMFDeliveryAnnounceHandler`, which takes the full signature and path responses, as
+  `Handlers.py:12` does, and its private copy is gone.
+
 ## [1.10.0]—backchannel links, and peering depth in Python's hops
 
 LXMFSwift requires ReticulumSwift 1.24.0, whose `Transport.hopsTo` answers Python's hop count:
