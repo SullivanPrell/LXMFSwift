@@ -231,6 +231,12 @@ public final class LXMessage {
   private var unsafeState: State = .generating
   private let stateLock = NSLock()
 
+  private func locked<T>(_ body: () -> T) -> T {
+    stateLock.lock()
+    defer { stateLock.unlock() }
+    return body()
+  }
+
   /// Route the message was delivered over.
   public var method: Method = .unknown
   /// Wire representation the message was carried in.
@@ -294,7 +300,12 @@ public final class LXMessage {
   /// Delivery attempts made so far.
   public var deliveryAttempts: Int = 0
   /// Unix timestamp of the next delivery attempt.
-  public var nextDeliveryAttempt: TimeInterval = 0
+  ///
+  /// The announce handlers write it from the announce thread (`Handlers.py:26`, `:48`).
+  public var nextDeliveryAttempt: TimeInterval {
+    get { locked { unsafeNextDeliveryAttempt } }
+    set { locked { unsafeNextDeliveryAttempt = newValue } }
+  }
   /// Whether the last opportunistic attempt went out on a known path.
   ///
   /// The router rediscovers a path only after an attempt was sent on it.
@@ -303,8 +314,15 @@ public final class LXMessage {
   public var sentOnPath = false
   /// Whether the next attempt waits on a requested path, and goes as soon as the path arrives.
   ///
+  /// The announce handlers read it from the announce thread (`Handlers.py:25`, `:47`).
+  ///
   /// Python: `LXMessage.awaiting_path` (`LXMessage.py:182`).
-  public var awaitingPath = false
+  public var awaitingPath: Bool {
+    get { locked { unsafeAwaitingPath } }
+    set { locked { unsafeAwaitingPath = newValue } }
+  }
+  private var unsafeNextDeliveryAttempt: TimeInterval = 0
+  private var unsafeAwaitingPath = false
   /// This message's own attempt limit, which the router sets from the round trip; `nil` means
   /// `LXMRouter.maxDeliveryAttempts`.
   ///

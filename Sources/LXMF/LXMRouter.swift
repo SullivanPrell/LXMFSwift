@@ -187,6 +187,11 @@ public final class LXMRouter {
   }
   private var unsafePendingOutbound: [LXMessage] = []
 
+  /// Held for one `processOutbound()` pass.
+  ///
+  /// Python: `LXMRouter.outbound_processing_lock` (`LXMRouter.py:182`).
+  private let outboundProcessingLock = NSLock()
+
   /// Delivered or failed messages available for the caller.
   public var onMessageReceived: ((LXMessage) -> Void)?
 
@@ -1626,9 +1631,11 @@ public final class LXMRouter {
 
   /// Drive the outbound delivery queue.
   ///
-  /// Safe to call from any thread.
-  /// Mirrors Python's `LXMRouter.process_outbound()`.
+  /// Safe to call from any thread. A call made while another pass runs returns at once.
+  /// Mirrors Python's `LXMRouter.process_outbound()` (`LXMRouter.py:2754-2756`).
   public func processOutbound() {
+    guard outboundProcessingLock.try() else { return }
+    defer { outboundProcessingLock.unlock() }
     lock.lock()
     let snapshot = unsafePendingOutbound
     lock.unlock()
