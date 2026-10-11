@@ -33,6 +33,7 @@ final class LXMTicketIntegrationTests: XCTestCase {
       appName: "lxmf", aspects: ["delivery"])
     let msg = LXMessage(destination: dst, source: src, content: "Ticket integration")
     if let cost = stampCost { msg.stampCost = cost }
+    msg.deferStamp = false
     return msg
   }
 

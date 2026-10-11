@@ -98,6 +98,7 @@ final class LXMTicketSystemTests: XCTestCase {
       appName: "lxmf", aspects: ["delivery"])
     let msg2 = LXMessage(destination: dst, source: src, content: "Ticket test")
     msg2.outboundTicket = Data(repeating: 0x77, count: LXMessage.ticketLength)
+    msg2.deferStamp = false
     try msg2.pack()
     guard let stamp = msg2.stamp else {
       XCTFail("stamp must be set when outboundTicket is present")
@@ -122,6 +123,7 @@ final class LXMTicketSystemTests: XCTestCase {
     let ticket = Data(repeating: 0x55, count: LXMessage.ticketLength)
     let msg = LXMessage(destination: dst, source: src, content: "Ticket hash")
     msg.outboundTicket = ticket
+    msg.deferStamp = false
     try msg.pack()
 
     guard let stamp = msg.stamp, let messageID = msg.messageID else {
@@ -146,6 +148,7 @@ final class LXMTicketSystemTests: XCTestCase {
       appName: "lxmf", aspects: ["delivery"])
     let msg = LXMessage(destination: dst, source: src, content: "Stamp value")
     msg.outboundTicket = Data(repeating: 0xAB, count: LXMessage.ticketLength)
+    msg.deferStamp = false
     try msg.pack()
     XCTAssertEqual(
       msg.stampValue, LXMessage.costTicket,
@@ -164,6 +167,7 @@ final class LXMTicketSystemTests: XCTestCase {
       appName: "lxmf", aspects: ["delivery"])
     let msg = LXMessage(destination: dst, source: src, content: "Wrong ticket")
     msg.outboundTicket = Data(repeating: 0x01, count: 8)  // Wrong: 8 bytes, not 16
+    msg.deferStamp = false
     // No stampCost set → no stamp expected
     try msg.pack()
     XCTAssertNil(msg.stamp, "Wrong-length ticket must be ignored, no stamp without cost")
