@@ -3,7 +3,7 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [1.10.1]—messages that peers enforcing stamps accept
 
 ### Fixed
 
