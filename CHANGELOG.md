@@ -3,6 +3,18 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Fixed
+
+- **An announce raced the outbound pass over a message's schedule.** Both announce handlers read
+  `awaitingPath` and write `nextDeliveryAttempt` on the announce thread (`Handlers.py:25-26`,
+  `:47-48`), while the outbound pass writes them from `scheduleAttempt` and
+  `deliverOpportunistically`. The message's lock now guards the two fields, as it guards
+  `state`. `processOutbound` also returns at once while another pass runs, as Python's
+  `process_outbound` does (`LXMRouter.py:2754-2756`). Before, the pass the delivery announce
+  starts inline ran beside the job loop's pass.
+
 ## [1.10.1]—messages that peers enforcing stamps accept
 
 ### Fixed
