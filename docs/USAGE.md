@@ -59,6 +59,10 @@ let ticket = router.generateTicket(forDestination: peerHash)  // issue a ticket
 router.rememberTicket(ticket, forDestination: peerHash)        // store one you received
 ```
 
+`send` returns before the stamp exists. The router generates it on a background thread, then
+queues the message for delivery. A message you pack yourself carries no stamp unless you set
+`deferStamp` to `false` first.
+
 Enforcement is configurable (`enforceStamps()` / `ignoreStamps()`), as are
 priority and ignore lists (`prioritise`, `ignoreDestination`, …).
 

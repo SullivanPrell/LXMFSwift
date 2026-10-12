@@ -361,8 +361,8 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
       let message = LXMessage(destination: destination, source: source, content: "queued")
       message.desiredMethod = .propagated
       try node.send(message)
-      // `send` queues a propagated message only after generating its PN stamp, on a
-      // background thread (`LXMRouter.swift:1105-1115`), so it is not on the queue when
+      // `send` leaves a propagated message to the deferred-stamp job, which queues it for
+      // delivery on another thread (`LXMRouter.py:1858-1864`), so it is not on the queue when
       // `send` returns.
       let queued = test.expectation(description: "propagated message queued")
       DispatchQueue.global().async {
@@ -451,8 +451,8 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
     transport.ownerIdentity = identity
     router.peeringCost = 0
     // Nodes here demand no stamp: `testTheConfiguredOutboundNodeAnnouncingRetriesPropagatedMessagesNow`
-    // queues a real PROPAGATED message, and `send` generates its PN stamp at the *remote's*
-    // advertised cost before queueing (`LXMRouter.swift:1105-1115`). At the default 16 that is
+    // queues a real PROPAGATED message, and the deferred-stamp job generates its PN stamp at the
+    // *remote's* advertised cost before queueing (`LXMRouter.py:2705-2721`). At the default 16 that is
     // 2^16 hashes of a 256 KB workblock on every run of this file.
     router.propagationStampCost = 0
     try router.enablePropagation(storagePath: dir)

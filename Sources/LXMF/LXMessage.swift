@@ -343,6 +343,24 @@ public final class LXMessage {
   /// Mirrors Python's `LXMessage.outbound_ticket`.
   public var outboundTicket: Data?
 
+  /// Whether `pack()` leaves the stamp out, for the router to add off the caller's thread.
+  ///
+  /// `LXMRouter.send(_:)` clears it when an outbound ticket applies or no stamp is required.
+  ///
+  /// Mirrors Python's `LXMessage.defer_stamp` (`LXMessage.py:163`).
+  public var deferStamp = true
+
+  /// Whether the router generates a propagated message's propagation stamp off the caller's
+  /// thread.
+  ///
+  /// Mirrors Python's `LXMessage.defer_propagation_stamp` (`LXMessage.py:164`).
+  public var deferPropagationStamp = true
+
+  /// Whether the router failed or cancelled this message while generating a deferred stamp.
+  ///
+  /// Mirrors the attribute Python's `process_deferred_stamps` sets (`LXMRouter.py:2667`).
+  public internal(set) var stampGenerationFailed = false
+
   /// When `true`, the sending `LXMRouter` generates an inbound ticket and
   /// include it in `fields[Field.ticket]` before packing, allowing the recipient
   /// to reply without spending proof-of-work compute.
@@ -486,26 +504,27 @@ public final class LXMessage {
     hashedPart.append(corePayload)
 
     let msgHash = Hashes.fullHash(hashedPart)
-    self.hash = msgHash
-    self.messageID = msgHash
+    // A repack yields the same hash, and other threads read it while the router repacks.
+    if hash != msgHash {
+      self.hash = msgHash
+      self.messageID = msgHash
+    }
 
-    // Generate stamp after hash is known.
+    // Generate stamp after hash is known, unless the router defers it (`LXMessage.py:376`).
     // Priority: outbound ticket (cheap truncated-hash) > PoW stamp.
     // Mirrors Python's LXMessage.get_stamp():
     //   if outbound_ticket valid → truncated_hash(ticket + message_id)
     //   elif stamp_cost set      → LXStamper.generate_stamp(message_id, stamp_cost)
-    if let ticket = outboundTicket,
-      ticket.count == LXMessage.ticketLength
-    {
+    if !deferStamp, let ticket = outboundTicket, ticket.count == LXMessage.ticketLength {
       // Ticket-based stamp: truncatedHash(ticket ++ messageID)—16 bytes.
       self.stamp = Hashes.truncatedHash(ticket + msgHash)
       self.stampValue = LXMessage.costTicket
-    } else if let cost = stampCost {
-      self.stamp = LXStamper.generateStamp(
-        messageID: msgHash,
-        stampCost: cost,
-        expandRounds: stampExpandRounds
-      )
+    } else if !deferStamp, let cost = stampCost {
+      // A cancelled message stops the search, as `LXStamper.cancel_work` does.
+      self.stamp =
+        LXStamper.generateStamp(
+          material: msgHash, targetCost: cost, expandRounds: stampExpandRounds,
+          isCancelled: { self.state == .cancelled })?.stamp
     }
 
     var signedPart = hashedPart
@@ -1177,8 +1196,8 @@ extension LXMessage {
     // This matches Python's LXStamper.generate_stamp(transient_id, cost, expand_rounds=1000).
     guard
       let stamp = LXStamper.generateStamp(
-        messageID: transientID, stampCost: cost,
-        expandRounds: LXStamper.pnExpandRounds)
+        material: transientID, targetCost: cost, expandRounds: LXStamper.pnExpandRounds,
+        isCancelled: { self.state == .cancelled })?.stamp
     else { return }
 
     propagationStamp = stamp

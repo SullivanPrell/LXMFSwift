@@ -5,15 +5,53 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+### Sending no longer waits for a stamp
+
+`send(_:)` returns once it has packed the message. A message that needs a stamp waits in the router's
+deferred-stamp queue. A background job generates one message's stamps at a time under
+`stampGenLock`, then queues the message for delivery (`LXMRouter.py:1858-1864`, `:2648-2737`).
+Before this, `send` generated the stamp on the caller's thread. That's about 75 ms at
+MeshChatX's cost of 8 on an M-series Mac, and longer on a phone.
+
+- `LXMessage.deferStamp` and `deferPropagationStamp` default to `true` (`LXMessage.py:163-164`).
+  `pack()` leaves the stamp out while `deferStamp` is set (`LXMessage.py:376`). A caller that
+  packs a message itself and wants it stamped sets `deferStamp` to `false` first.
+- `send` clears `deferStamp` when an outbound ticket applies (`LXMRouter.py:1833-1835`) or the
+  message has no stamp cost (`:1854-1856`). Those messages queue for delivery at once.
+- A propagated message waits in the same queue, which generates its delivery stamp and then its
+  propagation stamp. Before this, `send` generated the delivery stamp on the caller's thread and
+  the propagation stamp on a separate one.
+- `cancelOutbound` marks a waiting message cancelled, which stops its stamp search. The job then
+  drops the message, sets `stampGenerationFailed`, and calls `onFailed` (`LXMRouter.py:1729-1733`,
+  `:2694-2698`). The job fails a message it can't pack again (`:2699-2703`).
+- `getOutboundProgress` finds a message waiting for its stamp (`LXMRouter.py:1871-1873`).
+- The jobs loop runs the stamp job on its own thread every tick (`LXMRouter.py:895-896`). `send`
+  also starts it, and the job starts a delivery pass once it stamps a message. Python waits for
+  the next tick for each of those, so a stamped message waits 4 to 8 s there.
+- `processOutbound()` returns at once while another pass runs (`LXMRouter.py:2754-2756`). The
+  jobs loop, `send` and the stamp job each start a pass, and before this two passes could attempt
+  the same message at once.
+
 ### Fixed
 
 - **An announce raced the outbound pass over a message's schedule.** Both announce handlers read
   `awaitingPath` and write `nextDeliveryAttempt` on the announce thread (`Handlers.py:25-26`,
   `:47-48`), while the outbound pass writes them from `scheduleAttempt` and
   `deliverOpportunistically`. The message's lock now guards the two fields, as it guards
-  `state`. `processOutbound` also returns at once while another pass runs, as Python's
-  `process_outbound` does (`LXMRouter.py:2754-2756`). Before, the pass the delivery announce
-  starts inline ran beside the job loop's pass.
+  `state`.
+
+### Not ported
+
+- `get_outbound_lxm_stamp_cost` and `get_outbound_lxm_propagation_stamp_cost`
+  (`LXMRouter.py:1877-1900`).
+- An unknown propagation stamp cost still leaves a propagated message without a propagation
+  stamp. Python requests a path to the node, waits for its announce, and fails the message when
+  the cost stays unknown (`LXMRouter.py:429-450`, `:2706-2711`).
+- `send` doesn't wait for a running delivery pass before it queues a message
+  (`LXMRouter.py:1859`), because the wait would block the caller. A message queued during a pass
+  goes out on the next one.
+- Python's cancel branches pass the failed callback the last message in the queue rather than the
+  cancelled one (`LXMRouter.py:2669`, `:2698`). The port reports the cancelled message.
 
 ## [1.10.1]—messages that peers enforcing stamps accept
 

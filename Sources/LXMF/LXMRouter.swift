@@ -187,6 +187,22 @@ public final class LXMRouter {
   }
   private var unsafePendingOutbound: [LXMessage] = []
 
+  /// Messages waiting for a deferred stamp, oldest first.
+  ///
+  /// Python: `LXMRouter.pending_deferred_stamps` (`LXMRouter.py:159`), a dict keyed by message
+  /// ID whose insertion order the stamp job follows. Guarded by `lock`, read as a snapshot.
+  var pendingDeferredStamps: [LXMessage] {
+    lock.lock()
+    defer { lock.unlock() }
+    return unsafePendingDeferredStamps
+  }
+  private var unsafePendingDeferredStamps: [LXMessage] = []
+
+  /// Held while one deferred stamp is generated.
+  ///
+  /// Python: `LXMRouter.stamp_gen_lock` (`LXMRouter.py:187`).
+  private let stampGenLock = NSLock()
+
   /// Held for one `processOutbound()` pass.
   ///
   /// Python: `LXMRouter.outbound_processing_lock` (`LXMRouter.py:182`).
@@ -1402,6 +1418,12 @@ public final class LXMRouter {
   /// Sets state to `.cancelled` and removes it from the pending queue.
   /// Mirrors Python's `LXMRouter.cancel_outbound(message_id)`.
   public func cancelOutbound(messageID: Data) {
+    // `LXMRouter.py:1729-1733`: the stamp job drops a cancelled message and reports it.
+    lock.lock()
+    let deferred = unsafePendingDeferredStamps.first { $0.messageID == messageID }
+    lock.unlock()
+    deferred?.state = .cancelled
+
     lock.lock()
     if let idx = unsafePendingOutbound.firstIndex(where: { $0.messageID == messageID }) {
       unsafePendingOutbound[idx].state = .cancelled
@@ -1413,11 +1435,14 @@ public final class LXMRouter {
   /// Returns the delivery progress (0.0–1.0) for a pending message identified by hash,
   /// or `nil` if no such message is pending.
   ///
-  /// Mirrors Python's `LXMRouter.get_outbound_progress(lxm_hash)`.
+  /// A message waiting for a deferred stamp counts as pending.
+  ///
+  /// Mirrors Python's `LXMRouter.get_outbound_progress(lxm_hash)` (`LXMRouter.py:1866-1875`).
   public func getOutboundProgress(lxmHash: Data) -> Double? {
     lock.lock()
     defer { lock.unlock() }
-    return unsafePendingOutbound.first { $0.hash == lxmHash }?.progress
+    return (unsafePendingOutbound + unsafePendingDeferredStamps).first { $0.hash == lxmHash }?
+      .progress
   }
 
   // MARK: - URI ingestion
@@ -1580,6 +1605,8 @@ public final class LXMRouter {
 
       if let ticket = getOutboundTicket(destinationHash: destHash) {
         message.outboundTicket = ticket
+        // A ticket stamp costs nothing to make (`LXMRouter.py:1833-1835`).
+        message.deferStamp = false
       }
 
       // If requested, generate an inbound ticket and attach it to the message fields
@@ -1593,23 +1620,6 @@ public final class LXMRouter {
       }
 
       try message.pack()
-
-      // For PROPAGATED messages, generate the PN stamp on a background thread
-      // (mirrors Python's defer_propagation_stamp=True behavior) so the caller's
-      // thread (typically the main RunLoop) is not blocked by PoW for cost=16+.
-      if message.desiredMethod == .propagated {
-        let cost = getOutboundPropagationCost() ?? 0
-        message.state = .outbound
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-          message.attachPropagationStamp(cost: cost)
-          guard let self else { return }
-          self.lock.lock()
-          self.unsafePendingOutbound.append(message)
-          self.lock.unlock()
-          self.processOutbound()
-        }
-        return
-      }
     }
 
     // LXMRouter.py:1845-1850—an opportunistic message to a destination with no path requests
@@ -1621,12 +1631,31 @@ public final class LXMRouter {
       unknownPathRequested = true
     }
 
+    // LXMRouter.py:1854-1856.
+    if message.stampCost == nil { message.deferStamp = false }
+
+    // LXMRouter.py:1858-1864: a message that still needs a stamp waits for the stamp job.
+    let deferred =
+      message.deferStamp || (message.desiredMethod == .propagated && message.deferPropagationStamp)
     message.state = .outbound
     lock.lock()
-    unsafePendingOutbound.append(message)
+    if deferred {
+      unsafePendingDeferredStamps.append(message)
+    } else {
+      unsafePendingOutbound.append(message)
+    }
     lock.unlock()
-    // LXMRouter.py:1857-1861.
-    if !unknownPathRequested { processOutbound() }
+
+    if deferred {
+      // Port-only: Python leaves the message for the next jobs tick, up to 4 s away
+      // (`LXMRouter.py:895-896`).
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        self?.processDeferredStamps()
+      }
+    } else if !unknownPathRequested {
+      // LXMRouter.py:1857-1861.
+      processOutbound()
+    }
   }
 
   /// Drive the outbound delivery queue.
@@ -2771,6 +2800,48 @@ public final class LXMRouter {
     msg.onFailed?(msg)
   }
 
+  /// Generate the stamps of the oldest message waiting for them, then queue it for delivery.
+  ///
+  /// Handles one message per call, and returns at once while another call holds
+  /// `stampGenLock`. A message that was cancelled, or failed to pack, leaves the queue with
+  /// `stampGenerationFailed` set.
+  ///
+  /// Mirrors Python's `LXMRouter.process_deferred_stamps()` (`LXMRouter.py:2648-2737`).
+  func processDeferredStamps() {
+    guard stampGenLock.try() else { return }  // LXMRouter.py:2651
+    defer { stampGenLock.unlock() }
+    lock.lock()
+    let next = unsafePendingDeferredStamps.first
+    lock.unlock()
+    guard let message = next else { return }
+
+    var packed = true
+    if message.deferStamp {
+      message.deferStamp = false
+      packed = (try? message.pack()) != nil  // LXMRouter.py:2685-2690
+    }
+    if packed && message.desiredMethod == .propagated && message.deferPropagationStamp {
+      message.attachPropagationStamp(cost: getOutboundPropagationCost() ?? 0)
+      message.deferPropagationStamp = false
+    }
+    let cancelled = message.state == .cancelled
+    let queued = packed && !cancelled
+    if !queued { message.stampGenerationFailed = true }  // before the pop, as at LXMRouter.py:2667
+
+    lock.lock()
+    unsafePendingDeferredStamps.removeAll { $0 === message }
+    if queued { unsafePendingOutbound.append(message) }  // LXMRouter.py:2735-2737
+    lock.unlock()
+
+    guard queued else {
+      // A cancelled message is reported, any other is failed (`LXMRouter.py:2694-2703`).
+      if cancelled { message.onFailed?(message) } else { failMessage(message) }
+      return
+    }
+    // Port-only: Python sends it on the next jobs tick.
+    processOutbound()
+  }
+
   /// Test helper: directly inject a message into the pending outbound queue.
   public func testInjectPendingOutbound(_ message: LXMessage) {
     lock.lock()
@@ -3866,14 +3937,6 @@ public final class LXMRouter {
     }
   }
 
-  /// Why `processDeferredStamps` is scheduled but not dispatched.
-  static let deferredStampsPendingReason = """
-    The deferred-stamp queue is not ported. Python defers stamp generation for outbound \
-    messages onto this tick (LXMRouter.py:887-888); the port generates stamps synchronously \
-    in send(), so there is no queue to drain. Scheduled here so porting the queue does not \
-    also require noticing the loop.
-    """
-
   /// Why `savePeers` is in this port's schedule and not in the reference's.
   static let savePeersAdditionReason = """
     The reference persists the peer table on exit only — atexit plus SIGINT/SIGTERM handlers \
@@ -3890,9 +3953,10 @@ public final class LXMRouter {
   public static let jobSchedule: [Job] = [
     .init("processOutbound", every: jobOutboundInterval) { $0.processOutbound() },
 
-    .init(
-      "processDeferredStamps", every: jobStampsInterval,
-      pending: deferredStampsPendingReason),
+    // On its own thread, as `LXMRouter.py:896` starts one.
+    .init("processDeferredStamps", every: jobStampsInterval) { router in
+      DispatchQueue.global(qos: .utility).async { router.processDeferredStamps() }
+    },
 
     .init("cleanLinks", every: jobLinksInterval) { $0.cleanLinks() },
     .init("cleanResourceTracking", every: jobResourceInterval) { $0.cleanResourceTracking() },
