@@ -86,6 +86,8 @@ final class LXMStamperTests: XCTestCase {
     let msg = LXMessage(
       destination: dst, source: src, content: "stamp test",
       stampCost: 1, stampExpandRounds: 1)
+
+    msg.deferStamp = false
     try msg.pack()
 
     let packed = try XCTUnwrap(msg.packed)
@@ -139,6 +141,8 @@ final class LXMStamperTests: XCTestCase {
     let msg = LXMessage(
       destination: dst, source: src, content: "roundtrip",
       stampCost: 1, stampExpandRounds: 1)
+
+    msg.deferStamp = false
     try msg.pack()
 
     let packed = try XCTUnwrap(msg.packed)
@@ -161,6 +165,8 @@ final class LXMStamperTests: XCTestCase {
     let msgStamped = LXMessage(
       destination: dst, source: src, content: "same content",
       stampCost: 1, stampExpandRounds: 1)
+
+    msgStamped.deferStamp = false
     msgStamped.timestamp = 1_700_000_000
 
     let msgNoStamp = LXMessage(destination: dst, source: src, content: "same content")
@@ -185,6 +191,8 @@ final class LXMStamperTests: XCTestCase {
     let msg = LXMessage(
       destination: dst, source: src, content: "validate",
       stampCost: 1, stampExpandRounds: 1)
+
+    msg.deferStamp = false
     try msg.pack()
 
     XCTAssertNotNil(msg.stamp)
