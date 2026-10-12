@@ -32,6 +32,14 @@ MeshChatX's cost of 8 on an M-series Mac, and longer on a phone.
   jobs loop, `send` and the stamp job each start a pass, and before this two passes could attempt
   the same message at once.
 
+### Fixed
+
+- **An announce raced the outbound pass over a message's schedule.** Both announce handlers read
+  `awaitingPath` and write `nextDeliveryAttempt` on the announce thread (`Handlers.py:25-26`,
+  `:47-48`), while the outbound pass writes them from `scheduleAttempt` and
+  `deliverOpportunistically`. The message's lock now guards the two fields, as it guards
+  `state`.
+
 ### Not ported
 
 - `get_outbound_lxm_stamp_cost` and `get_outbound_lxm_propagation_stamp_cost`
