@@ -3,7 +3,11 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [1.11.0]—sending never waits for a stamp
+
+LXMFSwift requires ReticulumSwift 1.25.0, which sends link keepalives in the clear as Python
+does. Before it, a direct-delivery link to a Python or Go node closed about 15 s after its last
+data, because the peer never answered the encrypted keepalive.
 
 ### Sending no longer waits for a stamp
 
