@@ -244,7 +244,7 @@ public let pnMetaImplName: UInt8 = 0xFE
 /// This package's release.
 ///
 /// A propagation node announces it under `pnMetaVersion`.
-public let lxmfSwiftVersion = "1.10.1"
+public let lxmfSwiftVersion = "1.11.0"
 
 /// The LXMF release this package matches.
 ///
