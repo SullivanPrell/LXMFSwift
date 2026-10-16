@@ -704,14 +704,7 @@ public final class LXMPeer {
     guard case .bytes(let dhData) = dict["destination_hash"] else { return nil }
     let destinationHash = Data(dhData)
 
-    // Helper: extract Int from .int or .uint
-    func intVal(_ key: String) -> Int? {
-      switch dict[key] {
-      case .int(let n)?: return Int(n)
-      case .uint(let n)?: return Int(n)
-      default: return nil
-      }
-    }
+    func intVal(_ key: String) -> Int? { dict[key]?.asInt }
     // Helper: extract Double (or Int coerced to Double)
     func dblVal(_ key: String) -> Double? {
       switch dict[key] {
@@ -762,13 +755,7 @@ public final class LXMPeer {
     if case .array(let parts)? = dict["peering_key"], parts.count == 2,
       case .bytes(let stampBytes) = parts[0]
     {
-      let keyValue: Int? = {
-        switch parts[1] {
-        case .int(let n): return Int(n)
-        case .uint(let n): return Int(n)
-        default: return nil
-        }
-      }()
+      let keyValue = parts[1].asInt
       if let keyValue { peer.unsafePeeringKey = (stamp: Data(stampBytes), value: keyValue) }
     }
 

@@ -150,11 +150,7 @@ public func stampCostFromAppData(_ appData: Data?) -> Int? {
   guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)),
     items.count >= 2
   else { return nil }
-  switch items[1] {
-  case .int(let n): return Int(n)
-  case .uint(let n): return Int(n)
-  default: return nil
-  }
+  return items[1].asInt
 }
 
 /// Validate that propagation node announce data is a well-formed msgpack array
@@ -306,11 +302,7 @@ public func pnStampCostFromAppData(_ appData: Data?) -> Int? {
     case .array(let costs) = items[5],
     !costs.isEmpty
   else { return nil }
-  switch costs[0] {
-  case .int(let n): return Int(n)
-  case .uint(let n): return Int(n)
-  default: return nil
-  }
+  return costs[0].asInt
 }
 
 // MARK: - Propagation node announce
@@ -358,17 +350,26 @@ struct PropagationNodeAnnounce {
       }
     }
 
+    // Python's `int()`, which truncates and refuses inf and NaN (`LXMF.py:239-244`); a value
+    // past `Int`'s range rejects the announce.
+    func integer(_ value: MsgPack.Value) -> Int? {
+      number(value).flatMap { Int(exactly: $0.rounded(.towardZero)) }
+    }
+
     guard let timebase = number(items[1]) else { return nil }
     guard case .bool(let nodeState) = items[2] else { return nil }
-    guard case .array(let costs) = items[5], costs.count >= 3 else { return nil }
+    guard case .array(let costs) = items[5], costs.count >= 3,
+      let stampCost = integer(costs[0]), let stampCostFlexibility = integer(costs[1]),
+      let peeringCost = integer(costs[2])
+    else { return nil }
 
     self.timebase = timebase
     self.isPropagationNode = nodeState
     self.transferLimit = number(items[3])
     self.syncLimit = number(items[4])
-    self.stampCost = Int(number(costs[0]) ?? 0)
-    self.stampCostFlexibility = Int(number(costs[1]) ?? 0)
-    self.peeringCost = Int(number(costs[2]) ?? 0)
+    self.stampCost = stampCost
+    self.stampCostFlexibility = stampCostFlexibility
+    self.peeringCost = peeringCost
     self.metadata = pnNameFromAppData(appData).map { ["name": $0] }
   }
 }

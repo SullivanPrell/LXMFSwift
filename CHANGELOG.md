@@ -3,6 +3,28 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Fixed
+
+- An announce carrying an integer past `Int.max` no longer stops the process. Python's `int` has
+  no upper bound (`LXMF.py:183`, `:231-244`). `stampCostFromAppData` and `pnStampCostFromAppData`
+  return `nil` for such a value, and a propagation node announce with a cost outside `Int`'s
+  range, or an inf or NaN cost, is ignored. Before this, one delivery announce with a stamp cost
+  of 2^64 - 1 crashed every LXMFSwift client that heard it. The peer, node-stats and stamp-cost
+  files read integers the same way.
+- A propagation node announce with a cost that isn't a number is ignored, as
+  `pn_announce_data_is_valid` rejects it (`LXMF.py:239-244`). The port read the cost as 0.
+- `cleanMessageStore` purges messages older than 30 days (`MESSAGE_EXPIRY`, `LXMRouter.py:42`,
+  `:1154-1171`) whether or not a storage limit is set. Over the limit, it removes the heaviest
+  messages by `getWeight` first (`:1191-1204`). Before this, no message expired, and over the
+  limit the oldest went first whatever its size or priority.
+
+### Changed
+
+- The module's internal `SecureRandom` and `Data(hexString:)` are gone. Callers use the
+  ReticulumSwift `SecureRandom` and `Data(hex:)`.
+
 ## [1.11.0]—sending never waits for a stamp
 
 LXMFSwift requires ReticulumSwift 1.25.0, which sends link keepalives in the clear as Python

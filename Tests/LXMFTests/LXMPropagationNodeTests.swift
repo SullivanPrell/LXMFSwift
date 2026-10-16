@@ -276,38 +276,10 @@ final class LXMPropagationNodeTests: XCTestCase {
         tid,
         PropagationEntry(
           destinationHash: fakeHash(byte ^ 0xF0), filePath: "/tmp/\(byte)",
-          received: Double(byte), msgSize: 100, stampValue: 0))
+          received: Date().timeIntervalSince1970, msgSize: 100, stampValue: 0))
     }
     router.cleanMessageStore()
     XCTAssertEqual(router.propagationEntries.count, 2, "Nothing should be removed under the limit")
-  }
-
-  func testCleanMessageStoreRemovesOldestWhenOverLimit() throws {
-    let router = makeRouter()
-    try router.enablePropagation(storagePath: tempDir)
-    router.setMessageStorageLimit(kilobytes: 1)  // 1000 bytes
-
-    // Old message (received=1)
-    let oldTID = fakeHash(0x01)
-    router.seedPropagationEntry(
-      oldTID,
-      PropagationEntry(
-        destinationHash: fakeHash(0xA1), filePath: tempDir + "/old",
-        received: 1.0, msgSize: 600, stampValue: 0))
-
-    // Newer message (received=2)
-    let newTID = fakeHash(0x02)
-    router.seedPropagationEntry(
-      newTID,
-      PropagationEntry(
-        destinationHash: fakeHash(0xA2), filePath: tempDir + "/new",
-        received: 2.0, msgSize: 600, stampValue: 0))
-
-    // Total = 1200 bytes > 1000 limit → old message should be dropped
-    router.cleanMessageStore()
-
-    XCTAssertNil(router.propagationEntries[oldTID], "Oldest message must be removed")
-    XCTAssertNotNil(router.propagationEntries[newTID], "Newer message must remain")
   }
 
   // MARK: - addPeer / removePeer

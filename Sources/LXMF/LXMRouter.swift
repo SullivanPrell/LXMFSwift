@@ -313,10 +313,15 @@ public final class LXMRouter {
   /// Mirrors Python's `locally_processed_transient_ids` dict.
   var locallyProcessedTransientIDs: [Data: TimeInterval] = [:]
 
+  /// How long a propagated message stays in the message store.
+  ///
+  /// Mirrors Python's `MESSAGE_EXPIRY` (`LXMRouter.py:42`).
+  static let messageExpiry: TimeInterval = 30 * 24 * 60 * 60
+
   /// How long a transient ID stays in the delivered/processed caches.
   ///
   /// Mirrors Python's `MESSAGE_EXPIRY * 6.0` (30 days x 6 = 180 days).
-  static let transientIDCacheExpiry: TimeInterval = 30 * 24 * 60 * 60 * 6.0
+  static let transientIDCacheExpiry: TimeInterval = messageExpiry * 6.0
 
   /// Job ticks between transient-ID cache reaps.
   ///
@@ -2931,7 +2936,7 @@ public final class LXMRouter {
           let ts = TimeInterval(tsStr), ts > 0,
           let sv = Int(stampStr)
         else { continue }
-        guard let transientID = Data(hexString: hexID) else { continue }
+        guard let transientID = Data(hex: hexID) else { continue }
 
         let filePath = msgPath + "/" + filename
         let attrs = try? fm.attributesOfItem(atPath: filePath)
@@ -3001,13 +3006,7 @@ public final class LXMRouter {
     {
       var dict: [String: MsgPack.Value] = [:]
       for (k, v) in statsPairs { if case .string(let s) = k { dict[s] = v } }
-      func statsInt(_ key: String) -> Int? {
-        switch dict[key] {
-        case .int(let n)?: return Int(n)
-        case .uint(let n)?: return Int(n)
-        default: return nil
-        }
-      }
+      func statsInt(_ key: String) -> Int? { dict[key]?.asInt }
       if let v = statsInt("client_propagation_messages_received") {
         unsafeClientPropagationMessagesReceived = v
       }
@@ -3392,25 +3391,30 @@ public final class LXMRouter {
     try? FileManager.default.removeItem(atPath: entry.filePath)
   }
 
-  /// Clean the message store, removing the oldest messages when over the storage limit.
+  /// Clean the message store: purge entries older than ``messageExpiry``, then, over the storage
+  /// limit, remove the heaviest entries by ``getWeight(transientID:)`` first.
   ///
-  /// Mirrors Python's `LXMRouter.clean_message_store()`.
+  /// Mirrors Python's `LXMRouter.clean_message_store()` (`LXMRouter.py:1152-1222`).
   public func cleanMessageStore() {
     guard isPropagationNode else { return }
-    guard let limit = messageStorageLimit else { return }
 
-    // Compute size + snapshot the sort order under the lock; delete OUTSIDE
-    // (removeFromMessageStore self-locks and unlinks the file outside the lock).
+    // Snapshot under the lock; delete OUTSIDE (removeFromMessageStore and getWeight self-lock).
     lock.lock()
-    var currentSize = unsafePropagationEntries.values.reduce(0) { $0 + $1.msgSize }
-    guard currentSize > limit else {
-      lock.unlock()
-      return
-    }
-    let sorted = unsafePropagationEntries.sorted { $0.value.received < $1.value.received }
+    let snapshot = unsafePropagationEntries
     lock.unlock()
 
-    for (tid, entry) in sorted {
+    let now = Date().timeIntervalSince1970
+    let expired = snapshot.filter { now > $0.value.received + Self.messageExpiry }
+    for tid in expired.keys { removeFromMessageStore(transientID: tid) }
+
+    guard let limit = messageStorageLimit else { return }
+    let remaining = snapshot.filter { expired[$0.key] == nil }
+    var currentSize = remaining.values.reduce(0) { $0 + $1.msgSize }
+    guard currentSize > limit else { return }
+    let sorted = remaining.map { ($0.key, $0.value, getWeight(transientID: $0.key)) }
+      .sorted { $0.2 > $1.2 }
+
+    for (tid, entry, _) in sorted {
       guard currentSize > limit else { break }
       currentSize -= entry.msgSize
       removeFromMessageStore(transientID: tid)
@@ -4767,12 +4771,8 @@ public final class LXMRouter {
     else { return }
     var loaded: [Data: Int] = [:]
     for (k, v) in pairs {
-      guard case .bytes(let key) = k else { continue }
-      switch v {
-      case .int(let n): loaded[key] = Int(n)
-      case .uint(let n): loaded[key] = Int(n)
-      default: break
-      }
+      guard case .bytes(let key) = k, let cost = v.asInt else { continue }
+      loaded[key] = cost
     }
     lock.lock()
     outboundStampCosts = loaded
