@@ -3,7 +3,11 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [1.11.1]—announce integers can't stop the process, and the message store expires
+
+LXMFSwift requires ReticulumSwift 1.26.0, which refuses a resource advertisement with a count
+past `Int.max` and stops decompression at 64 MiB. A propagation node receives resources from peers
+it doesn't control.
 
 ### Fixed
 
