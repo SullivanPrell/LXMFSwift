@@ -1659,16 +1659,17 @@ public final class LXMRouter {
       }
     } else if !unknownPathRequested {
       // LXMRouter.py:1857-1861.
-      processOutbound()
+      triggerOutbound()
     }
   }
 
   /// Drive the outbound delivery queue.
   ///
-  /// Safe to call from any thread. A call made while another pass runs returns at once.
+  /// Safe to call from any thread. A call made while another pass runs returns `false` at once.
   /// Mirrors Python's `LXMRouter.process_outbound()` (`LXMRouter.py:2754-2756`).
-  public func processOutbound() {
-    guard outboundProcessingLock.try() else { return }
+  @discardableResult
+  public func processOutbound() -> Bool {
+    guard outboundProcessingLock.try() else { return false }
     defer { outboundProcessingLock.unlock() }
     lock.lock()
     let snapshot = unsafePendingOutbound
@@ -1694,6 +1695,22 @@ public final class LXMRouter {
       default:
         break
       }
+    }
+    return true
+  }
+
+  /// Runs a pass now, or once the pass in progress ends.
+  ///
+  /// The pass in progress may have passed over a message the caller just brought forward.
+  /// Python's triggers wait it out rather than leave the message for the next jobs tick
+  /// (`Handlers.py:29`, `:51`, `LXMRouter.py:1859`).
+  func triggerOutbound() {
+    guard !processOutbound() else { return }
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      guard let self else { return }
+      self.outboundProcessingLock.lock()
+      self.outboundProcessingLock.unlock()
+      self.processOutbound()
     }
   }
 
@@ -2875,7 +2892,7 @@ public final class LXMRouter {
     }
     let now = Date().timeIntervalSince1970
     for msg in awaiting { msg.nextDeliveryAttempt = now }
-    if !awaiting.isEmpty { processOutbound() }
+    if !awaiting.isEmpty { triggerOutbound() }
 
     // Validate inbound messages whose source identity has just been announced.
     // By the time `handleAnnounceForDestination` is called, the transport has
@@ -4918,7 +4935,7 @@ public final class LXMRouter {
     let now = Date().timeIntervalSince1970
     for msg in propagated { msg.nextDeliveryAttempt = now }
     if !propagated.isEmpty {
-      DispatchQueue.global(qos: .utility).async { [weak self] in self?.processOutbound() }
+      DispatchQueue.global(qos: .utility).async { [weak self] in self?.triggerOutbound() }
     }
   }
 }
