@@ -5,6 +5,14 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.12.0]—a message sent during an outbound pass goes out when the pass ends
+
+A message that reaches the outbound queue, from a send or an announce, while a pass runs now goes
+out when that pass ends, as Python's triggers wait out the running pass. It waited up to 4 s. This
+is a minor release because `processOutbound()` now returns whether it ran. LXMFSwift requires
+ReticulumSwift 1.27.0, whose TCP and Backbone client `start()` waits up to 5 s for the first
+dial, as Python's does.
+
 ### Fixed
 
 - A message sent, or brought forward by a delivery or propagation node announce, while an outbound
