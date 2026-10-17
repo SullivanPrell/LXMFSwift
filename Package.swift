@@ -13,7 +13,7 @@ import Foundation
 let useLocalDeps = ProcessInfo.processInfo.environment["RETICULUM_LOCAL_DEPS"] != nil
 let reticulumDependency: Package.Dependency = useLocalDeps
     ? .package(path: "../ReticulumSwift")
-    : .package(url: "https://github.com/SullivanPrell/ReticulumSwift.git", from: "1.26.0")
+    : .package(url: "https://github.com/SullivanPrell/ReticulumSwift.git", from: "1.27.0")
 
 let package = Package(
     name: "LXMFSwift",
