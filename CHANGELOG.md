@@ -3,6 +3,15 @@
 All notable changes to LXMFSwift are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Fixed
+
+- A message sent, or brought forward by a delivery or propagation node announce, while an outbound
+  pass runs is attempted once that pass ends. Python waits out the running pass
+  (`Handlers.py:29`, `:51`, `LXMRouter.py:1859`). The port skipped the trigger, so the message
+  waited up to 4 s for the next jobs tick. `processOutbound()` now returns whether it ran.
+
 ## [1.11.1]—announce integers can't stop the process, and the message store expires
 
 LXMFSwift requires ReticulumSwift 1.26.0, which refuses a resource advertisement with a count
