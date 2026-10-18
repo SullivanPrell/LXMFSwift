@@ -72,6 +72,15 @@ public final class LXMRouter {
   public static let deliveryRetryWait: TimeInterval = 10
   /// Python: `LXMRouter.PATH_REQUEST_WAIT = 7` (`LXMRouter.py:35`).
   public static let pathRequestWait: TimeInterval = 7
+  /// Seconds between job loop ticks.
+  ///
+  /// Python: `LXMRouter.PROCESSING_INTERVAL = 4` (LXMF 1.2.1 `LXMRouter.py:33`).
+  public static let processingInterval: TimeInterval = 4
+  /// The airtime of one MTU, in seconds, above which a retry gets random jitter and an
+  /// opportunistic receipt waits out the retry schedule.
+  ///
+  /// Python: `LXMRouter.AIRTIME_AWARE_MTU_TIME = 0.5` (LXMF 1.2.1 `LXMRouter.py:38`).
+  public static let airtimeAwareMTUTime: TimeInterval = 0.5
   /// How long a repeat path request is suppressed while an interface slower than
   /// `slowInterfaceBitrate` is online.
   ///
@@ -171,6 +180,17 @@ public final class LXMRouter {
   /// (`LXMRouter.py:115-116`).
   private var unsafePathRequestTimes: [Data: TimeInterval] = [:]
   private let pathRequestLock = NSLock()
+
+  /// Each target's last `slowPath(_:)` answer and when it was computed.
+  ///
+  /// Python: `LXMRouter.slow_path_cache` (LXMF 1.2.1 `LXMRouter.py:117`).
+  private var unsafeSlowPathCache: [Data: (slow: Bool, at: TimeInterval)] = [:]
+  private let slowPathLock = NSLock()
+
+  /// The time `slowPath(_:)` stamps its cache with. Tests replace it.
+  var clock: () -> TimeInterval = { Date().timeIntervalSince1970 }
+  /// Draws a retry's jitter. Tests replace it.
+  var uniform: (ClosedRange<Double>) -> Double = { Double.random(in: $0) }
 
   /// Messages awaiting delivery.
   ///
@@ -737,8 +757,9 @@ public final class LXMRouter {
 
   private func startJobLoop() {
     let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
-    // Repeat every 4 s, first fire after 4 s (no need to run immediately on start).
-    timer.schedule(deadline: .now() + 4, repeating: 4)
+    // First fire after one interval (no need to run immediately on start).
+    timer.schedule(
+      deadline: .now() + LXMRouter.processingInterval, repeating: LXMRouter.processingInterval)
     // One line, because the schedule is `jobSchedule` and not this closure: a routine added to
     // the reference is added there, where a test compares it against `LXMRouter.py:880-911`.
     timer.setEventHandler { [weak self] in self?.jobs() }
@@ -1777,17 +1798,53 @@ public final class LXMRouter {
   public func scheduleAttempt(
     _ message: LXMessage, destinationHash: Data, pathRequest: Bool = false
   ) {
-    let now = Date().timeIntervalSince1970
-    let roundTrip: TimeInterval
-    if pathRequest {
-      roundTrip = mediumPathTimeout()
-      message.nextDeliveryAttempt = now + max(LXMRouter.pathRequestWait, roundTrip)
-      message.awaitingPath = true
-    } else {
-      roundTrip = destinationRoundTrip(destinationHash)
-      message.nextDeliveryAttempt = now + max(LXMRouter.deliveryRetryWait, roundTrip)
-    }
-    message.maxDeliveryAttempts = LXMRouter.deliveryAttemptLimit(roundTrip: roundTrip)
+    let roundTrip = pathRequest ? mediumPathTimeout() : destinationRoundTrip(destinationHash)
+    let schedule = LXMRouter.attemptSchedule(
+      roundTrip: roundTrip, pathRequest: pathRequest,
+      deliveryAttempts: message.deliveryAttempts, uniform: uniform)
+    message.nextDeliveryAttempt = Date().timeIntervalSince1970 + schedule.delay
+    if pathRequest { message.awaitingPath = true }
+    message.maxDeliveryAttempts = schedule.limit
+    message.receiptTimeout = schedule.receiptTimeout
+  }
+
+  /// The delay to the next attempt, the attempt limit, and the receipt timeout that
+  /// `scheduleAttempt` sets for a round trip of `roundTrip` seconds.
+  ///
+  /// `uniform` draws the jitter.
+  ///
+  /// Python: `schedule_attempt` (LXMF 1.2.1 `LXMRouter.py:1805-1823`).
+  static func attemptSchedule(
+    roundTrip: TimeInterval, pathRequest: Bool, deliveryAttempts: Int,
+    uniform: (ClosedRange<Double>) -> Double
+  ) -> (delay: TimeInterval, limit: Int, receiptTimeout: TimeInterval?) {
+    let wait = pathRequest ? pathRequestWait : deliveryRetryWait
+    return (max(wait, roundTrip), deliveryAttemptLimit(roundTrip: roundTrip), nil)
+  }
+
+  // MARK: - Slow path hold
+
+  /// Whether the round trip to `destinationHash` is longer than `deliveryRetryWait`.
+  ///
+  /// Python: `slow_path(destination_hash)` (LXMF 1.2.1 `LXMRouter.py:1825-1832`).
+  func slowPath(_ destinationHash: Data) -> Bool {
+    destinationRoundTrip(destinationHash) > LXMRouter.deliveryRetryWait
+  }
+
+  /// Whether `message` waits for the messages that would add to a slow path's load.
+  ///
+  /// Python: `slow_path_held(lxmessage, target_hash)` (LXMF 1.2.1 `LXMRouter.py:1843-1853`).
+  func slowPathHeld(_ message: LXMessage, target: Data) -> Bool {
+    false
+  }
+
+  /// Runs an outbound pass when a message that went out on a slow path concludes, and returns
+  /// whether it scheduled one.
+  ///
+  /// Python: `outbound_concluded(lxmessage)` (LXMF 1.2.1 `LXMRouter.py:1855-1860`).
+  @discardableResult
+  func outboundConcluded(_ message: LXMessage) -> Bool {
+    false
   }
 
   // MARK: - Opportunistic delivery
@@ -1899,7 +1956,7 @@ public final class LXMRouter {
   ///
   /// Mirrors `LXMessage.__mark_delivered` (`LXMessage.py:561-568`). A second proof, for an
   /// earlier attempt of the same message, does nothing.
-  private func markDelivered(_ msg: LXMessage) {
+  func markDelivered(_ msg: LXMessage) {
     // Removed from the queue before the state flips, so a concurrent `processOutbound` cannot
     // see a delivered message still pending and fire the application callback a second time.
     removePending(msg)
@@ -3563,6 +3620,13 @@ public final class LXMRouter {
     if let v = clientServed { unsafeClientPropagationMessagesServed = v }
     if let v = unpeeredIncoming { unsafeUnpeeredPropagationIncoming = v }
     if let v = unpeeredRxBytes { unsafeUnpeeredPropagationRxBytes = v }
+  }
+
+  /// Records `slow` as the `slowPath(_:)` answer for `destinationHash`, stamped with `clock()`.
+  func seedSlowPath(_ destinationHash: Data, _ slow: Bool) {
+    slowPathLock.lock()
+    defer { slowPathLock.unlock() }
+    unsafeSlowPathCache[destinationHash] = (slow, clock())
   }
 
   /// Set or clear the time this router last requested a path to `destinationHash`.
