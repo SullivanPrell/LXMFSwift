@@ -18,8 +18,8 @@ import Testing
 ///
 /// A path is slow when its round trip is above `deliveryRetryWait`. On a slow path the router
 /// keeps one message in flight and holds every queued message that would add to the load
-/// (LXMF 1.2.1 `LXMRouter.py:1805-1860`, `:2854-3049`). Every expected value below was printed by
-/// `scripts/capture-outbound-hold-vectors.py` from LXMF 1.2.1's own methods. Each section name is
+/// (LXMF 1.2.1 `LXMRouter.py:1805-1860`, `:2854-3049`). `scripts/capture-outbound-hold-vectors.py`
+/// printed every expected value below from LXMF 1.2.1's own methods. Each section name is
 /// the script's.
 @Suite("Outbound hold on slow paths")
 struct OutboundHoldTests {
@@ -108,7 +108,8 @@ struct OutboundHoldTests {
     let probe = node.remoteDestination.hash
     node.router.seedSlowPath(probe, true)
     for i in 1..<entries {
-      node.router.seedSlowPath(Data([UInt8(i & 0xFF), UInt8(i >> 8)] + [UInt8](repeating: 0, count: 14)), true)
+      node.router.seedSlowPath(
+        Data([UInt8(i & 0xFF), UInt8(i >> 8)] + [UInt8](repeating: 0, count: 14)), true)
     }
 
     _ = node.router.slowPath(Data(repeating: 0xEE, count: 16))
@@ -205,10 +206,10 @@ struct OutboundHoldTests {
   @Test(
     "process_outbound: a transfer starts only from OUTBOUND, without setting the flag",
     arguments: [LXMessage.Method.direct, .propagated])
-  func transferStartsOnlyFromOutbound(method: LXMessage.Method) throws {
+  func transferStartsOnlyFromOutbound(method: LXMessage.Method) async throws {
     let pair = try AnnouncedPair()
     let message = try pair.message(method: method)
-    try pair.useActiveLink(for: method)
+    try await pair.useActiveLink(for: method)
     pair.router.seedSlowPath(pair.target(for: method), true)
     message.state = .sent
 
@@ -221,10 +222,10 @@ struct OutboundHoldTests {
   @Test(
     "process_outbound: each branch records whether its attempt went out on a slow path",
     arguments: [LXMessage.Method.opportunistic, .direct, .propagated], [true, false])
-  func attemptRecordsTheSlowPath(method: LXMessage.Method, slow: Bool) throws {
+  func attemptRecordsTheSlowPath(method: LXMessage.Method, slow: Bool) async throws {
     let pair = try AnnouncedPair()
     let message = try pair.message(method: method)
-    if method != .opportunistic { try pair.useActiveLink(for: method) }
+    if method != .opportunistic { try await pair.useActiveLink(for: method) }
     pair.router.seedSlowPath(pair.target(for: method), slow)
 
     pair.router.processOutbound()
@@ -249,7 +250,7 @@ struct OutboundHoldTests {
   }
 
   @Test("A link coming up runs a pass, so every message waiting on it goes out")
-  func establishedLinkRunsAPass() throws {
+  func establishedLinkRunsAPass() async throws {
     let pair = try AnnouncedPair()
     // This wire completes a handshake inside `Link.initiate`, so hold B's link proof for later.
     var proof: Packet?
@@ -269,7 +270,7 @@ struct OutboundHoldTests {
     let held = try Packet.unpack(try #require(proof).pack())
     pair.ifaceA.inboundHandler?(held, pair.ifaceA)
 
-    try waitUntil { first.state == .sending && second.state == .sending }
+    try await waitUntil { first.state == .sending && second.state == .sending }
   }
 
   // MARK: - outbound_concluded
@@ -282,14 +283,14 @@ struct OutboundHoldTests {
   }
 
   @Test("outbound_concluded: a message that went out on a slow path starts one pass")
-  func concludedWithTheFlag() throws {
+  func concludedWithTheFlag() async throws {
     let node = try SingleNode()
     let pass = node.passMarker()
     let message = try node.enqueueMessage(method: .direct)
     message.sentOnSlowPath = true
 
     #expect(node.router.outboundConcluded(message))
-    #expect(pass.wait(timeout: .now() + 2) == .success)
+    try await waitUntil { pass.wait(timeout: .now()) == .success }
   }
 
   // MARK: - __mark_delivered and __mark_propagated
@@ -297,7 +298,7 @@ struct OutboundHoldTests {
   @Test(
     "__mark_delivered: delivers once, at progress 1.0, and concludes a slow-path message",
     arguments: [LXMessage.State.sending, .outbound, .sent])
-  func markDelivered(from state: LXMessage.State) throws {
+  func markDelivered(from state: LXMessage.State) async throws {
     let node = try SingleNode()
     let pass = node.passMarker()
     let message = try node.enqueueMessage(method: .direct)
@@ -312,20 +313,20 @@ struct OutboundHoldTests {
     #expect(message.state == .delivered)
     #expect(message.progress == 1.0)
     #expect(deliveries.value == 1)
-    #expect(pass.wait(timeout: .now() + 2) == .success)
+    try await waitUntil { pass.wait(timeout: .now()) == .success }
   }
 
   @Test("__mark_propagated: a completed propagation transfer marks the message once")
-  func completedPropagationMarksTheMessage() throws {
+  func completedPropagationMarksTheMessage() async throws {
     let pair = try AnnouncedPair()
     let message = try pair.message(method: .propagated)
-    try pair.useActiveLink(for: .propagated)
+    try await pair.useActiveLink(for: .propagated)
     let deliveries = Counter()
     message.onDelivery = { _ in deliveries.increment() }
 
     pair.router.processOutbound()
 
-    try waitUntil { deliveries.value == 1 }
+    try await waitUntil { deliveries.value == 1 }
     #expect(message.state == .delivered)
     #expect(message.progress == 1.0)
   }
@@ -362,94 +363,94 @@ private let highest: (ClosedRange<Double>) -> Double = { $0.upperBound }
 
 /// `schedule_attempt`, from LXMF 1.2.1 (`LXMRouter.py:1805-1823`).
 let scheduleRows: [ScheduleRow] = [
-      ScheduleRow(false, 0, 0, 5, 10, 10, nil),
-      ScheduleRow(false, 0, 1, 5, 10, 10, nil),
-      ScheduleRow(false, 0, 3, 5, 10, 10, nil),
-      ScheduleRow(false, 0, 6, 5, 10, 10, nil),
-      ScheduleRow(false, 6, 0, 5, 10, 10, nil),
-      ScheduleRow(false, 6, 1, 5, 10, 10, nil),
-      ScheduleRow(false, 6, 3, 5, 10, 10, nil),
-      ScheduleRow(false, 6, 6, 5, 10, 10, nil),
-      ScheduleRow(false, 7, 0, 5, 10, 10, nil),
-      ScheduleRow(false, 7, 1, 5, 10, 10, nil),
-      ScheduleRow(false, 7, 3, 5, 10, 10, nil),
-      ScheduleRow(false, 7, 6, 5, 10, 10, nil),
-      ScheduleRow(false, 7.2, 0, 5, 10, 10.6, 67.6),
-      ScheduleRow(false, 7.2, 1, 5, 10, 10.6, 57),
-      ScheduleRow(false, 7.2, 3, 5, 10, 10.6, 35.8),
-      ScheduleRow(false, 7.2, 6, 5, 10, 10.6, 14.6),
-      ScheduleRow(false, 10, 0, 5, 10, 12, 76),
-      ScheduleRow(false, 10, 1, 5, 10, 12, 64),
-      ScheduleRow(false, 10, 3, 5, 10, 12, 40),
-      ScheduleRow(false, 10, 6, 5, 10, 12, 16),
-      ScheduleRow(false, 11, 0, 5, 11, 13.5, 85),
-      ScheduleRow(false, 11, 1, 5, 11, 13.5, 71.5),
-      ScheduleRow(false, 11, 3, 5, 11, 13.5, 44.5),
-      ScheduleRow(false, 11, 6, 5, 11, 13.5, 17.5),
-      ScheduleRow(false, 12, 0, 4, 12, 15, 79),
-      ScheduleRow(false, 12, 1, 4, 12, 15, 64),
-      ScheduleRow(false, 12, 3, 4, 12, 15, 34),
-      ScheduleRow(false, 12, 6, 4, 12, 15, 19),
-      ScheduleRow(false, 13.5, 0, 4, 13.5, 17.25, 90.25),
-      ScheduleRow(false, 13.5, 1, 4, 13.5, 17.25, 73),
-      ScheduleRow(false, 13.5, 3, 4, 13.5, 17.25, 38.5),
-      ScheduleRow(false, 13.5, 6, 4, 13.5, 17.25, 21.25),
-      ScheduleRow(false, 20, 0, 3, 20, 27, 112),
-      ScheduleRow(false, 20, 1, 3, 20, 27, 85),
-      ScheduleRow(false, 20, 3, 3, 20, 27, 31),
-      ScheduleRow(false, 20, 6, 3, 20, 27, 31),
-      ScheduleRow(false, 40, 0, 3, 40, 57, 232),
-      ScheduleRow(false, 40, 1, 3, 40, 57, 175),
-      ScheduleRow(false, 40, 3, 3, 40, 57, 61),
-      ScheduleRow(false, 40, 6, 3, 40, 57, 61),
-      ScheduleRow(false, 120, 0, 3, 120, 177, 712),
-      ScheduleRow(false, 120, 1, 3, 120, 177, 535),
-      ScheduleRow(false, 120, 3, 3, 120, 177, 181),
-      ScheduleRow(false, 120, 6, 3, 120, 177, 181),
-      ScheduleRow(true, 0, 0, 5, 7, 7, nil),
-      ScheduleRow(true, 0, 1, 5, 7, 7, nil),
-      ScheduleRow(true, 0, 3, 5, 7, 7, nil),
-      ScheduleRow(true, 0, 6, 5, 7, 7, nil),
-      ScheduleRow(true, 6, 0, 5, 7, 7, nil),
-      ScheduleRow(true, 6, 1, 5, 7, 7, nil),
-      ScheduleRow(true, 6, 3, 5, 7, 7, nil),
-      ScheduleRow(true, 6, 6, 5, 7, 7, nil),
-      ScheduleRow(true, 7, 0, 5, 7, 7, nil),
-      ScheduleRow(true, 7, 1, 5, 7, 7, nil),
-      ScheduleRow(true, 7, 3, 5, 7, 7, nil),
-      ScheduleRow(true, 7, 6, 5, 7, 7, nil),
-      ScheduleRow(true, 7.2, 0, 5, 7.2, 7.8, 67.6),
-      ScheduleRow(true, 7.2, 1, 5, 7.2, 7.8, 57),
-      ScheduleRow(true, 7.2, 3, 5, 7.2, 7.8, 35.8),
-      ScheduleRow(true, 7.2, 6, 5, 7.2, 7.8, 14.6),
-      ScheduleRow(true, 10, 0, 5, 10, 12, 76),
-      ScheduleRow(true, 10, 1, 5, 10, 12, 64),
-      ScheduleRow(true, 10, 3, 5, 10, 12, 40),
-      ScheduleRow(true, 10, 6, 5, 10, 12, 16),
-      ScheduleRow(true, 11, 0, 5, 11, 13.5, 85),
-      ScheduleRow(true, 11, 1, 5, 11, 13.5, 71.5),
-      ScheduleRow(true, 11, 3, 5, 11, 13.5, 44.5),
-      ScheduleRow(true, 11, 6, 5, 11, 13.5, 17.5),
-      ScheduleRow(true, 12, 0, 4, 12, 15, 79),
-      ScheduleRow(true, 12, 1, 4, 12, 15, 64),
-      ScheduleRow(true, 12, 3, 4, 12, 15, 34),
-      ScheduleRow(true, 12, 6, 4, 12, 15, 19),
-      ScheduleRow(true, 13.5, 0, 4, 13.5, 17.25, 90.25),
-      ScheduleRow(true, 13.5, 1, 4, 13.5, 17.25, 73),
-      ScheduleRow(true, 13.5, 3, 4, 13.5, 17.25, 38.5),
-      ScheduleRow(true, 13.5, 6, 4, 13.5, 17.25, 21.25),
-      ScheduleRow(true, 20, 0, 3, 20, 27, 112),
-      ScheduleRow(true, 20, 1, 3, 20, 27, 85),
-      ScheduleRow(true, 20, 3, 3, 20, 27, 31),
-      ScheduleRow(true, 20, 6, 3, 20, 27, 31),
-      ScheduleRow(true, 40, 0, 3, 40, 57, 232),
-      ScheduleRow(true, 40, 1, 3, 40, 57, 175),
-      ScheduleRow(true, 40, 3, 3, 40, 57, 61),
-      ScheduleRow(true, 40, 6, 3, 40, 57, 61),
-      ScheduleRow(true, 120, 0, 3, 120, 177, 712),
-      ScheduleRow(true, 120, 1, 3, 120, 177, 535),
-      ScheduleRow(true, 120, 3, 3, 120, 177, 181),
-      ScheduleRow(true, 120, 6, 3, 120, 177, 181),
+  ScheduleRow(false, 0, 0, 5, 10, 10, nil),
+  ScheduleRow(false, 0, 1, 5, 10, 10, nil),
+  ScheduleRow(false, 0, 3, 5, 10, 10, nil),
+  ScheduleRow(false, 0, 6, 5, 10, 10, nil),
+  ScheduleRow(false, 6, 0, 5, 10, 10, nil),
+  ScheduleRow(false, 6, 1, 5, 10, 10, nil),
+  ScheduleRow(false, 6, 3, 5, 10, 10, nil),
+  ScheduleRow(false, 6, 6, 5, 10, 10, nil),
+  ScheduleRow(false, 7, 0, 5, 10, 10, nil),
+  ScheduleRow(false, 7, 1, 5, 10, 10, nil),
+  ScheduleRow(false, 7, 3, 5, 10, 10, nil),
+  ScheduleRow(false, 7, 6, 5, 10, 10, nil),
+  ScheduleRow(false, 7.2, 0, 5, 10, 10.6, 67.6),
+  ScheduleRow(false, 7.2, 1, 5, 10, 10.6, 57),
+  ScheduleRow(false, 7.2, 3, 5, 10, 10.6, 35.8),
+  ScheduleRow(false, 7.2, 6, 5, 10, 10.6, 14.6),
+  ScheduleRow(false, 10, 0, 5, 10, 12, 76),
+  ScheduleRow(false, 10, 1, 5, 10, 12, 64),
+  ScheduleRow(false, 10, 3, 5, 10, 12, 40),
+  ScheduleRow(false, 10, 6, 5, 10, 12, 16),
+  ScheduleRow(false, 11, 0, 5, 11, 13.5, 85),
+  ScheduleRow(false, 11, 1, 5, 11, 13.5, 71.5),
+  ScheduleRow(false, 11, 3, 5, 11, 13.5, 44.5),
+  ScheduleRow(false, 11, 6, 5, 11, 13.5, 17.5),
+  ScheduleRow(false, 12, 0, 4, 12, 15, 79),
+  ScheduleRow(false, 12, 1, 4, 12, 15, 64),
+  ScheduleRow(false, 12, 3, 4, 12, 15, 34),
+  ScheduleRow(false, 12, 6, 4, 12, 15, 19),
+  ScheduleRow(false, 13.5, 0, 4, 13.5, 17.25, 90.25),
+  ScheduleRow(false, 13.5, 1, 4, 13.5, 17.25, 73),
+  ScheduleRow(false, 13.5, 3, 4, 13.5, 17.25, 38.5),
+  ScheduleRow(false, 13.5, 6, 4, 13.5, 17.25, 21.25),
+  ScheduleRow(false, 20, 0, 3, 20, 27, 112),
+  ScheduleRow(false, 20, 1, 3, 20, 27, 85),
+  ScheduleRow(false, 20, 3, 3, 20, 27, 31),
+  ScheduleRow(false, 20, 6, 3, 20, 27, 31),
+  ScheduleRow(false, 40, 0, 3, 40, 57, 232),
+  ScheduleRow(false, 40, 1, 3, 40, 57, 175),
+  ScheduleRow(false, 40, 3, 3, 40, 57, 61),
+  ScheduleRow(false, 40, 6, 3, 40, 57, 61),
+  ScheduleRow(false, 120, 0, 3, 120, 177, 712),
+  ScheduleRow(false, 120, 1, 3, 120, 177, 535),
+  ScheduleRow(false, 120, 3, 3, 120, 177, 181),
+  ScheduleRow(false, 120, 6, 3, 120, 177, 181),
+  ScheduleRow(true, 0, 0, 5, 7, 7, nil),
+  ScheduleRow(true, 0, 1, 5, 7, 7, nil),
+  ScheduleRow(true, 0, 3, 5, 7, 7, nil),
+  ScheduleRow(true, 0, 6, 5, 7, 7, nil),
+  ScheduleRow(true, 6, 0, 5, 7, 7, nil),
+  ScheduleRow(true, 6, 1, 5, 7, 7, nil),
+  ScheduleRow(true, 6, 3, 5, 7, 7, nil),
+  ScheduleRow(true, 6, 6, 5, 7, 7, nil),
+  ScheduleRow(true, 7, 0, 5, 7, 7, nil),
+  ScheduleRow(true, 7, 1, 5, 7, 7, nil),
+  ScheduleRow(true, 7, 3, 5, 7, 7, nil),
+  ScheduleRow(true, 7, 6, 5, 7, 7, nil),
+  ScheduleRow(true, 7.2, 0, 5, 7.2, 7.8, 67.6),
+  ScheduleRow(true, 7.2, 1, 5, 7.2, 7.8, 57),
+  ScheduleRow(true, 7.2, 3, 5, 7.2, 7.8, 35.8),
+  ScheduleRow(true, 7.2, 6, 5, 7.2, 7.8, 14.6),
+  ScheduleRow(true, 10, 0, 5, 10, 12, 76),
+  ScheduleRow(true, 10, 1, 5, 10, 12, 64),
+  ScheduleRow(true, 10, 3, 5, 10, 12, 40),
+  ScheduleRow(true, 10, 6, 5, 10, 12, 16),
+  ScheduleRow(true, 11, 0, 5, 11, 13.5, 85),
+  ScheduleRow(true, 11, 1, 5, 11, 13.5, 71.5),
+  ScheduleRow(true, 11, 3, 5, 11, 13.5, 44.5),
+  ScheduleRow(true, 11, 6, 5, 11, 13.5, 17.5),
+  ScheduleRow(true, 12, 0, 4, 12, 15, 79),
+  ScheduleRow(true, 12, 1, 4, 12, 15, 64),
+  ScheduleRow(true, 12, 3, 4, 12, 15, 34),
+  ScheduleRow(true, 12, 6, 4, 12, 15, 19),
+  ScheduleRow(true, 13.5, 0, 4, 13.5, 17.25, 90.25),
+  ScheduleRow(true, 13.5, 1, 4, 13.5, 17.25, 73),
+  ScheduleRow(true, 13.5, 3, 4, 13.5, 17.25, 38.5),
+  ScheduleRow(true, 13.5, 6, 4, 13.5, 17.25, 21.25),
+  ScheduleRow(true, 20, 0, 3, 20, 27, 112),
+  ScheduleRow(true, 20, 1, 3, 20, 27, 85),
+  ScheduleRow(true, 20, 3, 3, 20, 27, 31),
+  ScheduleRow(true, 20, 6, 3, 20, 27, 31),
+  ScheduleRow(true, 40, 0, 3, 40, 57, 232),
+  ScheduleRow(true, 40, 1, 3, 40, 57, 175),
+  ScheduleRow(true, 40, 3, 3, 40, 57, 61),
+  ScheduleRow(true, 40, 6, 3, 40, 57, 61),
+  ScheduleRow(true, 120, 0, 3, 120, 177, 712),
+  ScheduleRow(true, 120, 1, 3, 120, 177, 535),
+  ScheduleRow(true, 120, 3, 3, 120, 177, 181),
+  ScheduleRow(true, 120, 6, 3, 120, 177, 181),
 ]
 
 enum Target { case a, b, n }
@@ -471,7 +472,8 @@ struct Queued {
   }
 }
 
-/// A queue, in order, and the targets `slow_path` answers slow for. N is the propagation node.
+/// A queue, in order, and the targets `slow_path` answers slow for, where N is the propagation
+/// node.
 struct HeldLayout: CustomTestStringConvertible {
   let name: String
   let slow: Set<Target>
@@ -577,7 +579,9 @@ extension SingleNode {
   }
 
   /// Queues a delivered message that only an outbound pass dequeues, and returns a semaphore
-  /// that pass signals. The router's first jobs tick is 4 s away.
+  /// that pass signals.
+  ///
+  /// The router's first jobs tick is 4 s away.
   func passMarker() -> DispatchSemaphore {
     let pass = DispatchSemaphore(value: 0)
     let marker = LXMessage(
@@ -595,14 +599,16 @@ extension AnnouncedPair {
     method == .propagated ? propagationNode : destination.hash
   }
 
-  /// A stand-in propagation node hash. The link the router uses goes to `destination`.
+  /// A stand-in propagation node hash.
+  ///
+  /// The link the router uses goes to `destination`.
   var propagationNode: Data { Data(repeating: 0xAB, count: 16) }
 
   /// Gives the router an active link to `destination` for `method`, whose far end accepts
   /// every resource.
-  func useActiveLink(for method: LXMessage.Method) throws {
+  func useActiveLink(for method: LXMessage.Method) async throws {
     let link = try Link.initiate(destination: destination, transport: transportA)
-    try waitUntil { link.status == .active }
+    try await waitUntil { link.status == .active }
     let linkID = try #require(link.linkID)
     transportB.links[linkID]?.resourceStrategy = .acceptAll
     if method == .propagated {
@@ -623,11 +629,14 @@ private final class Counter: @unchecked Sendable {
 
 private struct TimedOut: Error {}
 
-/// Runs the current run loop until `condition` holds, or throws after `timeout` seconds.
-private func waitUntil(timeout: TimeInterval = 2, _ condition: () -> Bool) throws {
+/// Polls `condition` until it holds, or throws after `timeout` seconds.
+///
+/// It suspends rather than blocks: the passes these tests wait for run on a Dispatch utility
+/// thread, which doesn't start while parallel tests' waits block every cooperative thread.
+private func waitUntil(timeout: TimeInterval = 2, _ condition: () -> Bool) async throws {
   let deadline = Date().addingTimeInterval(timeout)
   while !condition() {
     guard Date() < deadline else { throw TimedOut() }
-    RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+    try await Task.sleep(nanoseconds: 10_000_000)
   }
 }

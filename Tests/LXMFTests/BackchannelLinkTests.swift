@@ -283,6 +283,10 @@ final class BackchannelPair {
       destination: try outboundB(), source: source ?? deliveryA, content: content,
       desiredMethod: method)
     try routerA.send(message)
+    // A pass that opens a link sends nothing on it. The link coming up runs the next pass
+    // (LXMF 1.2.1 `LXMRouter.py:2971`) after this one, and that pass identifies once it delivers
+    // the message. The helper's own pass starts only once that one has ended.
+    try waitUntil { message.state == .delivered && routerA.processOutbound() }
     return message
   }
 
