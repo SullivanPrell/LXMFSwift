@@ -155,12 +155,15 @@ struct OutboundHoldTests {
 
   // MARK: - The hold in the outbound pass
 
-  @Test("process_outbound: a second message to a slow target waits for the first")
-  func secondMessageToASlowTargetWaits() throws {
+  @Test(
+    "process_outbound: a second message to a slow target waits for the first",
+    arguments: [LXMessage.Method.direct, .propagated])
+  func secondMessageToASlowTargetWaits(method: LXMessage.Method) throws {
     let node = try SingleNode()
     node.setSlowestBitrate(1200)
-    let first = try node.enqueueMessage(method: .direct)
-    let second = try node.enqueueMessage(method: .direct)
+    node.router.outboundPropagationNode = Data(repeating: 0xAB, count: 16)
+    let first = try node.enqueueMessage(method: method)
+    let second = try node.enqueueMessage(method: method)
 
     node.router.processOutbound()
 
@@ -271,6 +274,25 @@ struct OutboundHoldTests {
     pair.ifaceA.inboundHandler?(held, pair.ifaceA)
 
     try await waitUntil { first.state == .sending && second.state == .sending }
+  }
+
+  // MARK: - The pass lock
+
+  @Test("process_outbound: a pass started while another runs returns at once")
+  func passesDontOverlap() throws {
+    let node = try SingleNode()
+    let nestedPasses = Counter()
+    let marker = LXMessage(
+      destination: node.remoteDestination, source: node.sourceDestination, content: "marker")
+    marker.state = .delivered
+    // The pass calls `onDelivery` while it holds the lock (LXMF 1.2.1 `LXMRouter.py:2803-2804`).
+    marker.onDelivery = { [router = node.router] _ in
+      if router.processOutbound() { nestedPasses.increment() }
+    }
+    node.router.testInjectPendingOutbound(marker)
+
+    #expect(node.router.processOutbound())
+    #expect(nestedPasses.value == 0)
   }
 
   // MARK: - outbound_concluded
@@ -554,6 +576,18 @@ let heldLayouts: [HeldLayout] = [
     [
       Queued(.outbound, .propagated, .a, false, false),
       Queued(.outbound, .direct, .n, false, true),
+    ]),
+  HeldLayout(
+    "propagated and SENT holds nothing for the node", slow: [.n],
+    [
+      Queued(.sent, .propagated, .a, true, false),
+      Queued(.outbound, .propagated, .b, false, false),
+    ]),
+  HeldLayout(
+    "in flight without the flag holds nothing", slow: [.a, .b],
+    [
+      Queued(.sending, .direct, .a, false, false),
+      Queued(.outbound, .direct, .b, false, false),
     ]),
 ]
 

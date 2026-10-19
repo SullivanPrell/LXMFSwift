@@ -17,7 +17,7 @@ names in the test names, so a failing test names its source:
 
   1. schedule_attempt: the attempt limit, the next attempt's delay and the receipt timeout.
   2. slow_path: the threshold, the four-second cache and the 256-entry cap.
-  3. slow_path_held: which queued messages wait, for fifteen queue layouts.
+  3. slow_path_held: which queued messages wait, for seventeen queue layouts.
   4. outbound_concluded: a pass runs after the lock clears, and only for a slow-path message.
   5. __mark_delivered and __mark_propagated: idempotence, and the order of the two callbacks.
 
@@ -242,6 +242,10 @@ def held_rows():
          [("m1", "OUTBOUND", "PROP", a, False), ("m2", "OUTBOUND", "PROP", b, False)]),
         ("a propagated message holds a direct one to the node", {node},
          [("m1", "OUTBOUND", "PROP", a, False), ("m2", "OUTBOUND", "DIRECT", node, False)]),
+        ("propagated and SENT holds nothing for the node", {node},
+         [("m1", "SENT", "PROP", a, True), ("m2", "OUTBOUND", "PROP", b, False)]),
+        ("in flight without the flag holds nothing", {a, b},
+         [("m1", "SENDING", "DIRECT", a, False), ("m2", "OUTBOUND", "DIRECT", b, False)]),
     ]
     for title, slow, spec in layouts:
         queue, results = build(spec, slow)
