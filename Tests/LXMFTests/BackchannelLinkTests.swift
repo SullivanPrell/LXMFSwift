@@ -28,28 +28,28 @@ struct BackchannelLinkTests {
   // MARK: - Identification
 
   @Test("A delivered direct message identifies the sender as its delivery identity, once")
-  func senderIdentifiesOnceAfterDelivery() throws {
+  func senderIdentifiesOnceAfterDelivery() async throws {
     let pair = try BackchannelPair()
 
-    let first = try pair.sendAToB("first")
+    let first = try await pair.sendAToB("first")
     #expect(first.state == .delivered)
     #expect(pair.identifications(sentBy: pair.ifaceA) == Vectors.identificationsAfterFirstDelivery)
     let inbound = try #require(pair.inboundLinkAtB())
     #expect(inbound.remoteIdentity?.publicKeyBytes.hexString == Vectors.identityAPublicKey)
 
-    let second = try pair.sendAToB("second")
+    let second = try await pair.sendAToB("second")
     #expect(second.state == .delivered)
     #expect(
       pair.identifications(sentBy: pair.ifaceA) == Vectors.identificationsAfterSecondDelivery)
   }
 
   @Test("A direct message delivered as a resource identifies the sender too")
-  func senderIdentifiesAfterResourceDelivery() throws {
+  func senderIdentifiesAfterResourceDelivery() async throws {
     let pair = try BackchannelPair()
 
-    let message = try pair.sendAToB(String(repeating: "x", count: 2000))
+    let message = try await pair.sendAToB(String(repeating: "x", count: 2000))
     #expect(message.representation == .resource)
-    try pair.waitUntil { message.state == .delivered }
+    try await pair.waitUntil { message.state == .delivered }
 
     #expect(
       pair.identifications(sentBy: pair.ifaceA) == Vectors.identificationsAfterResourceDelivery)
@@ -59,9 +59,9 @@ struct BackchannelLinkTests {
   }
 
   @Test("A sender doesn't identify on a link it didn't initiate")
-  func noIdentificationOnResponderLink() throws {
+  func noIdentificationOnResponderLink() async throws {
     let pair = try BackchannelPair()
-    _ = try pair.sendAToB("hello")
+    _ = try await pair.sendAToB("hello")
     let inbound = try #require(pair.inboundLinkAtB())
     pair.routerB.injectDirectLink(inbound, for: pair.hashA)
     pair.ifaceB.clearSent()
@@ -73,13 +73,13 @@ struct BackchannelLinkTests {
   }
 
   @Test("A sender doesn't identify as a source it hasn't registered for delivery")
-  func noIdentificationForUnregisteredSource() throws {
+  func noIdentificationForUnregisteredSource() async throws {
     let pair = try BackchannelPair()
     let source = try Destination(
       identity: Identity(privateKeyBytes: Vectors.identityCPrivateKey), direction: .in,
       kind: .single, appName: "lxmf", aspects: ["delivery"])
 
-    let message = try pair.sendAToB("from an unregistered source", source: source)
+    let message = try await pair.sendAToB("from an unregistered source", source: source)
 
     #expect(message.state == .delivered)
     #expect(
@@ -90,14 +90,14 @@ struct BackchannelLinkTests {
   }
 
   @Test("An opportunistic delivery doesn't identify on a direct link to the same destination")
-  func noIdentificationForOpportunistic() throws {
+  func noIdentificationForOpportunistic() async throws {
     let pair = try BackchannelPair()
     let link = try Link.initiate(destination: pair.outboundB(), transport: pair.transportA)
-    try pair.waitUntil { link.status == .active }
+    try await pair.waitUntil { link.status == .active }
     pair.routerA.injectDirectLink(link, for: pair.hashB)
 
-    let message = try pair.sendAToB("opportunistic", method: .opportunistic)
-    try pair.waitUntil { message.state == .delivered }
+    let message = try await pair.sendAToB("opportunistic", method: .opportunistic)
+    try await pair.waitUntil { message.state == .delivered }
 
     #expect(pair.identifications(sentBy: pair.ifaceA) == Vectors.identificationsForOpportunistic)
   }
@@ -105,13 +105,13 @@ struct BackchannelLinkTests {
   // MARK: - Availability
 
   @Test("A delivery link is available over a direct link or a backchannel, and not otherwise")
-  func deliveryLinkAvailability() throws {
+  func deliveryLinkAvailability() async throws {
     let pair = try BackchannelPair()
     #expect(
       pair.routerB.deliveryLinkAvailable(destinationHash: pair.hashA) == Vectors.availableForUnknown
     )
 
-    _ = try pair.sendAToB("hello")
+    _ = try await pair.sendAToB("hello")
 
     #expect(pair.hashA.hexString == Vectors.deliveryHashA)
     #expect(
@@ -128,9 +128,9 @@ struct BackchannelLinkTests {
   // MARK: - Sending over a backchannel
 
   @Test("The receiver sends to the sender over the backchannel instead of opening a link")
-  func sendReusesInboundLink() throws {
+  func sendReusesInboundLink() async throws {
     let pair = try BackchannelPair()
-    _ = try pair.sendAToB("hello")
+    _ = try await pair.sendAToB("hello")
     let inbound = try #require(pair.inboundLinkAtB())
     let inboundID = try #require(inbound.linkID)
     pair.ifaceB.clearSent()
@@ -147,25 +147,25 @@ struct BackchannelLinkTests {
   }
 
   @Test("A large message over the backchannel arrives as a resource")
-  func largeMessageOverBackchannel() throws {
+  func largeMessageOverBackchannel() async throws {
     let pair = try BackchannelPair()
-    _ = try pair.sendAToB("hello")
+    _ = try await pair.sendAToB("hello")
     let content = String(repeating: "y", count: 2000)
 
     let reply = try pair.sendBToA(content)
     #expect(reply.representation == .resource)
-    try pair.waitUntil { reply.state == .delivered }
+    try await pair.waitUntil { reply.state == .delivered }
 
     #expect(pair.receivedByA.map(\.contentAsString) == [content])
     #expect(pair.linkRequests(sentBy: pair.ifaceB) == Vectors.backchannelSendLinksConstructed)
   }
 
   @Test("A direct link is preferred over the backchannel")
-  func directLinkPreferred() throws {
+  func directLinkPreferred() async throws {
     let pair = try BackchannelPair()
-    _ = try pair.sendAToB("hello")
+    _ = try await pair.sendAToB("hello")
     let link = try Link.initiate(destination: pair.outboundA(), transport: pair.transportB)
-    try pair.waitUntil { link.status == .active }
+    try await pair.waitUntil { link.status == .active }
     pair.routerB.injectDirectLink(link, for: pair.hashA)
     let directID = try #require(link.linkID)
     let inboundID = try #require(pair.inboundLinkAtB()?.linkID)
@@ -180,9 +180,9 @@ struct BackchannelLinkTests {
   }
 
   @Test("A closed backchannel is dropped and its path requested again")
-  func closedBackchannelDropped() throws {
+  func closedBackchannelDropped() async throws {
     let pair = try BackchannelPair()
-    _ = try pair.sendAToB("hello")
+    _ = try await pair.sendAToB("hello")
     let outbound = try #require(pair.routerA.directLinks[pair.hashB])
     let inbound = try #require(pair.inboundLinkAtB())
     try outbound.teardown()
@@ -278,7 +278,7 @@ final class BackchannelPair {
   /// Sends from A to B through A's router.
   func sendAToB(
     _ content: String, source: Destination? = nil, method: LXMessage.Method = .direct
-  ) throws -> LXMessage {
+  ) async throws -> LXMessage {
     let message = LXMessage(
       destination: try outboundB(), source: source ?? deliveryA, content: content,
       desiredMethod: method)
@@ -286,7 +286,7 @@ final class BackchannelPair {
     // A pass that opens a link sends nothing on it. The link coming up runs the next pass
     // (LXMF 1.2.1 `LXMRouter.py:2971`) after this one, and that pass identifies once it delivers
     // the message. The helper's own pass starts only once that one has ended.
-    try waitUntil { message.state == .delivered && routerA.processOutbound() }
+    try await waitUntil { message.state == .delivered && routerA.processOutbound() }
     return message
   }
 
@@ -321,12 +321,15 @@ final class BackchannelPair {
     }.count
   }
 
-  /// Runs the current run loop until `condition` holds, or throws after `timeout` seconds.
-  func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) throws {
+  /// Polls `condition` every 20 ms until it holds, or throws after `timeout` seconds.
+  ///
+  /// It suspends between polls. On a three-core CI runner, tests that blocked here held every
+  /// cooperative thread, and the utility-queue pass that delivers the message never started.
+  func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while !condition() {
       guard Date() < deadline else { throw PairError.timedOut }
-      RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+      try await Task.sleep(nanoseconds: 20_000_000)
     }
   }
 
