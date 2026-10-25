@@ -5,6 +5,10 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+LXMFSwift now tracks Python LXMF 1.2.1. Against LXMF 1.2.1 on RNS 1.5.7, reticulum-interop's
+five LXMF files report 28 passed and 3 xfailed on this release and on 1.12.0, with the same three
+xfails.
+
 ### Added
 
 - On a slow path the router keeps one message in flight and holds the rest, as LXMF 1.2.1 does
