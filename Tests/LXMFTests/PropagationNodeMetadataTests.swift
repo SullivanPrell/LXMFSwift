@@ -31,7 +31,7 @@ struct PropagationNodeMetadataTests {
 
   @Test("The package records the LXMF release it matches")
   func protocolVersionIsTheReferenceRelease() {
-    #expect(lxmfProtocolVersion == "1.2.0")
+    #expect(lxmfProtocolVersion == "1.2.1")
   }
 
   @Test("The metadata carries the implementation, the version and the name, in Python's layout")
