@@ -5,6 +5,40 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+
+- On a slow path the router keeps one message in flight and holds the rest, as LXMF 1.2.1 does
+  (LXMF 1.2.1 `LXMRouter.py:1825-1853`, `:2854`, `:2902`, `:2996`). A path is slow when its
+  round trip is above `deliveryRetryWait`. A queued message waits while a message ahead of it goes
+  to the same target, or while any message sent on a slow path is in flight. A held message
+  neither attempts delivery nor fails. When the router delivers a slow-path message, it runs a
+  pass once the pass in progress ends, so the next message doesn't wait for the jobs tick
+  (`:1855-1860`, `LXMessage.py:583`). The round trip comes from the router's own transport, as
+  for every path read here. In a shared-instance client, Python asks the daemon. No interop cell
+  reaches a slow path, which needs an interface below 2000 bit/s.
+- A retry on a slow medium adds random jitter of up to half the MTU airtime above one hop's
+  timeout, and an opportunistic receipt's timeout covers the rest of the retry schedule (LXMF
+  1.2.1 `LXMRouter.py:1817-1823`, `LXMessage.py:482`). `LXMessage.receiptTimeout` holds that
+  timeout, and `LXMessage.sentOnSlowPath` records whether the last attempt went out on a slow
+  path.
+- `LXMRouter.processingInterval` and `LXMRouter.airtimeAwareMTUTime` (LXMF 1.2.1
+  `LXMRouter.py:33`, `:38`).
+
+### Changed
+
+- A direct or propagated transfer starts only from `.outbound` (LXMF 1.2.1 `LXMRouter.py:2924`,
+  `:3003`). It started from any state but `.sending`.
+- A link coming up runs an outbound pass, so every message waiting on it goes out (LXMF 1.2.1
+  `LXMRouter.py:2971`, `:3038`). The port sent only the message that opened the link, and the
+  rest waited up to 4 s. Python's pass returns at once while another runs. This one runs after
+  it, as `send(_:)` does.
+- A completed propagation transfer sets progress to 1.0, and a second completion does nothing
+  (LXMF 1.2.1 `LXMessage.py:592-605`). It still marks the message `.delivered`, where Python marks
+  it SENT.
+- LXMF 1.2.1 returns a direct message to OUTBOUND when its send gets no receipt
+  (`LXMessage.py:498-501`), as this port already did. The 1.9.0 "Not ported" item about a `nil`
+  receipt no longer applies.
+
 ## [1.12.0]—a message sent during an outbound pass goes out when the pass ends
 
 A message that reaches the outbound queue, from a send or an announce, while a pass runs now goes

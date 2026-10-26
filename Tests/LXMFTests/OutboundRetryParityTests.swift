@@ -244,6 +244,8 @@ final class SingleNode {
   init() throws {
     transport.register(interface: iface)
     router = LXMRouter(transport: transport)
+    // The least jitter, so a delay on a slow medium is exact.
+    router.uniform = { $0.lowerBound }
     sourceDestination = try Destination(
       identity: sourceIdentity, direction: .in, kind: .single,
       appName: "lxmf", aspects: ["delivery"])

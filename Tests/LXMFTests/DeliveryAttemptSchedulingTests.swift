@@ -323,6 +323,8 @@ final class AnnouncedPair {
     guard transportA.hasPath(to: destination.hash) else { throw PairError.noPath }
 
     router = LXMRouter(transport: transportA)
+    // The least jitter, so a delay on a slow medium is exact.
+    router.uniform = { $0.lowerBound }
     source = try Destination(
       identity: Identity(), direction: .in, kind: .single,
       appName: "lxmf", aspects: ["delivery"])

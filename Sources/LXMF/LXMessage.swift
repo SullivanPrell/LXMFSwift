@@ -328,6 +328,21 @@ public final class LXMessage {
   ///
   /// Python: `LXMessage.max_delivery_attempts` (`LXMessage.py:183`).
   public var maxDeliveryAttempts: Int?
+  /// The least timeout an opportunistic attempt's receipt gets, set when the round trip is long
+  /// enough to need one; `nil` leaves the transport's timeout.
+  ///
+  /// Python: `LXMessage.receipt_timeout` (LXMF 1.2.1 `LXMessage.py:195`).
+  public var receiptTimeout: TimeInterval?
+  /// Whether the router's last attempt went out on a slow path.
+  ///
+  /// The outbound pass writes it and a receipt callback reads it, on different threads.
+  ///
+  /// Python: `LXMessage.sent_on_slow_path` (LXMF 1.2.1 `LXMRouter.py:2887`, `:2926`, `:3005`).
+  public var sentOnSlowPath: Bool {
+    get { locked { unsafeSentOnSlowPath } }
+    set { locked { unsafeSentOnSlowPath = newValue } }
+  }
+  private var unsafeSentOnSlowPath = false
   /// Whether the router has re-requested the path after a link that never activated.
   ///
   /// Python sets the attribute `path_request_retried` on the message (`LXMRouter.py:2890-2893`).
