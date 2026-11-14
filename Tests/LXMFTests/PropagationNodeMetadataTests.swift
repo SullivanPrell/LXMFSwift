@@ -40,8 +40,8 @@ struct PropagationNodeMetadataTests {
     node.router.name = "Node"
 
     let appData = node.router.getPropagationNodeAppData()
-    guard case .array(let fields) = try MsgPack.decode(appData), fields.count == 7 else {
-      Issue.record("the announce data is not a seven-element array")
+    guard case .array(let fields) = try MsgPack.decode(appData), fields.count == 8 else {
+      Issue.record("the announce data is not an eight-element array (LXMRouter.py:387-401)")
       return
     }
 

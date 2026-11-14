@@ -800,20 +800,22 @@ final class LXMPropagationNodeTests: XCTestCase {
     try router.enablePropagation(storagePath: tempDir)
     let appData = router.getPropagationNodeAppData()
     guard case .array(let fields) = try? MsgPack.decode(appData),
-      fields.count == 7
+      fields.count == 8
     else {
-      XCTFail("app data must be a 7-element array")
+      XCTFail("app data must be an 8-element array (LXMF 1.3.0 `LXMRouter.py:392-399`)")
       return
     }
     // Field 0: False (legacy support)
     XCTAssertEqual(fields[0], .bool(false))
     // Field 2: true (node is active)
     XCTAssertEqual(fields[2], .bool(true))
-    // Field 5: [stampCost, flexibility, peeringCost]
-    if case .array(let costs) = fields[5] {
-      XCTAssertEqual(costs.count, 3)
-    } else {
-      XCTFail("field 5 must be array")
+    // Fields 5 and 7: the costs' ceilings, and the costs.
+    for index in [5, 7] {
+      if case .array(let costs) = fields[index] {
+        XCTAssertEqual(costs.count, 3)
+      } else {
+        XCTFail("field \(index) must be array")
+      }
     }
   }
 
@@ -852,10 +854,11 @@ final class LXMPropagationNodeTests: XCTestCase {
     XCTAssertNil(router.propagationDestination)
   }
 
-  func testRegisterCreatesPropagationDestination() throws {
+  func testEnablePropagationCreatesPropagationDestination() throws {
     let router = makeRouter()
     let id = Identity()
     try router.register(identity: id, transport: Transport())
+    try router.enablePropagation(storagePath: tempDir)
     XCTAssertNotNil(router.propagationDestination)
   }
 
@@ -863,6 +866,7 @@ final class LXMPropagationNodeTests: XCTestCase {
     let router = makeRouter()
     let id = Identity()
     try router.register(identity: id, transport: Transport())
+    try router.enablePropagation(storagePath: tempDir)
     let expected = try Destination(
       identity: id, direction: .in, kind: .single,
       appName: "lxmf", aspects: ["propagation"]
@@ -875,7 +879,8 @@ final class LXMPropagationNodeTests: XCTestCase {
     let id1 = Identity()
     let id2 = Identity()
     try router.register(identity: id1, transport: Transport())
-    let hashBefore = router.propagationDestination?.hash
+    try router.enablePropagation(storagePath: tempDir)
+    let hashBefore = try XCTUnwrap(router.propagationDestination?.hash)
     try router.register(identity: id2, transport: Transport())
     XCTAssertEqual(
       router.propagationDestination?.hash, hashBefore,
@@ -1071,7 +1076,7 @@ final class LXMPropagationNodeTests: XCTestCase {
     try msg.pack()
     // Compute stamp for this message.
     let lxmfData = try XCTUnwrap(msg.packed)
-    let stampCost = 0  // cost=0 means always valid
+    let stampCost: Double = 0  // cost=0 means always valid
     let stamp = try XCTUnwrap(
       LXStamper.generateStamp(messageID: Hashes.fullHash(lxmfData), stampCost: stampCost))
     let lxmfWithStamp = lxmfData + stamp

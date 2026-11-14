@@ -9,6 +9,56 @@ LXMFSwift now tracks Python LXMF 1.2.1. Against LXMF 1.2.1 on RNS 1.5.7, reticul
 five LXMF files report 28 passed and 3 xfailed on this release and on 1.12.0, with the same three
 xfails.
 
+### Stamp costs and values are fractional (LXMF 1.3.0)
+
+This is a source-breaking change: every stamp cost and stamp value is a `Double`. That covers
+the router's propagation stamp cost, flexibility, peering cost and maximum peering cost, the
+inbound and outbound stamp costs, `LXMessage.stampCost` and `stampValue`, `LXMPeer`'s announced
+terms and peering key value, `PropagationEntry.stampValue` and the `LXStamper` functions. A
+literal still compiles. A caller that passes an `Int` variable must convert it. LXMFSwift
+requires ReticulumSwift's RNS 1.6.0 release.
+
+- `LXStamper` delegates to ReticulumSwift's `Stamps`, as LXMF 1.3.0 delegates to `RNS.Stamps`
+  (`LXStamper.py:9-24`). A stamp's value is fractional, on a 1/256 grid, and a stamp is valid
+  when its value reaches a fractional cost. One thread searches for a stamp, as in Python, where
+  the port searched in parallel. The search still stops when the sender cancels the message.
+- A delivery announce carries four fields, `[name, ceil(cost), [SF], cost]`, with the cost
+  quantized and below `Transport.stampCostCap` (100) (`LXMRouter.py:1163-1182`).
+  `stampCostFromAppData` reads index 3 when it's a number, else index 1 (`LXMF.py:183-199`).
+- A propagation node announce carries eight fields: index 5 holds the costs' ceilings and index 7
+  the costs (`LXMRouter.py:387-401`). `propagationNodeAnnounceDataIsValid` validates index 7 when
+  present and accepts a float at index 5. `pnStampCostFromAppData`, `PropagationNodeAnnounce` and
+  `getOutboundPropagationCost()` prefer index 7 (`LXMF.py:229-272`, `Handlers.py:67-74`,
+  `LXMRouter.py:494-519`, `:2707-2711`). `getOutboundPropagationCost()` caps the cost at 100.
+- `setInboundStampCost` takes a `Double?` and refuses a cost of 100 or more, where it refused 255
+  (`LXMRouter.py:444-463`). It returns `false` for a destination that isn't registered, as Python
+  does. It returned `true`.
+- The cost defaults are 16 for propagation, 3 for flexibility, 13 for the propagation minimum, 18
+  for peering and 26 for the peering maximum, all `Double` (`LXMRouter.py:63-67`). The lxmd
+  template shows them as floats.
+- The router reads and writes a stored peer's costs and peering key value as floats
+  (`LXMPeer.py:81-94`, `:260-262`). A file with integer costs still loads.
+
+### A propagation node stores stamp values and drops unstamped messages
+
+- A stored message's filename carries its quantized stamp value, and the index reads the value
+  back quantized (`LXMRouter.py:656`, `:2874-2877`). A node drops a propagated message whose stamp
+  value is 0 (`:2869`).
+- `LXMRouter.pnStampThrottle` sets how long a node refuses a peer that sent an invalid stamp, 300 s
+  by default (`LXMRouter.py:76`, `:118`, `:146`, `:2790`). A peer told to wait still waits the
+  class constant, as Python's does (`LXMPeer.py:427`). The lxmd template documents
+  `propagation_stamp_throttle`.
+
+### Destinations
+
+- The delivery and propagation destinations set a link cost of 3.25 (`LXMRouter.py:53-54`,
+  `:422`, `:634`).
+- `propagationDestination` is `nil` until `enablePropagation(storagePath:)` creates it
+  (`LXMRouter.py:220`, `:631-635`). `register(identity:transport:)` created it.
+- The router asks its transport for the `lxmf.delivery` and `lxmf.propagation` destination types
+  (`LXMRouter.py:106`, `:216-217`).
+- A propagation upload sets the resource's app flag (`LXMessage.py:678`).
+
 ### Added
 
 - On a slow path the router keeps one message in flight and holds the rest, as LXMF 1.2.1 does
@@ -42,6 +92,22 @@ xfails.
 - LXMF 1.2.1 returns a direct message to OUTBOUND when its send gets no receipt
   (`LXMessage.py:498-501`), as this port already did. The 1.9.0 "Not ported" item about a `nil`
   receipt no longer applies.
+
+### Not ported
+
+- LXMF 1.3.0's SQLite store, `lxmf/state.db`, for delivered and processed IDs, stamp costs and
+  tickets (`Storage.py`, `LXMRouter.py:147-159`, `:262-298`). The port keeps the files 1.3.0
+  imports on its first start (`:275-296`).
+- Stamp-cost saves batched into the jobs loop (`LXMRouter.py:1010-1015`, `:1159-1161`). That's
+  write cadence only.
+- A static peer waiting for a path before the node resolves its identity at start
+  (`LXMRouter.py:701-716`, `LXMPeer.py:220-227`). `LXMPeer.from(bytes:router:)` keeps a peer
+  without an identity.
+- A `from_static_only` node accepting an app-flagged resource from any peer (`LXMRouter.py:2542`).
+  The port doesn't implement `from_static_only`.
+- Multiprocessing stamp workers and log changes.
+- The sync rate's divisor floor of 1 µs (`LXMPeer.py:515`). The port keeps the previous rate
+  when no time has passed.
 
 ## [1.12.0]—a message sent during an outbound pass goes out when the pass ends
 

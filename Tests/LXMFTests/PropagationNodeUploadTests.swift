@@ -133,4 +133,40 @@ final class PropagationNodeTests: XCTestCase {
       "an invalid-stamp upload must not be proved — the proof would tell "
         + "the client the node accepted what it discarded")
   }
+
+  /// A router's propagation upload sets the resource's app flag (`LXMessage.py:678`), which a
+  /// `from_static_only` node accepts from any client (`LXMRouter.py:2542`).
+  func testARouterUploadSetsTheResourceAppFlag() throws {
+    net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 2)
+    try net.announceBToA()
+    let node = try XCTUnwrap(net.routerB.propagationDestination)
+    let routerSetup = node.onLinkEstablished
+    var appFlags: [Bool] = []
+    node.onLinkEstablished = { link in
+      routerSetup?(link)
+      let accept = link.onResourceAdvertised
+      link.onResourceAdvertised = { advertisement, advertisedLink in
+        appFlags.append(advertisement.appFlag)
+        return accept?(advertisement, advertisedLink) ?? false
+      }
+    }
+
+    let source = try XCTUnwrap(net.routerA.deliveryDestinations.values.first)
+    let recipient = try Destination(
+      identity: Identity(), direction: .out, kind: .single, appName: appName,
+      aspects: ["delivery"])
+    let message = LXMessage(
+      destination: recipient, source: source, content: String(repeating: "x", count: 2000),
+      desiredMethod: .propagated)
+    net.routerA.outboundPropagationNode = net.bPropagationHash
+    try net.routerA.send(message)
+
+    XCTAssertTrue(
+      net.waitUntil("upload advertised", timeout: 10) {
+        net.routerA.processDeferredStamps()
+        _ = net.routerA.processOutbound()
+        return !appFlags.isEmpty
+      }, "precondition: the upload must reach the node as a resource")
+    XCTAssertEqual(appFlags, [true])
+  }
 }

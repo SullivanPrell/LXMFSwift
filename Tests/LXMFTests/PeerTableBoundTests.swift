@@ -35,7 +35,7 @@ final class PeerTableBoundTests: XCTestCase {
   }
 
   /// Peer through the same entry point production uses, at a timebase that always advances.
-  private func peer(_ router: LXMRouter, _ index: Int, peeringCost: Int = 0) {
+  private func peer(_ router: LXMRouter, _ index: Int, peeringCost: Double = 0) {
     router.peer(
       destinationHash: hash(index), timestamp: TimeInterval(1_000 + index),
       transferLimit: 256, syncLimit: 256, stampCost: 0, stampCostFlexibility: 0,

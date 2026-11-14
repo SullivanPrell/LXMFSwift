@@ -57,7 +57,7 @@ final class PeerOutboundSyncNetwork {
   ///   - syncStrategy: the strategy B syncs with.
   /// - Throws: An error raised while building either router.
   init(
-    test: XCTestCase, tempDir: String, peeringCost: Int = 4,
+    test: XCTestCase, tempDir: String, peeringCost: Double = 4,
     syncStrategy: LXMSyncStrategy = .persistent
   ) throws {
     // A test that accidentally takes the default cost of 18 (`LXMRouter.py:50`) runs ~2^18
@@ -169,9 +169,14 @@ final class PeerOutboundSyncNetwork {
     var body = Data(repeating: marker, count: max(size, LXMessage.destinationLength + 1))
     body.replaceSubrange(0..<8, with: UUID().uuidString.prefix(8).utf8)
 
-    let stamp = Data(repeating: 0x00, count: 32)
     let tid = Hashes.fullHash(body)
-    _ = router.addToMessageStore(lxmfData: body, transientID: tid, stampValue: 0, stamp: stamp)
+    // A real stamp, since a node drops a message whose stamp value is 0 (LXMF 1.3.0
+    // `LXMRouter.py:2869`). Cost 1 takes about two tries.
+    let found = try XCTUnwrap(
+      LXStamper.generateStamp(
+        material: tid, targetCost: 1, expandRounds: LXStamper.pnStampExpandRounds))
+    _ = router.addToMessageStore(
+      lxmfData: body, transientID: tid, stampValue: found.value, stamp: found.stamp)
 
     for peer in router.peers.values {
       peer.queueUnhandledMessage(tid)

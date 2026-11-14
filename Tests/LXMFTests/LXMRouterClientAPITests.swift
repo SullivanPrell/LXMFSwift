@@ -32,7 +32,7 @@ final class LXMRouterClientAPITests: XCTestCase {
   private func makeIdentityAndRegister(
     router: LXMRouter, transport: Transport,
     displayName: String? = nil,
-    stampCost: Int? = nil
+    stampCost: Double? = nil
   ) throws -> (Identity, Destination) {
     let identity = Identity()
     let dest = try router.register(
@@ -65,7 +65,7 @@ final class LXMRouterClientAPITests: XCTestCase {
       "Should return data for registered destination")
   }
 
-  /// Without display name or stamp cost the packed array is [nil, nil, [sfCompression]].
+  /// Without display name or stamp cost the packed array is [nil, nil, [sfCompression], nil].
   func testGetAnnounceAppDataNilFields() throws {
     let (router, transport) = makeRouter()
     let (_, dest) = try makeIdentityAndRegister(router: router, transport: transport)
@@ -75,13 +75,14 @@ final class LXMRouterClientAPITests: XCTestCase {
       return
     }
     guard case .array(let items) = (try? MsgPack.decode(appData)),
-      items.count == 3
+      items.count == 4
     else {
-      XCTFail("Expected 3-element array from msgpack")
+      XCTFail("Expected 4-element array from msgpack")
       return
     }
     XCTAssertEqual(items[0], .nil, "display_name should be nil when not set")
     XCTAssertEqual(items[1], .nil, "stamp_cost should be nil when not set")
+    XCTAssertEqual(items[3], .nil, "the fractional stamp cost should be nil when not set")
     // items[2] should be supported_functionality = [sfCompression]
     guard case .array(let funcs) = items[2], funcs.count == 1 else {
       XCTFail("supported_functionality should be a 1-element array")
@@ -106,9 +107,9 @@ final class LXMRouterClientAPITests: XCTestCase {
       return
     }
     guard case .array(let items) = (try? MsgPack.decode(appData)),
-      items.count == 3
+      items.count == 4
     else {
-      XCTFail("Expected 3-element array")
+      XCTFail("Expected 4-element array")
       return
     }
     guard case .bytes(let nameBytes) = items[0] else {
@@ -118,7 +119,8 @@ final class LXMRouterClientAPITests: XCTestCase {
     XCTAssertEqual(String(bytes: nameBytes, encoding: .utf8), "Alice")
   }
 
-  /// With a valid stamp cost (1…254) the second element is that integer.
+  /// With a valid stamp cost (1 up to STAMP_COST_CAP) the second element is its ceiling and the
+  /// fourth the cost itself (`LXMRouter.py:1163-1182`).
   func testGetAnnounceAppDataStampCost() throws {
     let (router, transport) = makeRouter()
     let (_, dest) = try makeIdentityAndRegister(
@@ -130,9 +132,9 @@ final class LXMRouterClientAPITests: XCTestCase {
       return
     }
     guard case .array(let items) = (try? MsgPack.decode(appData)),
-      items.count == 3
+      items.count == 4
     else {
-      XCTFail("Expected 3-element array")
+      XCTFail("Expected 4-element array")
       return
     }
     switch items[1] {
@@ -140,9 +142,10 @@ final class LXMRouterClientAPITests: XCTestCase {
     case .uint(let n): XCTAssertEqual(n, 8)
     default: XCTFail("stamp_cost should be integer, got \(items[1])")
     }
+    XCTAssertEqual(items[3], .double(8), "LXMF 1.3.0 carries the cost itself at index 3")
   }
 
-  /// Out-of-range stamp cost (0 or ≥255) is omitted (nil in packed output).
+  /// A stamp cost below 1 is omitted (nil in packed output).
   func testGetAnnounceAppDataInvalidStampCostOmitted() throws {
     let (router, transport) = makeRouter()
     let (_, dest) = try makeIdentityAndRegister(
@@ -154,12 +157,13 @@ final class LXMRouterClientAPITests: XCTestCase {
       return
     }
     guard case .array(let items) = (try? MsgPack.decode(appData)),
-      items.count == 3
+      items.count == 4
     else {
-      XCTFail("Expected 3-element array")
+      XCTFail("Expected 4-element array")
       return
     }
     XCTAssertEqual(items[1], .nil, "Stamp cost 0 should be omitted (nil)")
+    XCTAssertEqual(items[3], .nil, "Stamp cost 0 should be omitted (nil)")
   }
 
   /// The third element is [sfCompression] indicating bzip2 support (LXMF 0.9.8+).

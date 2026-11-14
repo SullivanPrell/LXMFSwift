@@ -122,7 +122,7 @@ final class LXMessageTransportEncryptionTests: XCTestCase {
       XCTFail("messageID must be set after pack()")
       return
     }
-    let targetCost = 1
+    let targetCost: Double = 1
     let stamp = msg.getPropagationStamp(targetCost: targetCost)
     guard let stamp else {
       XCTFail("getPropagationStamp returned nil")

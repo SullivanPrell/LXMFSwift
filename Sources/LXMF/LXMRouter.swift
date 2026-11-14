@@ -114,25 +114,25 @@ public final class LXMRouter {
   public static let defaultMaxPeers = 20
   /// Default ceiling on a remote's peering cost.
   ///
-  /// Python: `LXMRouter.MAX_PEERING_COST = 26` (`:51`).
-  public static let defaultMaxPeeringCost = 26
+  /// Python: `LXMRouter.MAX_PEERING_COST = 26.0` (LXMF 1.3.0 `:64`).
+  public static let defaultMaxPeeringCost: Double = 26
 
   /// Default proof-of-work cost this node charges to peer with it.
   ///
-  /// Python: `LXMRouter.PEERING_COST = 18` (`:50`).
-  public static let defaultPeeringCost = 18
+  /// Python: `LXMRouter.PEERING_COST = 18.0` (LXMF 1.3.0 `:63`).
+  public static let defaultPeeringCost: Double = 18
   /// Default stamp cost this node demands of messages offered to it.
   ///
-  /// Python: `LXMRouter.PROPAGATION_COST = 16` (`:54`).
-  public static let defaultPropagationStampCost = 16
+  /// Python: `LXMRouter.PROPAGATION_COST = 16.0` (LXMF 1.3.0 `:67`).
+  public static let defaultPropagationStampCost: Double = 16
   /// Default tolerance on that demand.
   ///
-  /// Python: `LXMRouter.PROPAGATION_COST_FLEX = 3` (`:53`).
-  public static let defaultPropagationStampCostFlexibility = 3
+  /// Python: `LXMRouter.PROPAGATION_COST_FLEX = 3.0` (LXMF 1.3.0 `:66`).
+  public static let defaultPropagationStampCostFlexibility: Double = 3
   /// Floor under the demanded stamp cost, applied on assignment.
   ///
-  /// Python: `LXMRouter.PROPAGATION_COST_MIN = 13` (`:52`), enforced at `:136`.
-  public static let propagationStampCostMin = 13
+  /// Python: `LXMRouter.PROPAGATION_COST_MIN = 13.0` (LXMF 1.3.0 `:65`), enforced at `:165`.
+  public static let propagationStampCostMin: Double = 13
   /// Fraction of `maxPeers` rotation tries to keep free.
   ///
   /// Python: `LXMRouter.ROTATION_HEADROOM_PCT = 10` (`:47`).
@@ -147,8 +147,16 @@ public final class LXMRouter {
   public static let fastestNRandomPool = 2
   /// How long a remote is refused after sending messages with invalid stamps.
   ///
-  /// Python: `LXMRouter.PN_STAMP_THROTTLE = 180` (`:63`).
-  public static let pnStampThrottle: TimeInterval = 180
+  /// Python: `LXMRouter.PN_STAMP_THROTTLE = 300` (LXMF 1.3.0 `:76`). A peer waits this long
+  /// after a remote throttles it (`LXMPeer.py:427`).
+  public static let pnStampThrottle: TimeInterval = 300
+
+  /// Python: `LXMRouter.DELIVERY_LINK_COST = 3.25` (LXMF 1.3.0 `:53`).
+  public static let deliveryLinkCost = 3.25
+  /// Python: `LXMRouter.PROPAGATION_LINK_COST = 3.25` (LXMF 1.3.0 `:54`).
+  public static let propagationLinkCost = 3.25
+  /// Python: `LXMRouter.REQUIRED_DESTINATION_TYPES` (LXMF 1.3.0 `:106`).
+  static let requiredDestinationTypes = ["\(appName).delivery", "\(appName).propagation"]
 
   // MARK: - State
 
@@ -444,10 +452,10 @@ public final class LXMRouter {
   // MARK: - Stamp cost tables
 
   /// Per-destination inbound stamp cost overrides.
-  private var inboundStampCosts: [Data: Int?] = [:]
+  private var inboundStampCosts: [Data: Double] = [:]
 
   /// Per-destination outbound stamp costs (learned from announces).
-  private(set) var outboundStampCosts: [Data: Int] = [:]
+  private(set) var outboundStampCosts: [Data: Double] = [:]
 
   // MARK: - Propagation node server state
 
@@ -546,19 +554,25 @@ public final class LXMRouter {
   /// assignment alone. A node cheaper to flood than the network assumes any node is undermines
   /// every other node's spam control, not just its own, so the configured value is clamped;
   /// a caller that reaches past the initialiser has, as in Python, taken responsibility.
-  public var propagationStampCost: Int = LXMRouter.defaultPropagationStampCost
+  public var propagationStampCost: Double = LXMRouter.defaultPropagationStampCost
 
   /// Flexibility (±) on the stamp cost requirement.
   ///
   /// Python: `LXMRouter.PROPAGATION_COST_FLEX = 3` (`:53`).
-  public var propagationStampCostFlexibility: Int = LXMRouter.defaultPropagationStampCostFlexibility
+  public var propagationStampCostFlexibility: Double =
+    LXMRouter.defaultPropagationStampCostFlexibility
 
   /// PoW cost for peering with this node.
   ///
   /// **Not zero.** Python's `peering_key_ready` opens with `if not self.peering_cost: return
   /// False` (`LXMPeer.py:228`), so a node advertising 0 is one no Python peer can ever finish
   /// peering with—it postpones every sync pass, silently, with no error on either side.
-  public var peeringCost: Int = LXMRouter.defaultPeeringCost
+  public var peeringCost: Double = LXMRouter.defaultPeeringCost
+
+  /// How long this node refuses a remote that sent messages with invalid stamps.
+  ///
+  /// Python: `LXMRouter.pn_stamp_throttle` (LXMF 1.3.0 `:146`), applied at `:2790`.
+  public var pnStampThrottle: TimeInterval = LXMRouter.pnStampThrottle
 
   /// Whether to peer automatically with propagation nodes discovered through incoming syncs.
   ///
@@ -578,7 +592,7 @@ public final class LXMRouter {
   /// The highest peering cost this node is willing to pay to peer with a remote.
   ///
   /// Python: `LXMRouter.max_peering_cost` (`:150`), applied at `:2005`.
-  public var maxPeeringCost: Int = LXMRouter.defaultMaxPeeringCost
+  public var maxPeeringCost: Double = LXMRouter.defaultMaxPeeringCost
 
   /// Propagation destinations this node is always peered with, by destination hash.
   ///
@@ -726,9 +740,9 @@ public final class LXMRouter {
   ///     with—it postpones every sync pass forever, with no error on either side.
   public init(
     transport: Transport,
-    propagationStampCost: Int = LXMRouter.defaultPropagationStampCost,
-    propagationStampCostFlexibility: Int = LXMRouter.defaultPropagationStampCostFlexibility,
-    peeringCost: Int = LXMRouter.defaultPeeringCost
+    propagationStampCost: Double = LXMRouter.defaultPropagationStampCost,
+    propagationStampCostFlexibility: Double = LXMRouter.defaultPropagationStampCostFlexibility,
+    peeringCost: Double = LXMRouter.defaultPeeringCost
   ) {
     self.propagationStampCost = max(propagationStampCost, LXMRouter.propagationStampCostMin)
     self.propagationStampCostFlexibility = propagationStampCostFlexibility
@@ -740,6 +754,14 @@ public final class LXMRouter {
     propagationNodeAnnounceHandler = propagation
     transport.register(announceHandler: delivery)
     transport.register(announceHandler: propagation)
+    // LXMF 1.3.0 `LXMRouter.py:216-217`, through the shared instance when this router runs on it.
+    for name in LXMRouter.requiredDestinationTypes {
+      if let reticulum = Reticulum.getInstance(), reticulum.transport === transport {
+        reticulum.wantsDestinationType(name)
+      } else {
+        transport.wantsDestinationType(name, requester: transport.applicationIdentity.hash)
+      }
+    }
     startJobLoop()
   }
 
@@ -794,9 +816,9 @@ public final class LXMRouter {
       appName: appName,
       aspects: ["delivery"]
     )
+    delivery.setLinkCost(LXMRouter.deliveryLinkCost)  // LXMF 1.3.0 `LXMRouter.py:422`
     lock.lock()
-    let isFirst = self.identity == nil
-    if isFirst { self.identity = identity }
+    if self.identity == nil { self.identity = identity }
     deliveryDestinations[delivery.hash] = delivery
     if let name = displayName { deliveryDestinationNames[delivery.hash] = name }
     lock.unlock()
@@ -812,19 +834,6 @@ public final class LXMRouter {
     }
     if enforceRatchets {
       delivery.enforceRatchets()
-    }
-
-    // Create the propagation destination once (mirrors Python __init__ line 172).
-    if isFirst,
-      let propDest = try? Destination(
-        identity: identity, direction: .in, kind: .single,
-        appName: appName, aspects: ["propagation"]
-      )
-    {
-      lock.lock()
-      propagationDestination = propDest
-      lock.unlock()
-      transport.register(destination: propDest)
     }
 
     transport.register(destination: delivery)
@@ -940,14 +949,13 @@ public final class LXMRouter {
 
   /// Build the msgpack announce app data for a registered delivery destination.
   ///
-  /// Format: `[display_name_bytes_or_nil, stamp_cost_or_nil]`
-  ///
-  /// - `display_name`: UTF-8 encoded name bytes, or nil if not set.
-  /// - `stamp_cost`: integer in 1…254, or nil if not set / out of range.
+  /// Format: `[display_name, ceil(stamp_cost), [SF_COMPRESSION], stamp_cost]`, the cost quantized
+  /// and `nil` when unset. Index 1 is for readers older than LXMF 1.3.0.
   ///
   /// Returns `nil` for destinations that have not been registered with this router.
   ///
-  /// Mirrors Python's `LXMRouter.get_announce_app_data(destination_hash)`.
+  /// Mirrors Python's `LXMRouter.get_announce_app_data(destination_hash)` (LXMF 1.3.0
+  /// `LXMRouter.py:1163-1182`).
   public func getAnnounceAppData(destinationHash: Data) -> Data? {
     lock.lock()
     defer { lock.unlock() }
@@ -963,21 +971,21 @@ public final class LXMRouter {
       displayNameValue = .nil
     }
 
-    // Stamp cost: integer in 1…254 or nil
-    let stampCostValue: MsgPack.Value
-    if let maybeInt = inboundStampCosts[destinationHash],
-      let cost = maybeInt,
-      cost > 0, cost < 255
+    var ceiling = MsgPack.Value.nil
+    var stampCost = MsgPack.Value.nil
+    if let cost = inboundStampCosts[destinationHash], cost > 0,
+      cost < Double(Transport.stampCostCap)
     {
-      stampCostValue = .int(Int64(cost))
-    } else {
-      stampCostValue = .nil
+      let quantized = Stamps.quantizeCost(cost)
+      ceiling = .int(Int64(quantized.rounded(.up)))
+      stampCost = .double(quantized)
     }
 
     // Supported functionality flags (Python: peer_data[2] = [SF_COMPRESSION])
     let supportedFunctionality: MsgPack.Value = .array([.uint(UInt64(sfCompression))])
 
-    return MsgPack.encode(.array([displayNameValue, stampCostValue, supportedFunctionality]))
+    return MsgPack.encode(
+      .array([displayNameValue, ceiling, supportedFunctionality, stampCost]))
   }
 
   /// The metadata map a propagation node announces, in the reference's key order.
@@ -999,9 +1007,12 @@ public final class LXMRouter {
 
   /// Build the msgpack announce app data for the propagation destination.
   ///
-  /// Format: `[False, timestamp, nodeState, perTransferLimit, perSyncLimit, [stampCost, flexibility, peeringCost], metadata]`
+  /// Format: `[False, timestamp, nodeState, perTransferLimit, perSyncLimit, ceil([stampCost,
+  /// flexibility, peeringCost]), metadata, [stampCost, flexibility, peeringCost]]`. Index 5 is for
+  /// readers older than LXMF 1.3.0.
   ///
-  /// Mirrors Python's `LXMRouter.get_propagation_node_app_data()`.
+  /// Mirrors Python's `LXMRouter.get_propagation_node_app_data()` (LXMF 1.3.0
+  /// `LXMRouter.py:387-401`).
   public func getPropagationNodeAppData() -> Data {
     let ts = Int64(Date().timeIntervalSince1970)
     let nodeState = isPropagationNode
@@ -1009,11 +1020,8 @@ public final class LXMRouter {
     // Use Python's default PROPAGATION_LIMIT=256 and SYNC_LIMIT=10240 when unset.
     let perTransferLimit: MsgPack.Value = .int(Int64(propagationPerTransferLimit ?? 256))
     let perSyncLimit: MsgPack.Value = .int(Int64(propagationPerSyncLimit ?? 10240))
-    let stampCostArr: MsgPack.Value = .array([
-      .int(Int64(propagationStampCost)),
-      .int(Int64(propagationStampCostFlexibility)),
-      .int(Int64(peeringCost)),
-    ])
+    let costs = [propagationStampCost, propagationStampCostFlexibility, peeringCost]
+    let ceilings = MsgPack.Value.array(costs.map { .int(Int64($0.rounded(.up))) })
     let metaMap: MsgPack.Value = .map(getPropagationNodeAnnounceMetadata())
     return MsgPack.encode(
       .array([
@@ -1022,8 +1030,9 @@ public final class LXMRouter {
         .bool(nodeState),  // 2: node active flag
         perTransferLimit,  // 3: per-transfer limit (KB or nil)
         perSyncLimit,  // 4: per-sync limit (KB or nil)
-        stampCostArr,  // 5: [stampCost, flexibility, peeringCost]
+        ceilings,  // 5: the costs' ceilings
         metaMap,  // 6: node metadata dict
+        .array(costs.map { .double($0) }),  // 7: [stampCost, flexibility, peeringCost]
       ]))
   }
 
@@ -1073,11 +1082,12 @@ public final class LXMRouter {
   /// If no app data has been cached yet, the caller should request a path to the
   /// propagation node and retry later.
   ///
-  /// Mirrors the cached-read path of Python's `LXMRouter.get_outbound_propagation_cost()`.
-  public func getOutboundPropagationCost() -> Int? {
+  /// Mirrors the cached-read path of Python's `LXMRouter.get_outbound_propagation_cost()`
+  /// (LXMF 1.3.0 `LXMRouter.py:494-519`), which clamps the cost to `0...STAMP_COST_CAP`.
+  public func getOutboundPropagationCost() -> Double? {
     guard let pnHash = outboundPropagationNode else { return nil }
-    let appData = Identity.recallAppData(forDestination: pnHash)
-    return pnStampCostFromAppData(appData)
+    let appData = transport.recallAppData(forDestination: pnHash)
+    return pnStampCostFromAppData(appData).map { max(0, min($0, Double(Transport.stampCostCap))) }
   }
 
   // MARK: - Ticket API
@@ -1252,11 +1262,23 @@ public final class LXMRouter {
 
   /// Store per-destination inbound stamp cost.
   ///
-  /// Mirrors Python's `LXMRouter.set_inbound_stamp_cost(destination_hash, stamp_cost)`.
+  /// A cost below 1 clears it. A cost at or above `Transport.stampCostCap` is refused, and the
+  /// previous cost stays.
+  ///
+  /// Mirrors Python's `LXMRouter.set_inbound_stamp_cost(destination_hash, stamp_cost)` (LXMF
+  /// 1.3.0 `LXMRouter.py:444-463`).
+  ///
+  /// - Returns: `false` for an unregistered destination or a refused cost.
   @discardableResult
-  public func setInboundStampCost(destinationHash: Data, stampCost: Int?) -> Bool {
+  public func setInboundStampCost(destinationHash: Data, stampCost: Double?) -> Bool {
     lock.lock()
     defer { lock.unlock() }
+    guard deliveryDestinations[destinationHash] != nil else { return false }
+    guard let stampCost, stampCost >= 1 else {
+      inboundStampCosts[destinationHash] = nil
+      return true
+    }
+    guard stampCost < Double(Transport.stampCostCap) else { return false }
     inboundStampCosts[destinationHash] = stampCost
     return true
   }
@@ -1264,14 +1286,14 @@ public final class LXMRouter {
   /// Return the outbound stamp cost for a destination, or `nil` if unknown.
   ///
   /// Mirrors Python's `LXMRouter.get_outbound_stamp_cost(destination_hash)`.
-  public func getOutboundStampCost(destinationHash: Data) -> Int? {
+  public func getOutboundStampCost(destinationHash: Data) -> Double? {
     lock.lock()
     defer { lock.unlock() }
     return outboundStampCosts[destinationHash]
   }
 
   /// Store outbound stamp cost learned from an announce or path response.
-  public func setOutboundStampCost(destinationHash: Data, stampCost: Int) {
+  public func setOutboundStampCost(destinationHash: Data, stampCost: Double) {
     lock.lock()
     outboundStampCosts[destinationHash] = stampCost
     lock.unlock()
@@ -2261,7 +2283,7 @@ public final class LXMRouter {
       msg.state = .outbound
     }
     do {
-      try transfer.send(payload: pp)
+      try transfer.send(payload: pp, appFlag: true)  // LXMF 1.3.0 `LXMessage.py:678`
     } catch {
       // LXMRouter.py:2953-2956.
       failMessage(msg)
@@ -2910,7 +2932,7 @@ public final class LXMRouter {
     // 2. Stamp validation + enforcement.
     //    Mirrors Python: `required_stamp_cost = delivery_destinations[dest].stamp_cost`.
     lock.lock()
-    let requiredCost: Int? = inboundStampCosts[msg.destinationHash].flatMap { $0 }
+    let requiredCost = inboundStampCosts[msg.destinationHash]
     let enforcing = stampsEnforced
     lock.unlock()
     if let requiredCost {
@@ -3062,6 +3084,23 @@ public final class LXMRouter {
   ///   `lxmf/messagestore/` are created as needed.
   /// - Throws: If directory creation fails.
   public func enablePropagation(storagePath path: String) throws {
+    // LXMF 1.3.0 `LXMRouter.py:631-635`: the propagation destination exists only once
+    // propagation is enabled.
+    lock.lock()
+    let needsDestination = propagationDestination == nil
+    let routerIdentity = identity
+    lock.unlock()
+    if needsDestination, let routerIdentity {
+      let destination = try Destination(
+        identity: routerIdentity, direction: .in, kind: .single,
+        appName: appName, aspects: ["propagation"])
+      destination.setLinkCost(LXMRouter.propagationLinkCost)
+      lock.lock()
+      propagationDestination = destination
+      lock.unlock()
+      transport.register(destination: destination)
+    }
+
     let rootPath = path + "/lxmf"
     let msgPath = rootPath + "/messagestore"
 
@@ -3089,7 +3128,7 @@ public final class LXMRouter {
         // transient_id = fullHash(lxmfData) = SHA-256 = 32 bytes = 64 hex chars
         guard hexID.count == 64,
           let ts = TimeInterval(tsStr), ts > 0,
-          let sv = Int(stampStr)
+          let sv = Double(stampStr).map(Stamps.quantizeCost)  // LXMF 1.3.0 `LXMRouter.py:656`
         else { continue }
         guard let transientID = Data(hex: hexID) else { continue }
 
@@ -3395,7 +3434,7 @@ public final class LXMRouter {
     let invalidCount = transientList.count - validated.count
     if invalidCount > 0, let sender {
       lock.lock()
-      unsafeThrottledPeers[sender] = Date().timeIntervalSince1970 + LXMRouter.pnStampThrottle
+      unsafeThrottledPeers[sender] = Date().timeIntervalSince1970 + pnStampThrottle
       lock.unlock()
       try? link?.teardown()
     }
@@ -3465,7 +3504,7 @@ public final class LXMRouter {
   @discardableResult
   public func addToMessageStore(
     lxmfData: Data, transientID: Data,
-    stampValue: Int, stamp: Data
+    stampValue: Double, stamp: Data
   ) -> PropagationEntry? {
     guard let mp = messagePath else { return nil }
     guard lxmfData.count >= LXMessage.destinationLength else { return nil }
@@ -3491,6 +3530,8 @@ public final class LXMRouter {
 
     let received = Date().timeIntervalSince1970
     let hexID = transientID.map { String(format: "%02x", $0) }.joined()
+    // LXMF 1.3.0 `LXMRouter.py:2874-2877`.
+    let stampValue = Stamps.quantizeCost(stampValue)
     let filename = "\(hexID)_\(received)_\(stampValue)"
     let filePath = mp + "/" + filename
 
@@ -3838,9 +3879,9 @@ public final class LXMRouter {
     timestamp: TimeInterval,
     transferLimit: Double?,
     syncLimit: Double?,
-    stampCost: Int,
-    stampCostFlexibility: Int,
-    peeringCost: Int,
+    stampCost: Double,
+    stampCostFlexibility: Double,
+    peeringCost: Double,
     metadata: [String: String]?
   ) {
     lock.lock()
@@ -3888,9 +3929,9 @@ public final class LXMRouter {
     announcedTimestamp: TimeInterval,
     transferLimit: Double?,
     syncLimit: Double?,
-    stampCost: Int,
-    stampCostFlexibility: Int,
-    peeringCost: Int,
+    stampCost: Double,
+    stampCostFlexibility: Double,
+    peeringCost: Double,
     metadata: [String: String]?,
     to peer: LXMPeer
   ) {
@@ -4749,9 +4790,11 @@ public final class LXMRouter {
   /// - Returns: The stored entry, or `nil` when the message was a duplicate.
   @discardableResult
   public func ingestPropagatedLXM(
-    lxmfData: Data, stampValue: Int, stamp: Data,
+    lxmfData: Data, stampValue: Double, stamp: Data,
     fromPeer: LXMPeer? = nil
   ) -> PropagationEntry? {
+    // LXMF 1.3.0 `LXMRouter.py:2869`: a node stores no message without a stamp value.
+    guard Stamps.quantizeCost(stampValue) > 0 else { return nil }
     let transientID = Hashes.fullHash(lxmfData)
     lock.lock()
     let isDup = unsafePropagationEntries[transientID] != nil
@@ -4921,7 +4964,7 @@ public final class LXMRouter {
     lock.lock()
     let snapshot = outboundStampCosts
     lock.unlock()
-    let pairs = snapshot.map { (MsgPack.Value.bytes($0.key), MsgPack.Value.int(Int64($0.value))) }
+    let pairs = snapshot.map { (MsgPack.Value.bytes($0.key), MsgPack.Value.double($0.value)) }
     try? MsgPack.encode(.map(pairs)).write(
       to: URL(fileURLWithPath: sp + "/outbound_stamp_costs"), options: .atomic)
   }
@@ -4931,9 +4974,9 @@ public final class LXMRouter {
       let data = try? Data(contentsOf: URL(fileURLWithPath: sp + "/outbound_stamp_costs")),
       case .map(let pairs) = (try? MsgPack.decode(data)) ?? .nil
     else { return }
-    var loaded: [Data: Int] = [:]
+    var loaded: [Data: Double] = [:]
     for (k, v) in pairs {
-      guard case .bytes(let key) = k, let cost = v.asInt else { continue }
+      guard case .bytes(let key) = k, let cost = v.asDouble else { continue }
       loaded[key] = cost
     }
     lock.lock()
@@ -5034,7 +5077,7 @@ public final class LXMRouter {
   // MARK: - Stamp value query helpers for peers
 
   /// Stamp value of a stored message.
-  public func getStampValue(transientID: Data) -> Int {
+  public func getStampValue(transientID: Data) -> Double {
     lock.lock()
     defer { lock.unlock() }
     return unsafePropagationEntries[transientID]?.stampValue ?? 0
@@ -5112,24 +5155,5 @@ private final class PropagationNodeAnnounceHandler: AnnounceHandler {
       destinationHash: destinationHash,
       appData: appData,
       isPathResponse: isPathResponse)
-  }
-}
-
-// MARK: - msgpack numeric coercion
-
-extension MsgPack.Value {
-  /// Read a msgpack number as a `Double`, regardless of whether the encoder
-  /// wrote it as a float, a signed int, or an unsigned int.
-  ///
-  /// Timestamps
-  /// round-trip through all three depending on the writer, so every reader of
-  /// a persisted timestamp needs this.
-  var asDouble: Double? {
-    switch self {
-    case .double(let d): return d
-    case .int(let n): return Double(n)
-    case .uint(let n): return Double(n)
-    default: return nil
-    }
   }
 }

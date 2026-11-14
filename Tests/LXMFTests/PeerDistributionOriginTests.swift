@@ -239,9 +239,13 @@ final class PeerDistributionOriginTests: XCTestCase {
       content: "distribute \(UUID().uuidString)")
     try message.pack()
     let lxmfData = try XCTUnwrap(message.packed)
+    let tid = Hashes.fullHash(lxmfData)
+    // A node drops a message whose stamp value is 0 (LXMF 1.3.0 `LXMRouter.py:2869`).
+    let found = try XCTUnwrap(
+      LXStamper.generateStamp(
+        material: tid, targetCost: 1, expandRounds: LXStamper.pnStampExpandRounds))
     _ = router.ingestPropagatedLXM(
-      lxmfData: lxmfData, stampValue: 0, stamp: Data(repeating: 0, count: 32),
-      fromPeer: origin)
-    return Hashes.fullHash(lxmfData)
+      lxmfData: lxmfData, stampValue: found.value, stamp: found.stamp, fromPeer: origin)
+    return tid
   }
 }

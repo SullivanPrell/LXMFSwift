@@ -22,7 +22,7 @@ final class LXMTicketIntegrationTests: XCTestCase {
 
   // MARK: - Helpers
 
-  private func makeUnpacked(stampCost: Int? = nil) throws -> LXMessage {
+  private func makeUnpacked(stampCost: Double? = nil) throws -> LXMessage {
     let srcIdentity = Identity()
     let dstIdentity = Identity()
     let src = try Destination(

@@ -8,195 +8,61 @@
 // SPDX-License-Identifier: LicenseRef-Reticulum
 //===----------------------------------------------------------------------===//
 
-import CryptoKit
 import Foundation
 import ReticulumSwift
 
-/// LXMF proof-of-work stamp computation.
+/// LXMF proof-of-work stamps over ReticulumSwift's `Stamps`.
 ///
-/// Wire-compatible with Python's LXStamper.py.
-///
-/// Algorithm:
-///   1. workblock = concat of `expandRounds` × HKDF(256 bytes, from=material, salt=SHA256(material+msgpack(n)))
-///   2. stamp is valid when SHA256(workblock+stamp) has `targetCost` leading zero bits
-///   3. stamp value = number of leading zero bits in SHA256(workblock+stamp)
+/// Mirrors Python's `LXStamper.py` (LXMF 1.3.0, `:9-24`), which wraps `RNS.Stamps`. Costs and
+/// values are fractional: a value is floored to the 1/256 grid, and a stamp is valid when its
+/// value reaches the cost.
 public enum LXStamper {
-
-  /// Default expand rounds for message stamps (matches Python WORKBLOCK_EXPAND_ROUNDS).
+  /// Python: `WORKBLOCK_EXPAND_ROUNDS = 3000`.
   public static let defaultExpandRounds: Int = 3000
-  /// Default expand rounds for propagation-node stamps.
+  /// Python: `WORKBLOCK_EXPAND_ROUNDS_PN = 1000`.
   public static let pnExpandRounds: Int = 1000
-
-  /// Stamp byte length: 32 bytes (SHA-256 size).
+  /// Python: `STAMP_SIZE`, 32 bytes.
   public static let stampSize: Int = 32
 
-  /// Build the work block from `material` (typically the message_id / transient_id).
-  /// Each round appends 256 bytes from HKDF:
-  ///   HKDF(length=256, IKM=material, salt=SHA256(material + msgpack(round_index)), info=nil)
+  /// Python: `stamp_workblock`.
   public static func stampWorkblock(material: Data, expandRounds: Int = defaultExpandRounds) -> Data
   {
-    var workblock = Data(capacity: expandRounds * 256)
-    for n in 0..<expandRounds {
-      let nPacked = encodeMsgpackInt(n)
-      let salt = Hashes.fullHash(material + nPacked)
-      let block = HKDF.derive(length: 256, derivedFrom: material, salt: salt)
-      workblock.append(block)
-    }
-    return workblock
+    Stamps.stampWorkblock(material, expandRounds: expandRounds)
   }
 
-  /// Count leading zero bits in SHA256(workblock + stamp).
-  ///
-  /// This is the "value" of the stamp.
-  public static func stampValue(workblock: Data, stamp: Data) -> Int {
-    let material = Hashes.fullHash(workblock + stamp)
-    var count = 0
-    for byte in material {
-      guard byte == 0 else {
-        var b = byte
-        while (b & 0x80) == 0 {
-          count += 1
-          b <<= 1
-        }
-        break
-      }
-      count += 8
-    }
-    return count
+  /// Python: `stamp_value`.
+  public static func stampValue(workblock: Data, stamp: Data) -> Double {
+    Stamps.stampValue(workblock: workblock, stamp: stamp)
   }
 
-  /// Returns true if SHA256(workblock + stamp) has at least `targetCost` leading zero bits.
-  public static func stampValid(stamp: Data, targetCost: Int, workblock: Data) -> Bool {
-    let result = Hashes.fullHash(workblock + stamp)
-    return countLeadingZeroBits(result) >= targetCost
+  /// Python: `stamp_valid`.
+  public static func stampValid(stamp: Data, targetCost: Double, workblock: Data) -> Bool {
+    Stamps.stampValid(stamp: stamp, targetCost: targetCost, workblock: workblock)
   }
 
-  /// Generate a random 32-byte stamp whose SHA256(workblock + stamp) has `targetCost` leading zeros.
-  ///
-  /// Returns nil if cancelled. Runs on the calling thread.
-  ///
-  /// Thin wrapper over `generateStamp(material:targetCost:expandRounds:isCancelled:)`, which is
-  /// the form the peering path needs—Python's `generate_stamp` returns `(stamp, value)` and the
-  /// peer stores both (`LXStamper.py:123-144`, `LXMPeer.py:259-261`).
+  /// A stamp over `messageID` meeting `stampCost`, or `nil` for a cost outside
+  /// `0...Transport.stampCostCap`.
   public static func generateStamp(
-    messageID: Data, stampCost: Int,
+    messageID: Data, stampCost: Double,
     expandRounds: Int = defaultExpandRounds
   ) -> Data? {
-    generateStamp(
-      material: messageID, targetCost: stampCost,
-      expandRounds: expandRounds)?.stamp
+    generateStamp(material: messageID, targetCost: stampCost, expandRounds: expandRounds)?.stamp
   }
 
-  /// Generate a stamp over `material` and report the value it actually reached.
+  /// Python: `generate_stamp(message_id, stamp_cost, expand_rounds)` (`LXStamper.py:23-24`),
+  /// which returns the stamp and the value it reached.
   ///
-  /// Mirrors Python's `generate_stamp(message_id, stamp_cost, expand_rounds)`
-  /// (`LXStamper.py:123-144`), which returns the pair. The value is **not** simply `targetCost`:
-  /// a random preimage that clears the bar usually clears it by more, and the peering protocol
-  /// stores the real value so `peering_key_ready` can compare it against a cost the peer may
-  /// later raise (`LXMPeer.py:229-234`).
-  ///
-  /// Both halves of the returned pair derive from one workblock, so the value can never be
-  /// measured against different material than the stamp was found against.
-  ///
-  /// - Parameters:
-  ///   - material: the bytes the stamp is found over.
-  ///   - targetCost: the number of leading zero bits the stamp must clear.
-  ///   - expandRounds: rounds used to expand `material` into the workblock.
-  ///   - isCancelled: polled between candidate batches. Returns nil when it goes true.
-  ///     No production canceller is wired today; single-flight generation is what bounds the cost.
-  /// - Returns: The stamp and the value it reached, or `nil` when cancelled.
+  /// - Returns: `nil` for a cost outside `0...Transport.stampCostCap`, or when `isCancelled`
+  ///   turns true.
   public static func generateStamp(
     material: Data,
-    targetCost: Int,
+    targetCost: Double,
     expandRounds: Int = defaultExpandRounds,
-    isCancelled: (() -> Bool)? = nil
-  ) -> (stamp: Data, value: Int)? {
-    let workblock = stampWorkblock(material: material, expandRounds: expandRounds)
-
-    // Parallel search, a deliberate deviation from the reference. Python picks its
-    // single-threaded `job_simple` on Darwin (`LXStamper.py:132-136`) because its multi-process
-    // path relies on `fork`, not because the algorithm demands one core. The output is a random
-    // preimage: which thread found it is wire-invisible, and any found stamp is as good as any
-    // other. At the default peering cost of 18 the difference is minutes.
-    let cores = max(1, min(ProcessInfo.processInfo.activeProcessorCount, 8))
-    let found = FoundStamp()
-
-    while found.take() == nil {
-      if isCancelled?() == true { return nil }
-
-      DispatchQueue.concurrentPerform(iterations: cores) { _ in
-        // A batch, so the found-flag is checked often enough to stop promptly but not so
-        // often that the atomic dominates the hashing.
-        for _ in 0..<256 {
-          if found.isSet { return }
-
-          let stamp = SecureRandom.bytes(stampSize)
-          // Incremental hash: SHA256(workblock || stamp) without allocating the
-          // concatenation—the workblock is up to 750 KB for message stamps.
-          var hasher = SHA256()
-          hasher.update(data: workblock)
-          hasher.update(data: stamp)
-          let digest = Data(hasher.finalize())
-
-          let value = countLeadingZeroBits(digest)
-          if value >= targetCost {
-            found.set(stamp: stamp, value: value)
-            return
-          }
-        }
-      }
-    }
-
-    return found.take()
-  }
-
-  /// First stamp to clear the bar, published to the other search threads.
-  private final class FoundStamp {
-    private let lock = NSLock()
-    private var result: (stamp: Data, value: Int)?
-    private var flag = false
-
-    /// Read without the lock so leaving the hot loop early costs nothing.
-    ///
-    /// A stale `false` only
-    /// means one more candidate is hashed before the batch notices.
-    var isSet: Bool {
-      lock.lock()
-      defer { lock.unlock() }
-      return flag
-    }
-
-    func set(stamp: Data, value: Int) {
-      lock.lock()
-      defer { lock.unlock() }
-      guard result == nil else { return }  // first writer wins; the rest are equally valid
-      result = (stamp, value)
-      flag = true
-    }
-
-    func take() -> (stamp: Data, value: Int)? {
-      lock.lock()
-      defer { lock.unlock() }
-      return result
-    }
-  }
-
-  // MARK: - Helpers
-
-  private static func countLeadingZeroBits(_ data: Data) -> Int {
-    var count = 0
-    for byte in data {
-      guard byte == 0 else {
-        var b = byte
-        while (b & 0x80) == 0 {
-          count += 1
-          b <<= 1
-        }
-        break
-      }
-      count += 8
-    }
-    return count
+    isCancelled: () -> Bool = { false }
+  ) -> (stamp: Data, value: Double)? {
+    Stamps.generateStamp(
+      material, stampCost: targetCost, expandRounds: expandRounds, size: stampSize,
+      isCancelled: isCancelled)
   }
 
   // MARK: - Propagation node stamp validation
@@ -239,7 +105,8 @@ public enum LXStamper {
   ///   - peeringKey: The stamp data to validate
   ///   - targetCost: Minimum required stamp value
   /// - Returns: true if the peering key is valid
-  public static func validatePeeringKey(peeringID: Data, peeringKey: Data, targetCost: Int) -> Bool
+  public static func validatePeeringKey(peeringID: Data, peeringKey: Data, targetCost: Double)
+    -> Bool
   {
     let workblock = stampWorkblock(material: peeringID, expandRounds: peeringExpandRounds)
     return stampValid(stamp: peeringKey, targetCost: targetCost, workblock: workblock)
@@ -253,8 +120,8 @@ public enum LXStamper {
   ///   - transientData: Raw LXMF bytes + appended 32-byte stamp
   ///   - targetCost: Minimum required stamp value
   /// - Returns: (transientID, lxmfData, stampValue, stamp) on success, nil on failure
-  public static func validatePNStamp(transientData: Data, targetCost: Int) -> (
-    transientID: Data, lxmfData: Data, stampValue: Int, stamp: Data
+  public static func validatePNStamp(transientData: Data, targetCost: Double) -> (
+    transientID: Data, lxmfData: Data, stampValue: Double, stamp: Data
   )? {
     // Minimum = LXMF overhead + stamp
     let minLen = LXMessage.lxmfOverhead + stampSize
@@ -283,38 +150,8 @@ public enum LXStamper {
   ///
   /// - Returns: Array of (transientID, lxmfData, stampValue, stamp) for each valid entry.
   public static func validatePNStamps(
-    transientList: [Data], targetCost: Int
-  ) -> [(transientID: Data, lxmfData: Data, stampValue: Int, stamp: Data)] {
+    transientList: [Data], targetCost: Double
+  ) -> [(transientID: Data, lxmfData: Data, stampValue: Double, stamp: Data)] {
     transientList.compactMap { validatePNStamp(transientData: $0, targetCost: targetCost) }
-  }
-
-  /// Encode an integer as msgpack.
-  ///
-  /// Matches Python `umsgpack.packb(n)` for non-negative n.
-  /// Used in workblock salt computation to match Python wire format exactly.
-  static func encodeMsgpackInt(_ n: Int) -> Data {
-    var out = Data()
-    if n <= 0x7F {
-      out.append(UInt8(n))
-    } else if n <= 0xFF {
-      out.append(0xCC)
-      out.append(UInt8(n))
-    } else if n <= 0xFFFF {
-      out.append(0xCD)
-      out.append(UInt8((n >> 8) & 0xFF))
-      out.append(UInt8(n & 0xFF))
-    } else if n <= 0xFFFF_FFFF {
-      out.append(0xCE)
-      out.append(UInt8((n >> 24) & 0xFF))
-      out.append(UInt8((n >> 16) & 0xFF))
-      out.append(UInt8((n >> 8) & 0xFF))
-      out.append(UInt8(n & 0xFF))
-    } else {
-      out.append(0xCF)
-      for shift in stride(from: 56, through: 0, by: -8) {
-        out.append(UInt8((n >> shift) & 0xFF))
-      }
-    }
-    return out
   }
 }
