@@ -268,7 +268,7 @@ public let lxmfSwiftVersion = "1.12.0"
 /// The LXMF release this package matches.
 ///
 /// It moves only when parity with a new release is verified.
-public let lxmfProtocolVersion = "1.2.1"
+public let lxmfProtocolVersion = "1.3.0"
 
 /// The implementation name a propagation node announces under `pnMetaImplName`.
 ///

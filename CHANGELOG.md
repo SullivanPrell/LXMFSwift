@@ -5,9 +5,10 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
-LXMFSwift now tracks Python LXMF 1.2.1. Against LXMF 1.2.1 on RNS 1.5.7, reticulum-interop's
-five LXMF files report 28 passed and 3 xfailed on this release and on 1.12.0, with the same three
-xfails.
+LXMFSwift now tracks Python LXMF 1.3.0. Against LXMF 1.3.0 on RNS 1.6.0, with ReticulumSwift
+`main` at `8d32557`, reticulum-interop's five LXMF files report 25 passed and skip the 6 Go
+cells. Against LXMF 1.2.1 on RNS 1.5.7, the LXMF 1.2.1 changes reported 28 passed and
+3 xfailed, the same three as on 1.12.0.
 
 ### Stamp costs and values are fractional (LXMF 1.3.0)
 
