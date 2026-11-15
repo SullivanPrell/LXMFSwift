@@ -20,7 +20,7 @@ struct StampCostTests {
 
   typealias V = PythonStampCostVectors
 
-  static func bytes(_ hex: String) -> Data { Data(hex: hex)! }
+  static func bytes(_ hex: String) -> Data { Data(hex: hex) ?? Data() }
 
   static func items(_ appData: Data?) -> [MsgPack.Value] {
     guard let appData, case .array(let items) = try? MsgPack.decode(appData) else { return [] }
