@@ -17,7 +17,7 @@ the router's propagation stamp cost, flexibility, peering cost and maximum peeri
 inbound and outbound stamp costs, `LXMessage.stampCost` and `stampValue`, `LXMPeer`'s announced
 terms and peering key value, `PropagationEntry.stampValue` and the `LXStamper` functions. A
 literal still compiles. A caller that passes an `Int` variable must convert it. LXMFSwift
-requires ReticulumSwift's RNS 1.6.0 release.
+requires ReticulumSwift 1.28.0, which matches RNS 1.6.0.
 
 - `LXStamper` delegates to ReticulumSwift's `Stamps`, as LXMF 1.3.0 delegates to `RNS.Stamps`
   (`LXStamper.py:9-24`). A stamp's value is fractional, on a 1/256 grid, and a stamp is valid
