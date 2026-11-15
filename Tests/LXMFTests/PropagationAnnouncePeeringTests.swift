@@ -315,6 +315,10 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
     /// travels is what a real node advertises.
     func announceRemote() throws {
       let dest = try XCTUnwrap(remote.propagationDestination)
+      // `enablePropagation` already announced, and a re-announce reaches the handlers only
+      // when it was emitted in a later second (RNS 1.6.0 `Transport.py:2518`, `:2758`).
+      let now = Date().timeIntervalSince1970
+      Thread.sleep(forTimeInterval: now.rounded(.down) + 1.05 - now)
       _ = try remoteTransport.announce(
         destination: dest,
         appData: remote.getPropagationNodeAppData())
