@@ -243,7 +243,7 @@ final class PropagationPeeringTests: XCTestCase {
     /// (`LXMRouter.py:2352,2357`).
     func announceRemoteAsPropagationNode(
       nodeState: Bool = true,
-      peeringCost: Int = 0,
+      peeringCost: Double = 0,
       timebase: Int64 = 1_700_000_000
     ) {
       remoteIdentity.appData = Self.propagationAnnounceAppData(
@@ -306,7 +306,7 @@ final class PropagationPeeringTests: XCTestCase {
     /// Python's `pn_config`, indices as read at `LXMRouter.py:2367-2373`.
     static func propagationAnnounceAppData(
       nodeState: Bool,
-      peeringCost: Int,
+      peeringCost: Double,
       timebase: Int64
     ) -> Data {
       MsgPack.encode(

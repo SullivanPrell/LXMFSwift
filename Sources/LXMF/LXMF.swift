@@ -139,30 +139,53 @@ extension String {
   fileprivate var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
+/// A finite msgpack number, or `nil` for anything else.
+///
+/// An integer outside `Int`'s range is `nil` too, which no Python reader rejects: past it, a cost
+/// means nothing a stamp search can meet.
+func announcedNumber(_ value: MsgPack.Value) -> Double? {
+  switch value {
+  case .int, .uint: return value.asInt.map(Double.init)
+  case .double(let d): return d.isFinite ? d : nil
+  default: return nil
+  }
+}
+
 /// Decode `stamp_cost` from LXMF delivery announcement `appData`.
 ///
-/// The delivery announce format is `[display_name, stamp_cost, supported_functionality]`
-/// (version 0.5.0+). Stamp cost is at index **1**, not 0.
+/// The delivery announce is `[display_name, ceil(stamp_cost), supported_functionality,
+/// stamp_cost]`. A numeric index 3 is the fractional cost, and index 1 the cost an older sender
+/// announces.
 ///
-/// Mirrors Python's `stamp_cost_from_app_data` which returns `peer_data[1]`.
-public func stampCostFromAppData(_ appData: Data?) -> Int? {
+/// Mirrors Python's `stamp_cost_from_app_data` (LXMF 1.3.0 `LXMF.py:183-199`).
+public func stampCostFromAppData(_ appData: Data?) -> Double? {
   guard let appData, !appData.isEmpty else { return nil }
   guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)),
     items.count >= 2
   else { return nil }
-  return items[1].asInt
+  if items.count > 3, let cost = announcedNumber(items[3]) { return cost }
+  return announcedNumber(items[1])
 }
 
-/// Validate that propagation node announce data is a well-formed msgpack array
-/// with the expected minimum element count.
+/// Whether `appData` is a propagation node announce Python accepts.
 ///
-/// Mirrors Python's `pn_announce_data_is_valid`.
+/// Mirrors Python's `pn_announce_data_is_valid` (LXMF 1.3.0 `LXMF.py:239-272`): seven or more
+/// elements, a numeric timebase and limits, a boolean node state, three numeric costs at index 5,
+/// a metadata map at index 6, and three numeric costs at index 7 when present.
 public func propagationNodeAnnounceDataIsValid(_ appData: Data?) -> Bool {
-  guard let appData else { return false }
-  guard case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)),
+  guard let appData,
+    case .array(let items) = (try? ReticulumSwift.MsgPack.decode(appData)),
     items.count >= 7
   else { return false }
-  return true
+  func costs(_ value: MsgPack.Value) -> Bool {
+    guard case .array(let costs) = value, costs.count >= 3 else { return false }
+    return costs.prefix(3).allSatisfy { announcedNumber($0) != nil }
+  }
+  guard announcedNumber(items[1]) != nil, case .bool = items[2],
+    announcedNumber(items[3]) != nil, announcedNumber(items[4]) != nil,
+    costs(items[5]), case .map = items[6]
+  else { return false }
+  return items.count == 7 || costs(items[7])
 }
 
 /// Whether auto-compression is advertised in the announce `appData`.
@@ -245,7 +268,7 @@ public let lxmfSwiftVersion = "1.12.0"
 /// The LXMF release this package matches.
 ///
 /// It moves only when parity with a new release is verified.
-public let lxmfProtocolVersion = "1.2.1"
+public let lxmfProtocolVersion = "1.3.0"
 
 /// The implementation name a propagation node announces under `pnMetaImplName`.
 ///
@@ -290,19 +313,16 @@ public func pnNameFromAppData(_ appData: Data?) -> String? {
 
 /// Decode the propagation node's stamp cost from its announce `appData`.
 ///
-/// Mirrors Python's `pn_stamp_cost_from_app_data(app_data)`. The stamp cost
-/// is at `data[5][0]` in the PN announce array.
+/// Mirrors Python's `pn_stamp_cost_from_app_data` (LXMF 1.3.0 `LXMF.py:229-237`): index 7's
+/// fractional cost when present, else index 5's.
 ///
 /// Returns `nil` when `appData` is absent or malformed.
-public func pnStampCostFromAppData(_ appData: Data?) -> Int? {
-  guard let appData, !appData.isEmpty else { return nil }
+public func pnStampCostFromAppData(_ appData: Data?) -> Double? {
   guard propagationNodeAnnounceDataIsValid(appData),
-    case .array(let items) = (try? MsgPack.decode(appData)),
-    items.count >= 6,
-    case .array(let costs) = items[5],
-    !costs.isEmpty
+    let appData, case .array(let items) = (try? MsgPack.decode(appData)),
+    case .array(let costs) = items[items.count > 7 ? 7 : 5]
   else { return nil }
-  return costs[0].asInt
+  return announcedNumber(costs[0])
 }
 
 // MARK: - Propagation node announce
@@ -325,10 +345,10 @@ struct PropagationNodeAnnounce {
   /// Python falls back to the transfer limit when unset
   /// (`:2029`, `:2044`); that fallback lives at the peering site, not here.
   let syncLimit: Double?
-  /// `pn_config[5][0]`, `[1]`, `[2]`.
-  let stampCost: Int
-  let stampCostFlexibility: Int
-  let peeringCost: Int
+  /// The costs at `pn_config[7]` when present, else at `pn_config[5]`.
+  let stampCost: Double
+  let stampCostFlexibility: Double
+  let peeringCost: Double
   /// `pn_config[6]`—node metadata.
   ///
   /// Only `pnMetaName` is carried, under the `"name"` key
@@ -358,18 +378,23 @@ struct PropagationNodeAnnounce {
 
     guard let timebase = number(items[1]) else { return nil }
     guard case .bool(let nodeState) = items[2] else { return nil }
-    guard case .array(let costs) = items[5], costs.count >= 3,
-      let stampCost = integer(costs[0]), let stampCostFlexibility = integer(costs[1]),
-      let peeringCost = integer(costs[2])
+    guard case .array(let ceilings) = items[5], ceilings.count >= 3,
+      let stampCost = integer(ceilings[0]), let stampCostFlexibility = integer(ceilings[1]),
+      let peeringCost = integer(ceilings[2])
     else { return nil }
+    // The fractional costs, which LXMF 1.3.0 reads in place of index 5 (`Handlers.py:67-74`).
+    var costs = [Double(stampCost), Double(stampCostFlexibility), Double(peeringCost)]
+    if items.count > 7, case .array(let fractional) = items[7] {
+      costs = fractional.prefix(3).compactMap(announcedNumber)
+    }
 
     self.timebase = timebase
     self.isPropagationNode = nodeState
     self.transferLimit = number(items[3])
     self.syncLimit = number(items[4])
-    self.stampCost = stampCost
-    self.stampCostFlexibility = stampCostFlexibility
-    self.peeringCost = peeringCost
+    self.stampCost = costs[0]
+    self.stampCostFlexibility = costs[1]
+    self.peeringCost = costs[2]
     self.metadata = pnNameFromAppData(appData).map { ["name": $0] }
   }
 }

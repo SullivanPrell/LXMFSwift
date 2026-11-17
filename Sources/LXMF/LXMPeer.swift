@@ -30,13 +30,13 @@ public struct PropagationEntry {
   /// [5] Peer destination hashes that still need to receive this message.
   public var unhandledPeers: [Data]
   /// [6] Proof-of-work stamp value for this message.
-  public let stampValue: Int
+  public let stampValue: Double
 
   /// Creates an entry for a stored message.
   public init(
     destinationHash: Data, filePath: String, received: TimeInterval,
     msgSize: Int, handledPeers: [Data] = [], unhandledPeers: [Data] = [],
-    stampValue: Int = 0
+    stampValue: Double = 0
   ) {
     self.destinationHash = destinationHash
     self.filePath = filePath
@@ -292,28 +292,28 @@ public final class LXMPeer {
   private var unsafePropagationSyncLimit: Double? = nil
 
   /// Stamp cost this peer requires for messages it accepts.
-  public var propagationStampCost: Int? {
+  public var propagationStampCost: Double? {
     peerLock.lock()
     defer { peerLock.unlock() }
     return unsafePropagationStampCost
   }
-  private var unsafePropagationStampCost: Int? = nil
+  private var unsafePropagationStampCost: Double? = nil
 
   /// Flexibility (±) on the peer's stamp cost requirement.
-  public var propagationStampCostFlexibility: Int? {
+  public var propagationStampCostFlexibility: Double? {
     peerLock.lock()
     defer { peerLock.unlock() }
     return unsafePropagationStampCostFlexibility
   }
-  private var unsafePropagationStampCostFlexibility: Int? = nil
+  private var unsafePropagationStampCostFlexibility: Double? = nil
 
   /// PoW cost required for peering with this peer.
-  public var peeringCost: Int? {
+  public var peeringCost: Double? {
     peerLock.lock()
     defer { peerLock.unlock() }
     return unsafePeeringCost
   }
-  private var unsafePeeringCost: Int? = nil
+  private var unsafePeeringCost: Double? = nil
 
   // MARK: - Peering key
 
@@ -327,7 +327,7 @@ public final class LXMPeer {
   /// and commits here under `peerLock`; a plain `private(set)` stored property would still let
   /// any reader on another thread tear the tuple mid-write. TSan caught exactly that—the
   /// assertions all passed.
-  public private(set) var peeringKey: (stamp: Data, value: Int)? {
+  public private(set) var peeringKey: (stamp: Data, value: Double)? {
     get {
       peerLock.lock()
       defer { peerLock.unlock() }
@@ -339,12 +339,12 @@ public final class LXMPeer {
       peerLock.unlock()
     }
   }
-  private var unsafePeeringKey: (stamp: Data, value: Int)? = nil
+  private var unsafePeeringKey: (stamp: Data, value: Double)? = nil
 
   /// The value of the peering key held for this peer, or nil if there is none.
   ///
   /// Python: `LXMPeer.peering_key_value()` (`LXMPeer.py:238-240`).
-  public var peeringKeyValue: Int? {
+  public var peeringKeyValue: Double? {
     peerLock.lock()
     defer { peerLock.unlock() }
     return unsafePeeringKey?.value
@@ -572,9 +572,9 @@ public final class LXMPeer {
   func seedAnnouncedTerms(
     propagationTransferLimit: Double?? = nil,
     propagationSyncLimit: Double?? = nil,
-    propagationStampCost: Int?? = nil,
-    propagationStampCostFlexibility: Int?? = nil,
-    peeringCost: Int?? = nil,
+    propagationStampCost: Double?? = nil,
+    propagationStampCostFlexibility: Double?? = nil,
+    peeringCost: Double?? = nil,
     peeringTimebase: TimeInterval? = nil,
     metadata: [String: String]?? = nil
   ) {
@@ -612,9 +612,9 @@ public final class LXMPeer {
     announcedTimestamp: TimeInterval,
     transferLimit: Double?,
     syncLimit: Double?,
-    stampCost: Int,
-    stampCostFlexibility: Int,
-    peeringCost: Int,
+    stampCost: Double,
+    stampCostFlexibility: Double,
+    peeringCost: Double,
     metadata: [String: String]?
   ) {
     peerLock.lock()
@@ -755,16 +755,16 @@ public final class LXMPeer {
     if case .array(let parts)? = dict["peering_key"], parts.count == 2,
       case .bytes(let stampBytes) = parts[0]
     {
-      let keyValue = parts[1].asInt
+      let keyValue = parts[1].asDouble
       if let keyValue { peer.unsafePeeringKey = (stamp: Data(stampBytes), value: keyValue) }
     }
 
-    // Nullable ints
-    if let v = intVal("propagation_stamp_cost") { peer.unsafePropagationStampCost = v }
-    if let v = intVal("propagation_stamp_cost_flexibility") {
+    // Floats in LXMF 1.3.0, which reads an integer as well (`LXMPeer.py:81-94`).
+    if let v = dblVal("propagation_stamp_cost") { peer.unsafePropagationStampCost = v }
+    if let v = dblVal("propagation_stamp_cost_flexibility") {
       peer.unsafePropagationStampCostFlexibility = v
     }
-    if let v = intVal("peering_cost") { peer.unsafePeeringCost = v }
+    if let v = dblVal("peering_cost") { peer.unsafePeeringCost = v }
 
     // Handled and unhandled IDs—only add if still in router's propagation_entries
     if case .array(let handledArr) = dict["handled_ids"] {
@@ -854,16 +854,16 @@ public final class LXMPeer {
       kv("propagation_sync_limit", .nil)
     }
     if let v = sStampCost {
-      kv("propagation_stamp_cost", .int(Int64(v)))
+      kv("propagation_stamp_cost", .double(v))
     } else {
       kv("propagation_stamp_cost", .nil)
     }
     if let v = sStampFlex {
-      kv("propagation_stamp_cost_flexibility", .int(Int64(v)))
+      kv("propagation_stamp_cost_flexibility", .double(v))
     } else {
       kv("propagation_stamp_cost_flexibility", .nil)
     }
-    if let v = sPeeringCost { kv("peering_cost", .int(Int64(v))) } else { kv("peering_cost", .nil) }
+    if let v = sPeeringCost { kv("peering_cost", .double(v)) } else { kv("peering_cost", .nil) }
 
     // Python's shape exactly—`[stamp, value]` (`LXMPeer.py:145`, written from the list built
     // at `:261`). A shape invented here would load as nothing on a Python node reading the
@@ -877,7 +877,7 @@ public final class LXMPeer {
     let key = unsafePeeringKey
     peerLock.unlock()
     if let key {
-      kv("peering_key", .array([.bytes(key.stamp), .int(Int64(key.value))]))
+      kv("peering_key", .array([.bytes(key.stamp), .double(key.value)]))
     } else {
       kv("peering_key", .nil)
     }

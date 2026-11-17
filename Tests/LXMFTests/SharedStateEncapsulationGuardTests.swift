@@ -175,6 +175,7 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
       "peeringCost": "configuration — as above",
       "autopeer": "configuration",
       "maxPeeringCost": "configuration",
+      "pnStampThrottle": "configuration",
       "prioritiseRotatingUnreachablePeers": "configuration",
       "autopeerMaxdepth": "configuration",
     ],

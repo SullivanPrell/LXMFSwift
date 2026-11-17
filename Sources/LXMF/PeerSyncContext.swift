@@ -76,7 +76,7 @@ struct PeerSyncContext {
 
   /// The message's propagation stamp value, against which the peer's minimum accepted cost is
   /// tested before it is offered at all.
-  let stampValue: (Data) -> Int
+  let stampValue: (Data) -> Double
 
   /// Break the peering.
   ///

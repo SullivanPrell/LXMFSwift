@@ -138,7 +138,7 @@ public enum LXMDConfig {
     # You can configure the target stamp cost
     # required to deliver messages via this node.
 
-    # propagation_stamp_cost_target = 16
+    # propagation_stamp_cost_target = 16.0
 
     # If set higher than 0, the stamp cost flexi-
     # bility option will make this node accept
@@ -147,13 +147,25 @@ public enum LXMDConfig {
     # not from peers directly). This allows the
     # network to gradually adjust stamp cost.
 
-    # propagation_stamp_cost_flexibility = 3
+    # propagation_stamp_cost_flexibility = 3.0
+
+    # If a peer delivers messages with stamp costs
+    # not conforming to this node's targets, it'll
+    # be throttled, by default for 5 minutes. You
+    # can configure the throttle period, and for
+    # constrained nodes, it may be a good idea to
+    # set a much higher throttle time. Real LXMF
+    # propagation nodes will never deliver messages
+    # with lower stamp values than required by the
+    # receiving node.
+
+    # propagation_stamp_throttle = 5
 
     # The peering_cost option configures the target
     # value required for a remote node to peer with
     # and deliver messages to this node.
 
-    # peering_cost = 18
+    # peering_cost = 18.0
 
     # You can configure the maximum peering cost
     # of remote nodes that this node will peer with.
@@ -163,7 +175,7 @@ public enum LXMDConfig {
     # more computation time during initial peering
     # when generating the peering key.
 
-    # remote_peering_cost_max = 26
+    # remote_peering_cost_max = 26.0
 
     # You can tell the LXMF message router to
     # prioritise storage for one or more

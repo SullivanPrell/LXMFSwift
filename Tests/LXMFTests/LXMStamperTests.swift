@@ -48,7 +48,7 @@ final class LXMStamperTests: XCTestCase {
   func testGenerateAndValidateStampCost1() throws {
     let messageID = Hashes.randomHash()
     let expandRounds = 1  // small for test speed
-    let cost = 1
+    let cost: Double = 1
 
     let workblock = LXStamper.stampWorkblock(material: messageID, expandRounds: expandRounds)
     let stamp = try XCTUnwrap(
@@ -63,7 +63,7 @@ final class LXMStamperTests: XCTestCase {
   func testStampValueEqualsLeadingZeroBits() throws {
     let messageID = Hashes.randomHash()
     let expandRounds = 1
-    let cost = 3
+    let cost: Double = 3
 
     let workblock = LXStamper.stampWorkblock(material: messageID, expandRounds: expandRounds)
     let stamp = try XCTUnwrap(

@@ -877,9 +877,10 @@ final class PeerOutboundSyncTests: XCTestCase {
         "`peering_key` must be a two-element list [stamp, value] (LXMPeer.py:113-114, :261)")
     }
     guard case .bytes = parts[0] else { return XCTFail("element 0 is the raw stamp") }
-    switch parts[1] {
-    case .int, .uint: break
-    default: XCTFail("element 1 is the value, an integer — got \(parts[1])")
+    // LXMF 1.3.0 stores the fractional value `RNS.Stamps.generate_stamp` returns
+    // (`LXMPeer.py:260-262`).
+    guard case .double = parts[1] else {
+      return XCTFail("element 1 is the value, a float — got \(parts[1])")
     }
   }
 

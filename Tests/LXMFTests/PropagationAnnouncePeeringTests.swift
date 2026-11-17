@@ -90,6 +90,10 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
   func testTheConfiguredOutboundNodeAnnouncingRetriesPropagatedMessagesNow() throws {
     let net = try makeTwoNodes()
     net.node.outboundPropagationNode = net.remotePropagationHash
+    // The node's own traffic is dropped. Its path request would draw a path response that a later
+    // announce in the same second can't replace (RNS 1.6.0 `Transport.py:2519`), and RNS 1.6.0
+    // calls announce handlers only for a replacing announce (`:2579`, `:2763-2799`).
+    try XCTUnwrap(net.nodeInterface as? AnnounceLoopInterface).isMuted = true
 
     let queued = try net.queuePropagatedMessage()
     let later = Date().timeIntervalSince1970 + 3600
@@ -473,12 +477,15 @@ private final class AnnounceLoopInterface: Interface {
   var isOnline: Bool = true
   var inboundHandler: ((Packet, any Interface) -> Void)?
   weak var paired: AnnounceLoopInterface?
+  /// When set, `send` drops every packet.
+  var isMuted = false
 
   init(name: String) { self.name = name }
   func start() throws { isOnline = true }
   func stop() { isOnline = false }
 
   func send(_ packet: Packet) throws {
+    guard !isMuted else { return }
     let raw = try packet.pack()
     let copy = try Packet.unpack(raw)
     paired?.inboundHandler?(copy, paired!)

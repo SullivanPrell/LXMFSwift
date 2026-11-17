@@ -25,11 +25,19 @@ final class LXMRouterStampTests: XCTestCase {
 
   private func makeRouter() -> LXMRouter { LXMRouter(transport: Transport()) }
 
+  /// A router with one registered delivery destination. `set_inbound_stamp_cost` returns False
+  /// for a hash that isn't one (`LXMRouter.py:444-462`).
+  private func makeRegisteredRouter() throws -> (LXMRouter, Data) {
+    let transport = Transport()
+    let router = LXMRouter(transport: transport)
+    let destination = try router.register(identity: Identity(), transport: transport)
+    return (router, destination.hash)
+  }
+
   // MARK: - set_inbound_stamp_cost / get_outbound_stamp_cost
 
-  func testSetInboundStampCostReturnsTrue() {
-    let router = makeRouter()
-    let hash = Data(repeating: 0xAA, count: 16)
+  func testSetInboundStampCostReturnsTrue() throws {
+    let (router, hash) = try makeRegisteredRouter()
     let result = router.setInboundStampCost(destinationHash: hash, stampCost: 4)
     XCTAssertTrue(result, "setInboundStampCost must return true on success")
   }
@@ -51,9 +59,8 @@ final class LXMRouterStampTests: XCTestCase {
       "getOutboundStampCost must return the value set by setOutboundStampCost")
   }
 
-  func testSetInboundStampCostNilClearsIt() {
-    let router = makeRouter()
-    let hash = Data(repeating: 0xDD, count: 16)
+  func testSetInboundStampCostNilClearsIt() throws {
+    let (router, hash) = try makeRegisteredRouter()
     router.setInboundStampCost(destinationHash: hash, stampCost: 4)
     let clearedResult = router.setInboundStampCost(destinationHash: hash, stampCost: nil)
     XCTAssertTrue(clearedResult, "clearing stamp cost must also return true")

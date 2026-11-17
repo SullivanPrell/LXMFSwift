@@ -169,7 +169,7 @@ public final class LXMessage {
 
   /// Target stamp difficulty: minimum leading zero bits in SHA256(workblock+stamp).
   /// nil means no stamp is required/generated.
-  public var stampCost: Int?
+  public var stampCost: Double?
 
   /// HKDF expand rounds for stamp workblock.
   ///
@@ -181,7 +181,7 @@ public final class LXMessage {
   /// Leading zero bit count of the stamp (its "value").
   ///
   /// Set by `validateStamp`.
-  public private(set) var stampValue: Int?
+  public private(set) var stampValue: Double?
 
   /// Delivery state, and the one place a change to it is announced.
   ///
@@ -295,7 +295,7 @@ public final class LXMessage {
 
   /// Stamp value assigned when a ticket is used instead of proof-of-work: 256 (0x100).
   /// Python: `LXMessage.COST_TICKET = 0x100`
-  public static let costTicket: Int = 0x100
+  public static let costTicket: Double = 0x100
 
   /// Delivery attempts made so far.
   public var deliveryAttempts: Int = 0
@@ -446,7 +446,7 @@ public final class LXMessage {
     title: Data = Data(),
     fields: [Int: Any] = [:],
     desiredMethod: Method? = nil,
-    stampCost: Int? = nil,
+    stampCost: Double? = nil,
     stampExpandRounds: Int = LXStamper.defaultExpandRounds
   ) {
     self.destination = destination
@@ -469,7 +469,7 @@ public final class LXMessage {
     title: String = "",
     fields: [Int: Any] = [:],
     desiredMethod: Method? = nil,
-    stampCost: Int? = nil,
+    stampCost: Double? = nil,
     stampExpandRounds: Int = LXStamper.defaultExpandRounds
   ) {
     self.init(
@@ -911,7 +911,7 @@ public final class LXMessage {
   /// falls through to the regular PoW workblock check.
   ///
   /// Mirrors Python's `LXMessage.validate_stamp(target_cost, tickets=None)`.
-  public func validateStamp(targetCost: Int, tickets: [Data]? = nil) -> Bool {
+  public func validateStamp(targetCost: Double, tickets: [Data]? = nil) -> Bool {
     guard let s = stamp, let msgHash = hash else {
       stampValid = false
       return false
@@ -1161,7 +1161,7 @@ extension LXMessage {
   /// Returns `nil` if the message has not been packed yet (`messageID` is nil).
   ///
   /// Mirrors Python's `LXMessage.get_propagation_stamp(target_cost, timeout=None)`.
-  public func getPropagationStamp(targetCost: Int) -> Data? {
+  public func getPropagationStamp(targetCost: Double) -> Data? {
     // Return instance-cached stamp if already computed
     if let cached = propagationStamp { return cached }
 
@@ -1189,7 +1189,7 @@ extension LXMessage {
   /// as `fullHash(lxmfDataWithoutStamp)`—identical to Python's `LXMessage.transient_id`.
   ///
   /// - Parameter cost: Minimum leading-zero-bit cost required by the propagation node.
-  public func attachPropagationStamp(cost: Int) {
+  public func attachPropagationStamp(cost: Double) {
     guard cost > 0 else { return }  // mirrors Python: no stamp for cost ≤ 0
     guard propagationStamp == nil else { return }  // already stamped
     guard messageID != nil else { return }  // needs pack() first

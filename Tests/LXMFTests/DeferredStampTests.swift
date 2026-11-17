@@ -21,7 +21,7 @@ import Testing
 struct DeferredStampTests {
 
   /// A cost the search can't clear before the test cancels it.
-  static let slowCost = 14
+  static let slowCost: Double = 14
 
   @Test("send returns before the stamp exists, and the message waits in the deferred store")
   func sendReturnsBeforeTheStamp() throws {
@@ -141,7 +141,7 @@ struct DeferredStampTests {
 
 extension SingleNode {
   /// An unpacked message to the remote destination.
-  fileprivate func message(stampCost: Int?, method: LXMessage.Method = .direct) -> LXMessage {
+  fileprivate func message(stampCost: Double?, method: LXMessage.Method = .direct) -> LXMessage {
     let message = LXMessage(
       destination: remoteDestination, source: sourceDestination,
       content: "deferred stamp", desiredMethod: method)

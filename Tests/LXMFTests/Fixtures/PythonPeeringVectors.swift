@@ -52,8 +52,11 @@ enum PythonPeeringVectors {
     0x81, 0x09, 0x0a, 0x12, 0xed, 0xfc, 0x52, 0x18,
   ])
 
-  static let cost = 4
-  static let value = 4
+  static let cost: Double = 4
+  /// The key's value under RNS 1.6.0's fractional `stamp_value`.
+  ///
+  /// Recaptured 2026-11-14 with LXMF 1.3.0. LXMF 1.1.0 counted leading zero bits and reported 4.
+  static let value = 4.1796875
 
   /// `WORKBLOCK_EXPAND_ROUNDS_PEERING` × 256 bytes.
   static let workblockLength = 6400

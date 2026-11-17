@@ -139,6 +139,18 @@ final class PropagationThrottleTests: XCTestCase {
       "the sweep must remove expired entries only, not clear the table")
   }
 
+  func testTheThrottlePeriodIsTheNodesConfiguredValue() throws {
+    let net = try makeNodeAndRemote()
+    net.router.pnStampThrottle = 900
+    let before = Date().timeIntervalSince1970
+    try net.upload(stampIsValid: false)
+
+    let until = try XCTUnwrap(net.router.throttledPeers[net.remotePropagationHash])
+    XCTAssertEqual(
+      until - before, 900, accuracy: 5,
+      "LXMF 1.3.0 throttles for the node's own pn_stamp_throttle (LXMRouter.py:2790)")
+  }
+
   // MARK: - Harness
 
   private var retained: [AnyObject] = []
@@ -260,7 +272,7 @@ final class PropagationThrottleTests: XCTestCase {
   ///   real stamp costs `2^cost` hashes of a 256 KB workblock.
   /// - Returns: The node, the remote router and the transports joining them.
   /// - Throws: An error raised while building either router.
-  private func makeNodeAndRemote(stampCost: Int = 16) throws -> Network {
+  private func makeNodeAndRemote(stampCost: Double = 16) throws -> Network {
     let nodeTransport = Transport()
     let remoteTransport = Transport()
     retained.append(contentsOf: [nodeTransport, remoteTransport])
