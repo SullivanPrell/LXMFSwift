@@ -5,6 +5,8 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.13.0]—LXMF 1.3.0: fractional stamp costs, and a queue that holds on slow paths
+
 LXMFSwift now tracks Python LXMF 1.3.0. Against LXMF 1.3.0 on RNS 1.6.0, with ReticulumSwift
 `main` at `8d32557`, reticulum-interop's five LXMF files report 25 passed and skip the 6 Go
 cells. Against LXMF 1.2.1 on RNS 1.5.7, the LXMF 1.2.1 changes reported 28 passed and
