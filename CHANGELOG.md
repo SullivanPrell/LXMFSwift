@@ -7,7 +7,9 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ### LXMF 1.3.1 parity
 
-LXMFSwift now tracks LXMF 1.3.1, up from 1.3.0.
+LXMFSwift now tracks LXMF 1.3.1, up from 1.3.0. It requires ReticulumSwift 1.29.0, which matches
+RNS 1.6.1. That release stamps announces and path requests by default, so they leave after a
+stamp is generated instead of at once.
 
 - A message stamp, a peering key and a propagation stamp are each checked against the bare
   message, peering or transient ID first, then against the expanded workblock. The value comes

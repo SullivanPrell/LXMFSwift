@@ -294,8 +294,8 @@ struct DeliveryAttemptSchedulingTests {
 /// A router on transport A, and a delivery destination on transport B that A has learned from
 /// an announce, so A holds a path to it and can recall its identity.
 final class AnnouncedPair {
-  let transportA = Transport()
-  let transportB = Transport()
+  let transportA = Transport.unstamped()
+  let transportB = Transport.unstamped()
   let ifaceA = PeerSyncLoopInterface(name: "a")
   let ifaceB = PeerSyncLoopInterface(name: "b")
   let router: LXMRouter

@@ -421,8 +421,8 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
   }
 
   private func makeTwoNodes() throws -> Network {
-    let nodeTransport = Transport()
-    let remoteTransport = Transport()
+    let nodeTransport = Transport.unstamped()
+    let remoteTransport = Transport.unstamped()
     retained.append(contentsOf: [nodeTransport, remoteTransport])
 
     let nodeInterface = AnnounceLoopInterface(name: "node")

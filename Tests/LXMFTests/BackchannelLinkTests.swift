@@ -211,8 +211,8 @@ struct BackchannelLinkTests {
 /// B announces, so A has a path to B. B knows A's identity but holds no path to A, so B can only
 /// reach A over a link A opened.
 final class BackchannelPair {
-  let transportA = Transport()
-  let transportB = Transport()
+  let transportA = Transport.unstamped()
+  let transportB = Transport.unstamped()
   let ifaceA = PeerSyncLoopInterface(name: "a")
   let ifaceB = PeerSyncLoopInterface(name: "b")
   let identityA: Identity
