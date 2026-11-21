@@ -17,6 +17,13 @@ stamp is generated instead of at once.
 - `LXMRouter.register` takes `stampValue`, which sets the delivery destination's announce
   stamp value when it isn't 0 (`LXMRouter.py:413-422`).
 
+### Fixed
+
+- A persistent peer could stall its next sync batch. `LXMPeer.sync()` replays the close of a
+  link whose transfer finished inside `Link.initiate`. When the re-sync had already dialled the
+  next link, the replay cleared it, and the offer response found no link to send on. A close
+  now resets the peer only when it's for the peer's current link.
+
 ## [1.13.0]—LXMF 1.3.0: fractional stamp costs, and a queue that holds on slow paths
 
 LXMFSwift now tracks Python LXMF 1.3.0. Against LXMF 1.3.0 on RNS 1.6.0, with ReticulumSwift

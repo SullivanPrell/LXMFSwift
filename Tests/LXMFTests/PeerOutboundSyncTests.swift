@@ -704,6 +704,35 @@ final class PeerOutboundSyncTests: XCTestCase {
       """)
   }
 
+  /// A close for a link the peer has already replaced leaves the new link alone.
+  ///
+  /// Over a synchronous wire `sync()` replays the close of a link that finished its whole
+  /// transfer inside `Link.initiate`, and by then the persistent re-sync may hold the next link.
+  /// Python installs its callbacks when it builds the link and needs no replay (`LXMPeer.py:328`).
+  func testALateCloseOfAReplacedLinkLeavesTheNewLinkAlone() throws {
+    net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 4)
+    let peer = try net.announceBToA()
+    XCTAssertTrue(peer.generatePeeringKey())
+    _ = try net.storeMessage(in: net.routerA, size: 400)
+    net.interfaceA.isBlackholed = true  // each link stays pending
+
+    peer.sync()
+    let first = try XCTUnwrap(peer.currentSyncLink)
+    try first.teardown()
+    XCTAssertEqual(peer.state, .idle)
+    peer.seedSyncState(nextSyncAttempt: 0)
+    peer.sync()
+    let second = try XCTUnwrap(peer.currentSyncLink)
+    XCTAssertFalse(first === second)
+
+    first.onClosed?(first)
+
+    XCTAssertTrue(
+      peer.currentSyncLink === second,
+      "a stale close dropped the peer's live link, so its offer response finds no link")
+    XCTAssertEqual(peer.state, .linkEstablishing)
+  }
+
   /// T17—a persistent-strategy peer chains the next batch itself rather than waiting for the
   /// next scheduled pass.
   func testThePersistentStrategyChainsTheNextBatch() throws {
