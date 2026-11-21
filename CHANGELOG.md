@@ -5,6 +5,8 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.14.0]—LXMF 1.3.1: stamps checked against the bare workblock first
+
 ### LXMF 1.3.1 parity
 
 LXMFSwift now tracks LXMF 1.3.1, up from 1.3.0. It requires ReticulumSwift 1.29.0, which matches
