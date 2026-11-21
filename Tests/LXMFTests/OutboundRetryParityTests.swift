@@ -158,8 +158,8 @@ final class OutboundRetryParityTests: XCTestCase {
     // Two transports on a synchronous wire: B announces a delivery destination, so A
     // holds a real path table entry and can recall B's identity—a path that *looks*
     // healthy, which is exactly what a stale entry looks like.
-    let transportA = Transport()
-    let transportB = Transport()
+    let transportA = Transport.unstamped()
+    let transportB = Transport.unstamped()
     let ifaceA = PeerSyncLoopInterface(name: "a")
     let ifaceB = PeerSyncLoopInterface(name: "b")
     ifaceA.paired = ifaceB
@@ -232,7 +232,7 @@ final class OutboundRetryParityTests: XCTestCase {
 /// deliberately unknown: no announce is ever processed, so `recall` fails and no path
 /// exists—the exact situation the pathless retry ladder exists for.
 final class SingleNode {
-  let transport = Transport()
+  let transport = Transport.unstamped()
   let iface = PeerSyncLoopInterface(name: "recording")
   let router: LXMRouter
 

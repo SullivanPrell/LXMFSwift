@@ -71,8 +71,8 @@ final class PeerOutboundSyncNetwork {
     self.test = test
     self.tempDir = tempDir
 
-    transportA = Transport()
-    transportB = Transport()
+    transportA = Transport.unstamped()
+    transportB = Transport.unstamped()
     identityA = Identity()
     identityB = Identity()
 

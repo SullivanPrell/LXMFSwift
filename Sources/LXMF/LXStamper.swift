@@ -108,6 +108,8 @@ public enum LXStamper {
   public static func validatePeeringKey(peeringID: Data, peeringKey: Data, targetCost: Double)
     -> Bool
   {
+    // A key over the bare peering ID is accepted first (`LXStamper.py:27-30`).
+    if stampValid(stamp: peeringKey, targetCost: targetCost, workblock: peeringID) { return true }
     let workblock = stampWorkblock(material: peeringID, expandRounds: peeringExpandRounds)
     return stampValid(stamp: peeringKey, targetCost: targetCost, workblock: workblock)
   }
@@ -130,7 +132,10 @@ public enum LXStamper {
     let lxmfData = transientData.prefix(transientData.count - stampSize)
     let stamp = transientData.suffix(stampSize)
     let transientID = Hashes.fullHash(lxmfData)
-    let workblock = stampWorkblock(material: transientID, expandRounds: pnStampExpandRounds)
+    // A stamp over the bare transient ID is accepted first (`LXStamper.py:44-49`).
+    let workblock =
+      stampValid(stamp: stamp, targetCost: targetCost, workblock: transientID)
+      ? transientID : stampWorkblock(material: transientID, expandRounds: pnStampExpandRounds)
 
     guard stampValid(stamp: stamp, targetCost: targetCost, workblock: workblock) else {
       return nil

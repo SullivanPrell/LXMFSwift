@@ -926,6 +926,13 @@ public final class LXMessage {
       }
     }
 
+    // A stamp over the bare message ID is accepted first (`LXMessage.py:295-301`).
+    if LXStamper.stampValid(stamp: s, targetCost: targetCost, workblock: msgHash) {
+      stampValid = true
+      stampValue = LXStamper.stampValue(workblock: msgHash, stamp: s)
+      return true
+    }
+
     // Fall through to PoW workblock validation.
     let workblock = LXStamper.stampWorkblock(material: msgHash, expandRounds: stampExpandRounds)
     let valid = LXStamper.stampValid(stamp: s, targetCost: targetCost, workblock: workblock)

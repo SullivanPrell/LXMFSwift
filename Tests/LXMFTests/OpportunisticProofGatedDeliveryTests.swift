@@ -158,8 +158,8 @@ final class OpportunisticProofGatedDeliveryTests: XCTestCase {
 /// (`LXMRouter.py:1927`), so the only thing deciding whether a proof reaches the sender is the
 /// interface.
 private final class OpportunisticPair {
-  let senderTransport = Transport()
-  let receiverTransport = Transport()
+  let senderTransport = Transport.unstamped()
+  let receiverTransport = Transport.unstamped()
   let senderInterface = GatedInterface(name: "sender")
   let receiverInterface = GatedInterface(name: "receiver")
 

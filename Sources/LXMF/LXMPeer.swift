@@ -515,6 +515,13 @@ public final class LXMPeer {
 
   // MARK: - Seeding, for tests (`swift_devel/bugs/055`)
 
+  /// The sync link the peer holds now. `internal`, for `@testable import`.
+  var currentSyncLink: Link? {
+    peerLock.lock()
+    defer { peerLock.unlock() }
+    return link
+  }
+
   /// Put a peer into a chosen state without driving it there through the sync machine.
   ///
   /// `internal`, so `@testable import` reaches it and an application does not. One acquisition
@@ -1331,6 +1338,12 @@ public final class LXMPeer {
   /// Port of `LXMPeer.link_closed` (`:544-546`).
   private func syncLinkClosed(_ link: Link) {
     peerLock.lock()
+    // `sync()` replays a close the transfer already reported, possibly after the persistent
+    // re-sync dialled the next link. Python builds its link with the callback and never replays.
+    guard self.link === link else {
+      peerLock.unlock()
+      return
+    }
     self.link = nil
     unsafeState = .idle
     peerLock.unlock()

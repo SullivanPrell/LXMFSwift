@@ -802,12 +802,14 @@ public final class LXMRouter {
   ///   - transport: The active `Transport` instance.
   ///   - displayName: Optional human-readable name for this node, included in
   ///     announce app data. Mirrors Python's `display_name` parameter.
+  ///   - stampValue: The value the destination's announces are stamped to. `nil` or 0 keeps
+  ///     the transport's default. Mirrors Python's `stamp_value` parameter.
   /// - Returns: The registered delivery destination.
   /// - Throws: An error raised while constructing the destination.
   @discardableResult
   public func register(
     identity: Identity, transport: Transport,
-    displayName: String? = nil
+    displayName: String? = nil, stampValue: Double? = nil
   ) throws -> Destination {
     let delivery = try Destination(
       identity: identity,
@@ -816,6 +818,8 @@ public final class LXMRouter {
       appName: appName,
       aspects: ["delivery"]
     )
+    // `if stamp_value: delivery_destination.set_value(stamp_value)` (`LXMRouter.py:421`).
+    if let stampValue, stampValue != 0 { delivery.setValue(stampValue) }
     delivery.setLinkCost(LXMRouter.deliveryLinkCost)  // LXMF 1.3.0 `LXMRouter.py:422`
     lock.lock()
     if self.identity == nil { self.identity = identity }
