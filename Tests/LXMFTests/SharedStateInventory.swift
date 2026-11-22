@@ -69,6 +69,21 @@ enum SharedStateInventory {
       "pendingOutbound",
       "the outbound delivery queue; mutated under the lock on the send, process and cancel paths (bugs/056)"
     ),
+    Entry(
+      "outboundPropagationNode",
+      "set by the app's UI, read by the delivery and sync paths on transport threads"),
+    Entry(
+      "propagationTransferState",
+      "the client sync state; written by link callbacks, the path-wait job and cancel, read by the app's UI"
+    ),
+    Entry("propagationTransferProgress", "as above"),
+    Entry("propagationTransferSize", "as above"),
+    Entry("propagationTransferMaxMessages", "as above"),
+    Entry(
+      "wantsDownloadOnPathAvailableFrom",
+      "download intent; the path-wait job reads it while cancel clears it"),
+    Entry("wantsDownloadOnPathAvailableTo", "as above; an `Identity` reference"),
+    Entry("wantsDownloadOnPathAvailableTimeout", "as above"),
   ]
 
   /// Properties of `LXMPeer` that the peer accesses under `LXMPeer.peerLock`.
@@ -178,7 +193,7 @@ extension SharedStateInventory {
     while start > 0 {
       if lines[start].range(
         of:
-          #"^    (@discardableResult\s+)?(public |internal |private |fileprivate )?(static )?(func |init\(|deinit)"#,
+          #"^  (@discardableResult\s+)?(public |internal |private |fileprivate )?(static )?(func |init\(|deinit)"#,
         options: .regularExpression) != nil
       {
         break
@@ -244,7 +259,12 @@ extension SharedStateInventory {
   /// check that looked only for the accessor spelling would report the state as unguarded the
   /// moment it became guarded.
   static func spellings(_ name: String) -> String {
-    "(?:\(name)|unsafe\(name.prefix(1).uppercased())\(name.dropFirst()))"
+    "(?:\(name)|\(store(name)))"
+  }
+
+  /// The backing store's spelling of `name`: `unsafeName`.
+  static func store(_ name: String) -> String {
+    "unsafe\(name.prefix(1).uppercased())\(name.dropFirst())"
   }
 
   /// The first access to `name`—or to its backing store—in `lines` at `line`, as a column,
