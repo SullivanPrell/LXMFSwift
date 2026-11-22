@@ -5,6 +5,24 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Source-breaking:** `LXMRouter.outboundPropagationNode` is now `public internal(set)`. To
+  set it from outside the package, call the new `setOutboundPropagationNode(_:)`. Its name
+  mirrors Python's `set_outbound_propagation_node` (`LXMRouter.py:481-490`). It does not yet
+  tear down an open link to a different node the way Python's does.
+
+### Fixed
+
+- A data race on the router's propagation sync state. `outboundPropagationNode`, the
+  `propagationTransfer*` fields and the `wantsDownloadOnPathAvailable*` fields were written
+  under the router's lock on network threads but read bare from the app. Each field now
+  takes the lock, and ThreadSanitizer reports no race in the sync suites.
+- `SharedStateEncapsulationGuardTests` could not fail. Its patterns looked for `_name` storage
+  and 4-space members, but the sources use `unsafeName` and 2-space members. The guards now
+  match the real spellings, and they flag a stored `public var` that has a `didSet` or
+  `willSet` observer.
+
 ## [1.14.0]—LXMF 1.3.1: stamps checked against the bare workblock first
 
 ### LXMF 1.3.1 parity

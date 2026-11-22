@@ -56,6 +56,10 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
         {
           return "line \(j + 1): computed property with a public setter"
         }
+        // A brace can also open property observers: still stored, still publicly settable.
+        if j > i, body.range(of: #"^\s*(didSet|willSet)\b"#, options: .regularExpression) != nil {
+          return "line \(j + 1): stored `public var` with an observer"
+        }
         if depth <= 0 && j > i { break }
       }
       return nil
@@ -152,17 +156,9 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
   private static let exemptions: [String: [String: String]] = [
     "LXMRouter.swift": [
       "onMessageReceived": "callback slot; set once at wiring time",
-      "outboundPropagationNode": "client-side configuration; the router never takes `lock` for it",
-      "propagationTransferState": "client-side sync progress, single-threaded on the client path",
-      "propagationTransferProgress": "as above",
-      "propagationTransferSize": "as above",
-      "propagationTransferMaxMessages": "as above",
       "deliveryPerTransferLimit": "configuration",
       "retainSyncedOnNode": "configuration",
       "name": "configuration",
-      "wantsDownloadOnPathAvailableFrom": "client-side download intent",
-      "wantsDownloadOnPathAvailableTo": "as above",
-      "wantsDownloadOnPathAvailableTimeout": "as above",
       "enforceRatchets": "configuration",
       "storagePath": "configuration; its `didSet` loads persisted state",
       "messagePath": "configuration",
@@ -273,16 +269,22 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
         let reads = o.names.filter {
           // its own backing store is expected; any OTHER guarded store is the question
           $0 != String(name)
-            && text.range(of: #"(?<![\w])_\#($0)\b"#, options: .regularExpression) != nil
+            && text.range(
+              of: #"(?<![\w])\#(SharedStateInventory.store($0))\b"#, options: .regularExpression)
+              != nil
         }
-        // Reading its own `_name` counts too—that is the whole point of the accessor.
-        let readsOwn = text.range(of: #"(?<![\w])_\#(name)\b"#, options: .regularExpression) != nil
+        // Reading its own `unsafeName` counts too—that is the whole point of the accessor.
+        let readsOwn =
+          text.range(
+            of: #"(?<![\w])\#(SharedStateInventory.store(String(name)))\b"#,
+            options: .regularExpression)
+          != nil
         guard readsOwn || !reads.isEmpty else { continue }
         guard o.names.contains(String(name)) || !reads.isEmpty || readsOwn else { continue }
 
         if !text.contains("\(o.lock).lock()") {
           offenders.append(
-            "\(o.file):\(i + 1): `\(name)` reads guarded storage \(reads.isEmpty ? "_\(name)" : reads.map { "_\($0)" }.joined(separator: ", ")) without taking `\(o.lock)`"
+            "\(o.file):\(i + 1): `\(name)` reads guarded storage \(reads.isEmpty ? SharedStateInventory.store(String(name)) : reads.map(SharedStateInventory.store).joined(separator: ", ")) without taking `\(o.lock)`"
           )
         }
       }
@@ -299,7 +301,7 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
     }
   }
 
-  /// Every access to a `_`-prefixed backing store must hold the owner's lock, or be on a
+  /// Every access to an `unsafe`-prefixed backing store must hold the owner's lock, or be on a
   /// construction path where the object is not yet reachable from another thread.
   ///
   /// This is the broadest of the guards and the one that found the most. Hand-running it during
@@ -328,10 +330,15 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
       for (i, raw) in lines.enumerated() {
         let l = SharedStateInventory.stripComment(raw)
         for name in o.names {
-          guard let r = l.range(of: #"(?<![\w])_\#(name)\b"#, options: .regularExpression)
+          guard
+            let r = l.range(
+              of: #"(?<![\w])\#(SharedStateInventory.store(name))\b"#, options: .regularExpression)
           else { continue }
           // The declaration of the backing store itself.
-          if l.range(of: #"^\s*private\s+var\s+_\#(name)\b"#, options: .regularExpression) != nil {
+          if l.range(
+            of: #"^\s*private\s+var\s+\#(SharedStateInventory.store(name))\b"#,
+            options: .regularExpression) != nil
+          {
             continue
           }
 
@@ -346,7 +353,7 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
           while k > 0 {
             if lines[k].range(
               of:
-                #"^    (@discardableResult\s+)?(public |internal |private |fileprivate )?(static )?(func |init\(|deinit)"#,
+                #"^  (@discardableResult\s+)?(public |internal |private |fileprivate )?(static )?(func |init\(|deinit)"#,
               options: .regularExpression) != nil
             {
               enclosing = lines[k].trimmingCharacters(in: .whitespaces)

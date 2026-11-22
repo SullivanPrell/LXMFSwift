@@ -242,7 +242,30 @@ public final class LXMRouter {
   /// Hash of the propagation node to use for outbound propagated delivery.
   ///
   /// Mirrors Python's `LXMRouter.outbound_propagation_node`.
-  public var outboundPropagationNode: Data?
+  ///
+  /// The app sets it while the delivery and sync paths read it on transport threads, so it lives
+  /// behind `lock`; set it with ``setOutboundPropagationNode(_:)``.
+  public internal(set) var outboundPropagationNode: Data? {
+    get {
+      lock.lock()
+      defer { lock.unlock() }
+      return unsafeOutboundPropagationNode
+    }
+    set {
+      lock.lock()
+      unsafeOutboundPropagationNode = newValue
+      lock.unlock()
+    }
+  }
+  private var unsafeOutboundPropagationNode: Data? = nil
+
+  /// Sets the propagation node to use for outbound propagated delivery, or clears it with `nil`.
+  ///
+  /// Python: `LXMRouter.set_outbound_propagation_node` (`LXMRouter.py:481-490`). Python also
+  /// tears down an open link to a different node there; this port doesn't yet.
+  public func setOutboundPropagationNode(_ destinationHash: Data?) {
+    outboundPropagationNode = destinationHash
+  }
 
   /// Active link to the propagation node.
   ///
@@ -254,23 +277,53 @@ public final class LXMRouter {
   /// Current state of an in-progress propagation sync transfer.
   ///
   /// Mirrors Python's `LXMRouter.propagation_transfer_state`.
-  public var propagationTransferState: PropagationTransferState = .idle {
-    didSet { propagationTransferLastActivity = Date().timeIntervalSince1970 }
+  ///
+  /// Written by link callbacks, the path-wait job and cancel, and read by the app's UI, so this
+  /// and the rest of the sync state live behind `lock`.
+  public internal(set) var propagationTransferState: PropagationTransferState {
+    get {
+      lock.lock()
+      defer { lock.unlock() }
+      return unsafePropagationTransferState
+    }
+    set {
+      lock.lock()
+      unsafePropagationTransferState = newValue
+      unsafePropagationTransferLastActivity = Date().timeIntervalSince1970
+      lock.unlock()
+    }
   }
+  private var unsafePropagationTransferState: PropagationTransferState = .idle
 
   /// Progress of the current propagation sync (0.0–1.0).
   ///
   /// Mirrors Python's `LXMRouter.propagation_transfer_progress`.
-  public var propagationTransferProgress: Double = 0.0 {
-    didSet { propagationTransferLastActivity = Date().timeIntervalSince1970 }
+  public internal(set) var propagationTransferProgress: Double {
+    get {
+      lock.lock()
+      defer { lock.unlock() }
+      return unsafePropagationTransferProgress
+    }
+    set {
+      lock.lock()
+      unsafePropagationTransferProgress = newValue
+      unsafePropagationTransferLastActivity = Date().timeIntervalSince1970
+      lock.unlock()
+    }
   }
+  private var unsafePropagationTransferProgress: Double = 0.0
 
   /// When the sync machine last moved: any state transition or progress update refreshes it.
   ///
   /// Port-only, feeding the stall bound in `cleanLinks(syncStallTimeout:)`. The reference has
   /// no equivalent because it has no bound for a live-but-stuck transfer—its watchdog only
   /// catches links that die (`swift_devel/bugs/020`, design D5).
-  private(set) var propagationTransferLastActivity: TimeInterval = 0
+  var propagationTransferLastActivity: TimeInterval {
+    lock.lock()
+    defer { lock.unlock() }
+    return unsafePropagationTransferLastActivity
+  }
+  private var unsafePropagationTransferLastActivity: TimeInterval = 0
 
   /// Size in bytes of the in-flight propagation-node message-get response, or
   /// `nil` when no sync is running.
@@ -278,12 +331,36 @@ public final class LXMRouter {
   /// Lets a UI render "x of y bytes" instead of
   /// only a fraction. Reset on every new sync request and on completion or
   /// failure. Mirrors Python's `LXMRouter.propagation_transfer_size`.
-  public var propagationTransferSize: Int? = nil
+  public internal(set) var propagationTransferSize: Int? {
+    get {
+      lock.lock()
+      defer { lock.unlock() }
+      return unsafePropagationTransferSize
+    }
+    set {
+      lock.lock()
+      unsafePropagationTransferSize = newValue
+      lock.unlock()
+    }
+  }
+  private var unsafePropagationTransferSize: Int? = nil
 
   /// Maximum messages to fetch (nil = all).
   ///
   /// Mirrors Python's `LXMRouter.propagation_transfer_max_messages` (PR_ALL_MESSAGES = -1 → nil).
-  public var propagationTransferMaxMessages: Int? = nil
+  public internal(set) var propagationTransferMaxMessages: Int? {
+    get {
+      lock.lock()
+      defer { lock.unlock() }
+      return unsafePropagationTransferMaxMessages
+    }
+    set {
+      lock.lock()
+      unsafePropagationTransferMaxMessages = newValue
+      lock.unlock()
+    }
+  }
+  private var unsafePropagationTransferMaxMessages: Int? = nil
 
   /// Maximum messages per single GET transfer (nil = no limit).
   ///
@@ -298,17 +375,53 @@ public final class LXMRouter {
   /// Propagation node awaiting a path, before sync is re-attempted.
   ///
   /// Mirrors Python's `LXMRouter.wants_download_on_path_available_from`.
-  public var wantsDownloadOnPathAvailableFrom: Data? = nil
+  public internal(set) var wantsDownloadOnPathAvailableFrom: Data? {
+    get {
+      lock.lock()
+      defer { lock.unlock() }
+      return unsafeWantsDownloadOnPathAvailableFrom
+    }
+    set {
+      lock.lock()
+      unsafeWantsDownloadOnPathAvailableFrom = newValue
+      lock.unlock()
+    }
+  }
+  private var unsafeWantsDownloadOnPathAvailableFrom: Data? = nil
 
   /// The identity the download resumes as once the path arrives.
   ///
   /// Mirrors Python's `LXMRouter.wants_download_on_path_available_to`.
-  public var wantsDownloadOnPathAvailableTo: Identity? = nil
+  public internal(set) var wantsDownloadOnPathAvailableTo: Identity? {
+    get {
+      lock.lock()
+      defer { lock.unlock() }
+      return unsafeWantsDownloadOnPathAvailableTo
+    }
+    set {
+      lock.lock()
+      unsafeWantsDownloadOnPathAvailableTo = newValue
+      lock.unlock()
+    }
+  }
+  private var unsafeWantsDownloadOnPathAvailableTo: Identity? = nil
 
   /// When the wait for a path to the propagation node runs out.
   ///
   /// Mirrors Python's `LXMRouter.wants_download_on_path_available_timeout`.
-  public var wantsDownloadOnPathAvailableTimeout: TimeInterval? = nil
+  public internal(set) var wantsDownloadOnPathAvailableTimeout: TimeInterval? {
+    get {
+      lock.lock()
+      defer { lock.unlock() }
+      return unsafeWantsDownloadOnPathAvailableTimeout
+    }
+    set {
+      lock.lock()
+      unsafeWantsDownloadOnPathAvailableTimeout = newValue
+      lock.unlock()
+    }
+  }
+  private var unsafeWantsDownloadOnPathAvailableTimeout: TimeInterval? = nil
 
   // MARK: - Auth and allow/disallow lists
 

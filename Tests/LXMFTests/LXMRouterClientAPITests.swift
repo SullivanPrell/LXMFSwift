@@ -235,7 +235,7 @@ final class LXMRouterClientAPITests: XCTestCase {
   func testGetOutboundPropagationCostNilWhenNoAppData() {
     let (router, _) = makeRouter()
     let fakePN = Data(repeating: 0x42, count: 16)
-    router.outboundPropagationNode = fakePN
+    router.setOutboundPropagationNode(fakePN)
     XCTAssertNil(
       router.getOutboundPropagationCost(),
       "Should return nil when PN app data is not cached")
