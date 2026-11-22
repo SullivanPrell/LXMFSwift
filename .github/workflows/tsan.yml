@@ -1,0 +1,24 @@
+name: TSan
+
+# Weekly rather than per pull request: under ThreadSanitizer the suite runs several times
+# slower than the CI test step. A race report fails `swift test` even with no failed test.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  tsan:
+    name: Test under ThreadSanitizer (macOS)
+    runs-on: macos-15
+    timeout-minutes: 60
+    # Pinned like ci.yml's build-test, which Swift Testing needs.
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.0.app/Contents/Developer
+      TSAN_OPTIONS: halt_on_error=0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: swift --version
+      - name: Test
+        run: swift test --sanitize=thread
