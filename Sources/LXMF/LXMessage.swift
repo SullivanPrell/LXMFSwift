@@ -390,7 +390,7 @@ public final class LXMessage {
   /// unsafe because Swift reuses memory addresses for newly allocated objects,
   /// causing stale cache hits after an earlier message at the same address was
   /// deallocated.
-  private var propagationStamp: Data?
+  private(set) var propagationStamp: Data?
 
   /// Whether to auto-compress the resource when sending via RNS.Resource.
   ///
@@ -1197,7 +1197,6 @@ extension LXMessage {
   ///
   /// - Parameter cost: Minimum leading-zero-bit cost required by the propagation node.
   public func attachPropagationStamp(cost: Double) {
-    guard cost > 0 else { return }  // mirrors Python: no stamp for cost ≤ 0
     guard propagationStamp == nil else { return }  // already stamped
     guard messageID != nil else { return }  // needs pack() first
 

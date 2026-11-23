@@ -128,14 +128,45 @@ struct DeferredStampTests {
   @Test("A propagated message with no stamp cost still passes through the queue to delivery")
   func propagatedMessageLeavesTheQueue() throws {
     let node = try SingleNode()
-    node.router.outboundPropagationNode = Data(repeating: 0x9D, count: 16)
+    node.announcePropagationNode(Data(repeating: 0x9D, count: 16), cost: 0)
     let message = node.message(stampCost: nil, method: .propagated)
 
     try node.router.send(message)
     try waitUntil { node.router.pendingOutbound.contains { $0 === message } }
 
     #expect(!message.deferPropagationStamp)
+    #expect(message.propagationStamp != nil, "a cost-0 node still gets a stamp")
     #expect(!node.router.pendingDeferredStamps.contains { $0 === message })
+  }
+
+  /// `get_stamp` returns `None` for a cost it can't reach, and the message is failed
+  /// (`LXMRouter.py:2997-3001`), not sent without a stamp.
+  @Test("A message whose stamp can't be generated fails")
+  func messageStampFailureFailsTheMessage() throws {
+    let node = try SingleNode()
+    let message = node.message(stampCost: Double(Transport.stampCostCap) + 1)
+
+    try node.router.send(message)
+    try waitUntil { message.state == .failed }
+
+    #expect(message.stampGenerationFailed)
+    #expect(message.stamp == nil)
+    #expect(!node.router.pendingOutbound.contains { $0 === message })
+  }
+
+  /// With no announce from the propagation node there is no cost, and the message is failed
+  /// (`LXMRouter.py:3005-3010`), not stamped at cost 0.
+  @Test("A propagated message fails when the node's stamp cost is unknown")
+  func unknownPropagationCostFailsTheMessage() throws {
+    let node = try SingleNode()
+    node.router.outboundPropagationNode = Data(repeating: 0x9D, count: 16)
+    let message = node.message(stampCost: nil, method: .propagated)
+
+    try node.router.send(message)
+    try waitUntil { message.state == .failed }
+
+    #expect(message.stampGenerationFailed)
+    #expect(message.propagationStamp == nil)
   }
 }
 
@@ -147,6 +178,18 @@ extension SingleNode {
       content: "deferred stamp", desiredMethod: method)
     message.stampCost = stampCost
     return message
+  }
+
+  /// Make `node` the outbound propagation node, as if it had announced a stamp cost of `cost`.
+  fileprivate func announcePropagationNode(_ node: Data, cost: Int) {
+    router.outboundPropagationNode = node
+    let identity = Identity()
+    identity.appData = MsgPack.encode(
+      .array([
+        .bool(false), .uint(1_700_000_000), .bool(true), .uint(256), .uint(10_240),
+        .array([.int(Int64(cost)), .uint(3), .uint(18)]), .map([]),
+      ]))
+    transport.restore(identity: identity, forDestination: node)
   }
 
   /// Cancel `message` and wait for the stamp job to drop it.

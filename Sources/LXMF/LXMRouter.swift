@@ -1233,6 +1233,21 @@ public final class LXMRouter {
     return pnStampCostFromAppData(appData).map { max(0, min($0, Double(Transport.stampCostCap))) }
   }
 
+  /// The outbound node's stamp cost, requesting a path and waiting for its announce when none
+  /// is cached. Blocks for up to `effectivePathRequestWait()`.
+  ///
+  /// Python: `get_outbound_propagation_cost()` (`LXMRouter.py:495-520`).
+  func outboundPropagationCostAwaitingPath() -> Double? {
+    if let cost = getOutboundPropagationCost() { return cost }
+    guard let pnHash = outboundPropagationNode else { return nil }
+    _ = requestPath(pnHash)
+    let deadline = Date().addingTimeInterval(effectivePathRequestWait())
+    while transport.recallAppData(forDestination: pnHash) == nil && Date() < deadline {
+      Thread.sleep(forTimeInterval: 0.5)
+    }
+    return getOutboundPropagationCost()
+  }
+
   // MARK: - Ticket API
 
   /// Store an outbound ticket received from a remote router.
@@ -3159,17 +3174,23 @@ public final class LXMRouter {
     lock.unlock()
     guard let message = next else { return }
 
-    var packed = true
+    // A stamp that can't be made fails the message (`LXMRouter.py:2981-3029`).
+    var stamped = true
     if message.deferStamp {
       message.deferStamp = false
-      packed = (try? message.pack()) != nil  // LXMRouter.py:2685-2690
+      stamped = (try? message.pack()) != nil && message.stamp != nil
     }
-    if packed && message.desiredMethod == .propagated && message.deferPropagationStamp {
-      message.attachPropagationStamp(cost: getOutboundPropagationCost() ?? 0)
+    if stamped && message.desiredMethod == .propagated && message.deferPropagationStamp {
       message.deferPropagationStamp = false
+      if let cost = outboundPropagationCostAwaitingPath() {
+        message.attachPropagationStamp(cost: cost)
+        stamped = message.propagationStamp != nil
+      } else {
+        stamped = false
+      }
     }
     let cancelled = message.state == .cancelled
-    let queued = packed && !cancelled
+    let queued = stamped && !cancelled
     if !queued { message.stampGenerationFailed = true }  // before the pop, as at LXMRouter.py:2667
 
     lock.lock()
