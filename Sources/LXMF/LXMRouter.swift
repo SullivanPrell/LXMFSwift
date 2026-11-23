@@ -2228,6 +2228,13 @@ public final class LXMRouter {
     msg.progress = 1.0
     // Retain destination announce data (LXMF commit 8bdb434).
     _ = transport.retainDestinationData(msg.destinationHash)
+    // A delivered ticket holds back the next one for `ticketInterval` (`LXMRouter.py:3063-3069`).
+    if msg.includeTicket && msg.fields[Int(Field.ticket.rawValue)] != nil {
+      lock.lock()
+      lastDeliveries[msg.destinationHash] = Date().timeIntervalSince1970
+      lock.unlock()
+      saveAvailableTickets()
+    }
     outboundConcluded(msg)  // LXMF 1.2.1 `LXMessage.py:583`
     msg.onDelivery?(msg)
     identifyBackchannel(after: msg)
