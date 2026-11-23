@@ -11,8 +11,56 @@ All notable changes to LXMFSwift are documented here. This project follows
   set it from outside the package, call the new `setOutboundPropagationNode(_:)`. Its name
   mirrors Python's `set_outbound_propagation_node` (`LXMRouter.py:481-490`). It does not yet
   tear down an open link to a different node the way Python's does.
+- **Source-breaking:** `LXMRouter.notifyAnnounced(destinationHash:identity:)` is removed, with
+  the `pendingSignatureValidation` queue it drained. Nothing ever filled that queue: a message
+  from an unknown source is delivered unverified, as in Python.
+- The transfer limits now default to Python's: `deliveryPerTransferLimit` 1000 KB,
+  `propagationPerTransferLimit` 256 KB and `propagationPerSyncLimit` 10240 KB. A message list
+  request sends the delivery limit, and a propagation node refuses a sync resource over its
+  per-sync limit.
+- `handleMessageGetRequest` takes `remoteIdentityHash`, and `setOutboundStampCost` takes an
+  optional cost. Both are additions with defaults or widenings, so existing calls compile.
+- A short propagated message goes as one link packet when its container fits
+  `LXMessage.linkPacketMaxContent`, as Python sends it, instead of always as a resource
+  (`LXMessage.py:452-459`).
+- Learned outbound stamp costs are stored as Python stores them, `{hash: [time, cost]}`.
+  Files from earlier releases still load. An entry is dropped after 45 days without an
+  announce, and the new `cleanOutboundStampCosts` job runs every 120 ticks
+  (`LXMRouter.py:1012-1017`, `:1469-1478`).
+
+### Added
+
+- Inbound sync throttling, as Python's `offer_request` does it (`LXMRouter.py:2610-2618`). A
+  node postpones an offer while it validates another batch's stamps, or while
+  `propagationMaxInboundSyncs` (3) resources are arriving. A static peer skips both unless
+  `propagationStaticPeerSequential` is set. `propagationSequentialValidation` turns the first
+  check off.
 
 ### Fixed
+
+- A message addressed to a destination the router doesn't host was delivered to the app, and
+  skipped stamp enforcement. Python drops it when its destination lookup fails
+  (`LXMRouter.py:2192`).
+- Two copies of one message arriving at once could both be delivered. The duplicate check and
+  the record of delivery are now one step under the lock.
+- A propagation node with authentication on served `/get` to any identity. It now refuses an
+  identity off the allow list (`LXMRouter.py:1702-1704`).
+- A propagation node ignored a client's download limit sent as an integer, which is how Python
+  and Swift clients send it (`LXMRouter.py:1747-1751`).
+- A propagation node accepted a batch of several messages from a link that hadn't presented a
+  valid peering key. It now tears the link down, as Python does (`LXMRouter.py:2718-2726`).
+- A propagation node stored a message addressed to its own delivery destination instead of
+  delivering it (`LXMRouter.py:2858-2868`).
+- A message whose stamp couldn't be generated was sent without one. A deferred stamp that
+  comes back empty, an unknown propagation node cost, or a propagation stamp that can't be
+  made now fails the message (`LXMRouter.py:2981-3029`). The cost lookup requests a path and
+  waits for the announce first, and a node with cost 0 still gets a stamp.
+- A delivered message that carried a ticket didn't hold back the next ticket. `generateTicket`
+  now waits `ticketInterval` after one is delivered (`LXMRouter.py:3063-3069`).
+- An announce without a stamp cost left the old cost in place. It now clears it
+  (`Handlers.py:17-18`).
+- Every delivery announce rewrote the stamp cost file. An unchanged cost is now saved by the
+  stamp cost job.
 
 - A data race on the router's propagation sync state. `outboundPropagationNode`, the
   `propagationTransfer*` fields and the `wantsDownloadOnPathAvailable*` fields were written
