@@ -134,8 +134,9 @@ final class PropagationNodeTests: XCTestCase {
         + "the client the node accepted what it discarded")
   }
 
-  /// A client that presented no peering key delivers one message per transfer. Python tears the
-  /// link down on a batch and stores none of it (`LXMRouter.py:2718-2726`).
+  /// A client that presented no peering key delivers one message per transfer.
+  ///
+  /// Python tears the link down on a batch and stores none of it (`LXMRouter.py:2718-2726`).
   func testAnUnkeyedClientBatchIsRefused() throws {
     let link = try openClientLink()
     let bodies = [uniqueBody(), uniqueBody()]

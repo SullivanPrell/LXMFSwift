@@ -34,6 +34,8 @@ final class InboundDestinationGateTests: XCTestCase {
     return (router, src, dst)
   }
 
+  /// A message for a destination the router doesn't host is dropped.
+  ///
   /// A link carries the packed message whole, destination hash included, so a sender can put
   /// any hash there. With a stamp cost on the real destination, a made-up hash found no cost
   /// and skipped enforcement.
@@ -61,8 +63,9 @@ final class InboundDestinationGateTests: XCTestCase {
     XCTAssertTrue(router.finalizeInboundDelivery(hosted))
   }
 
-  /// Every concurrent copy of one message is delivered once. Two threads both passed
-  /// `hasMessage` before either recorded the ID.
+  /// Every concurrent copy of one message is delivered once.
+  ///
+  /// Two threads both passed `hasMessage` before either recorded the ID.
   func testConcurrentCopiesOfOneMessageAreDeliveredOnce() throws {
     let (router, src, dst) = try makeRouter()
     let lock = NSLock()

@@ -646,12 +646,14 @@ public final class LXMRouter {
   /// Python: `LXMRouter.message_storage_limit`.
   public var messageStorageLimit: Int? = nil
 
-  /// Largest message this node announces it accepts, in KB. Python: `PROPAGATION_LIMIT`
-  /// (`LXMRouter.py:68`).
+  /// Largest message this node announces it accepts, in KB.
+  ///
+  /// Python: `PROPAGATION_LIMIT` (`LXMRouter.py:68`).
   public var propagationPerTransferLimit: Int? = 256
 
-  /// Largest inbound propagation resource accepted, in KB (`nil` for no limit). Python:
-  /// `SYNC_LIMIT` (`LXMRouter.py:72`).
+  /// Largest inbound propagation resource accepted, in KB (`nil` for no limit).
+  ///
+  /// Python: `SYNC_LIMIT` (`LXMRouter.py:72`).
   public var propagationPerSyncLimit: Int? = 10240
 
   /// Minimum proof-of-work stamp cost required for messages accepted by this node.
@@ -753,8 +755,9 @@ public final class LXMRouter {
   }
   private var unsafeValidatedPeerLinks: [ObjectIdentifier: Bool] = [:]
 
-  /// How far an accepted sync offer has got. Python: `OFFER_ACCEPTED`, `OFFER_TRANSFERRING`,
-  /// `OFFER_VALIDATING` (`LXMRouter.py:96-98`).
+  /// How far an accepted sync offer has got.
+  ///
+  /// Python: `OFFER_ACCEPTED`, `OFFER_TRANSFERRING`, `OFFER_VALIDATING` (`LXMRouter.py:96-98`).
   enum OfferState: Int, Comparable {
     case accepted = 1
     case transferring, validating
@@ -762,7 +765,9 @@ public final class LXMRouter {
   }
   /// Python: `accepted_offer_links`.
   private var unsafeAcceptedOfferLinks: [ObjectIdentifier: OfferState] = [:]
-  /// Senders whose stamp batch is being validated now. Python: `validating_pn_stamps_from`.
+  /// Senders whose stamp batch is being validated now.
+  ///
+  /// Python: `validating_pn_stamps_from`.
   private var unsafeValidatingPNStampsFrom: [Data: TimeInterval] = [:]
 
   /// Postpone a sync offer while another batch of stamps is being validated.
@@ -770,10 +775,13 @@ public final class LXMRouter {
   /// Python: `propagation_sequential_validation`, default `SEQUENTIAL_VALIDATION`
   /// (`LXMRouter.py:69`, `:2611`).
   public var propagationSequentialValidation = true
-  /// Hold static peers to sequential validation too. Python: `STATIC_SEQUENTIAL` (`:70`).
+  /// Hold static peers to sequential validation too.
+  ///
+  /// Python: `STATIC_SEQUENTIAL` (`:70`).
   public var propagationStaticPeerSequential = false
-  /// Postpone a sync offer while this many sync resources are arriving; `nil` or 0 for no
-  /// limit. Python: `MAX_INBOUND_SYNCS` (`:71`, `:2616`).
+  /// Postpone a sync offer while this many sync resources are arriving.
+  ///
+  /// `nil` or 0 sets no limit. Python: `MAX_INBOUND_SYNCS` (`:71`, `:2616`).
   public var propagationMaxInboundSyncs: Int? = 3
 
   /// Queue of transient IDs waiting to be distributed to peers.
@@ -1224,8 +1232,9 @@ public final class LXMRouter {
     return pnStampCostFromAppData(appData).map { max(0, min($0, Double(Transport.stampCostCap))) }
   }
 
-  /// The outbound node's stamp cost, requesting a path and waiting for its announce when none
-  /// is cached. Blocks for up to `effectivePathRequestWait()`.
+  /// The outbound node's stamp cost, waiting for its announce when none is cached.
+  ///
+  /// Requests a path first, and blocks for up to `effectivePathRequestWait()`.
   ///
   /// Python: `get_outbound_propagation_cost()` (`LXMRouter.py:495-520`).
   func outboundPropagationCostAwaitingPath() -> Double? {
