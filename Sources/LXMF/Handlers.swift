@@ -65,10 +65,9 @@ public final class LXMFDeliveryAnnounceHandler: AnnounceHandler {
   ) {
     guard let router else { return }
 
-    // Update the known stamp cost for this destination.
-    if let cost = stampCostFromAppData(appData) {
-      router.setOutboundStampCost(destinationHash: destinationHash, stampCost: cost)
-    }
+    // An announce without a cost clears the learned one (`Handlers.py:17-18`).
+    router.setOutboundStampCost(
+      destinationHash: destinationHash, stampCost: stampCostFromAppData(appData))
 
     // Trigger immediate delivery for pending outbound messages to this destination.
     router.handleAnnounceForDestination(destinationHash)

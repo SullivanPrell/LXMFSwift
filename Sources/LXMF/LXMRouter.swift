@@ -477,6 +477,7 @@ public final class LXMRouter {
   static let jobStampsInterval = 1  // JOB_STAMPS_INTERVAL
   static let jobLinksInterval = 1  // JOB_LINKS_INTERVAL
   static let jobStoreInterval = 120  // JOB_STORE_INTERVAL
+  static let jobStampCostInterval = 120  // JOB_STAMPCOST_INTERVAL (LXMF 1.3.1 `LXMRouter.py:974`)
   static let jobPeerSyncInterval = 6  // JOB_PEERSYNC_INTERVAL
   static let jobPeerIngestInterval = 6  // JOB_PEERINGEST_INTERVAL = JOB_PEERSYNC_INTERVAL
   static let jobRotateInterval = 56 * jobPeerIngestInterval  // JOB_ROTATE_INTERVAL
@@ -569,8 +570,16 @@ public final class LXMRouter {
   /// Per-destination inbound stamp cost overrides.
   private var inboundStampCosts: [Data: Double] = [:]
 
-  /// Per-destination outbound stamp costs (learned from announces).
-  private(set) var outboundStampCosts: [Data: Double] = [:]
+  /// Per-destination outbound stamp costs learned from announces, with when each was heard.
+  ///
+  /// Python: `outbound_stamp_costs`, `{destination_hash: [time, cost]}`.
+  private(set) var outboundStampCosts: [Data: (time: TimeInterval, cost: Double?)] = [:]
+  private var stampCostsDirty = false
+
+  /// How long a learned stamp cost is kept without a fresh announce.
+  ///
+  /// Python: `LXMRouter.STAMP_COST_EXPIRY = 45*24*60*60`.
+  static let stampCostExpiry: TimeInterval = 45 * 24 * 60 * 60
 
   // MARK: - Propagation node server state
 
@@ -766,7 +775,8 @@ public final class LXMRouter {
   /// How far an accepted sync offer has got. Python: `OFFER_ACCEPTED`, `OFFER_TRANSFERRING`,
   /// `OFFER_VALIDATING` (`LXMRouter.py:96-98`).
   enum OfferState: Int, Comparable {
-    case accepted = 1, transferring, validating
+    case accepted = 1
+    case transferring, validating
     static func < (a: OfferState, b: OfferState) -> Bool { a.rawValue < b.rawValue }
   }
   /// Python: `accepted_offer_links`.
@@ -1455,15 +1465,43 @@ public final class LXMRouter {
   public func getOutboundStampCost(destinationHash: Data) -> Double? {
     lock.lock()
     defer { lock.unlock() }
-    return outboundStampCosts[destinationHash]
+    return outboundStampCosts[destinationHash]?.cost
   }
 
-  /// Store outbound stamp cost learned from an announce or path response.
-  public func setOutboundStampCost(destinationHash: Data, stampCost: Double) {
+  /// Store the stamp cost a delivery announce carried, or `nil` when it carried none.
+  ///
+  /// A changed cost is saved at once; an unchanged one only refreshes its time, which the
+  /// stamp-cost job saves (`LXMRouter.py:1012-1017`).
+  ///
+  /// Python: `update_stamp_cost(destination_hash, stamp_cost)` (`LXMRouter.py:1156-1163`).
+  public func setOutboundStampCost(destinationHash: Data, stampCost: Double?) {
     lock.lock()
-    outboundStampCosts[destinationHash] = stampCost
+    let changed = outboundStampCosts[destinationHash].map { $0.cost != stampCost } ?? true
+    outboundStampCosts[destinationHash] = (Date().timeIntervalSince1970, stampCost)
+    stampCostsDirty = !changed
     lock.unlock()
-    saveOutboundStampCosts()  // persist across restarts
+    if changed { saveOutboundStampCosts() }
+  }
+
+  /// Drop stamp costs not heard for `stampCostExpiry`, and save them if anything changed.
+  ///
+  /// Python: `clean_outbound_stamp_costs()` (`LXMRouter.py:1455-1478`) and the save in the
+  /// stamp-cost job (`:1012-1017`).
+  func cleanOutboundStampCosts() {
+    let cutoff = Date().timeIntervalSince1970 - Self.stampCostExpiry
+    lock.lock()
+    let before = outboundStampCosts.count
+    outboundStampCosts = outboundStampCosts.filter { $0.value.time > cutoff }
+    let save = stampCostsDirty || outboundStampCosts.count != before
+    lock.unlock()
+    if save { saveOutboundStampCosts() }
+  }
+
+  /// Test helper: a stamp cost heard at `time`.
+  func seedOutboundStampCost(_ destinationHash: Data, cost: Double?, at time: TimeInterval) {
+    lock.lock()
+    outboundStampCosts[destinationHash] = (time, cost)
+    lock.unlock()
   }
 
   // MARK: - Priority list API
@@ -4441,6 +4479,10 @@ public final class LXMRouter {
     // expired too.
     .init("cleanThrottledPeers", every: jobPeerSyncInterval) { $0.cleanThrottledPeers() },
 
+    .init("cleanOutboundStampCosts", every: jobStampCostInterval) {
+      $0.cleanOutboundStampCosts()
+    },
+
     .init(
       "savePeers", every: jobSaveInterval, propagationNodeOnly: true,
       addedBecause: savePeersAdditionReason
@@ -5264,8 +5306,16 @@ public final class LXMRouter {
     guard let sp = storagePath else { return }
     lock.lock()
     let snapshot = outboundStampCosts
+    stampCostsDirty = false
     lock.unlock()
-    let pairs = snapshot.map { (MsgPack.Value.bytes($0.key), MsgPack.Value.double($0.value)) }
+    let pairs = snapshot.map {
+      (
+        MsgPack.Value.bytes($0.key),
+        MsgPack.Value.array([
+          .double($0.value.time), $0.value.cost.map(MsgPack.Value.double) ?? .nil,
+        ])
+      )
+    }
     try? MsgPack.encode(.map(pairs)).write(
       to: URL(fileURLWithPath: sp + "/outbound_stamp_costs"), options: .atomic)
   }
@@ -5275,14 +5325,20 @@ public final class LXMRouter {
       let data = try? Data(contentsOf: URL(fileURLWithPath: sp + "/outbound_stamp_costs")),
       case .map(let pairs) = (try? MsgPack.decode(data)) ?? .nil
     else { return }
-    var loaded: [Data: Double] = [:]
+    let now = Date().timeIntervalSince1970
+    var loaded: [Data: (time: TimeInterval, cost: Double?)] = [:]
     for (k, v) in pairs {
-      guard case .bytes(let key) = k, let cost = v.asDouble else { continue }
-      loaded[key] = cost
+      guard case .bytes(let key) = k else { continue }
+      if case .array(let entry) = v, entry.count == 2, let time = entry[0].asDouble {
+        loaded[key] = (time, entry[1].asDouble)
+      } else if let cost = v.asDouble {
+        loaded[key] = (now, cost)  // a bare cost, as releases before this one wrote
+      }
     }
     lock.lock()
     outboundStampCosts = loaded
     lock.unlock()
+    cleanOutboundStampCosts()  // LXMRouter.py:345-346
   }
 
   /// Persist available inbound/outbound tickets and last-delivery timestamps.
