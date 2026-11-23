@@ -719,7 +719,7 @@ public final class LXMessage {
       self.representation = contentSize <= linkPacketMaxContent ? .packet : .resource
     case .propagated:
       self.method = .propagated
-      self.representation = .packet
+      selectPropagatedRepresentation()
     case .paper:
       // Python: `LXMessage.py:455-456`. The size check happened in pack(), which
       // throws rather than falling through to another method.
@@ -729,6 +729,12 @@ public final class LXMessage {
       self.method = .direct
       self.representation = contentSize <= linkPacketMaxContent ? .packet : .resource
     }
+  }
+
+  /// A propagation container that fits one link packet goes as one (`LXMessage.py:452-459`).
+  private func selectPropagatedRepresentation() {
+    let size = propagationPacked?.count ?? .max
+    representation = size <= LXMessage.linkPacketMaxContent ? .packet : .resource
   }
 
   // MARK: - Unpacking (inbound)
@@ -1228,6 +1234,7 @@ extension LXMessage {
         .double(ts),
         .array([.bytes(newLxmfData)]),
       ]))
+    selectPropagatedRepresentation()  // the stamp adds 32 bytes
   }
 
   // MARK: File I/O

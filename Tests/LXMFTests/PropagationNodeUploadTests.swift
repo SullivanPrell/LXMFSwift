@@ -203,4 +203,41 @@ final class PropagationNodeTests: XCTestCase {
       }, "precondition: the upload must reach the node as a resource")
     XCTAssertEqual(appFlags, [true])
   }
+
+  /// A router sends a propagated message whose container fits `LINK_PACKET_MAX_CONTENT` as one
+  /// link packet, and the node's proof delivers it (`LXMessage.py:452-459`, `:561-572`).
+  func testARouterSendsASmallPropagatedMessageAsALinkPacket() throws {
+    net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 2)
+    try net.announceBToA()
+    let node = try XCTUnwrap(net.routerB.propagationDestination)
+    let routerSetup = node.onLinkEstablished
+    var resources = 0
+    node.onLinkEstablished = { link in
+      routerSetup?(link)
+      let accept = link.onResourceAdvertised
+      link.onResourceAdvertised = { advertisement, advertisedLink in
+        resources += 1
+        return accept?(advertisement, advertisedLink) ?? false
+      }
+    }
+
+    let source = try XCTUnwrap(net.routerA.deliveryDestinations.values.first)
+    let recipient = try Destination(
+      identity: Identity(), direction: .out, kind: .single, appName: appName,
+      aspects: ["delivery"])
+    let message = LXMessage(
+      destination: recipient, source: source, content: "short", desiredMethod: .propagated)
+    net.routerA.outboundPropagationNode = net.bPropagationHash
+    try net.routerA.send(message)
+
+    XCTAssertTrue(
+      net.waitUntil("message delivered", timeout: 10) {
+        net.routerA.processDeferredStamps()
+        _ = net.routerA.processOutbound()
+        return message.state == .delivered
+      })
+    XCTAssertEqual(message.representation, .packet)
+    XCTAssertEqual(resources, 0, "a short message must not be advertised as a resource")
+    XCTAssertEqual(net.routerB.propagationEntries.count, 1)
+  }
 }

@@ -2479,6 +2479,10 @@ public final class LXMRouter {
     guard let pp = msg.propagationPacked else { return }
     msg.sentOnSlowPath = slowPath(node)
     msg.state = .sending
+    if msg.representation == .packet {
+      sendPacketOverLink(msg, payload: pp, link: link)
+      return
+    }
     let transfer = ResourceTransfer(link: link)
     // `__mark_propagated` (LXMF 1.2.1 `LXMessage.py:592-605`), which marks the message SENT where
     // this marks it delivered.
@@ -2543,39 +2547,47 @@ public final class LXMRouter {
       // not that anyone received them. The reference reaches DELIVERED only from the receipt's
       // delivery callback (`LXMessage.py:486-491`, `__mark_delivered` at `:563-568`).
       msg.state = .sending
-      do {
-        let receipt = try link.send(packed)
+      sendPacketOverLink(msg, payload: packed, link: link)
+    }
+  }
 
-        guard let receipt else {
-          // Without a receipt there's no way to learn whether the message arrived, so the router
-          // tears the link down and returns the message to the queue (LXMF 1.2.1
-          // `LXMessage.py:498-501`).
-          try? link.teardown()
-          msg.state = .outbound
-          return
-        }
+  /// Sends `payload` as one link packet; the receipt's proof delivers `msg`.
+  ///
+  /// Python: the PACKET branches of `LXMessage.send` for DIRECT and PROPAGATED
+  /// (`LXMessage.py:494-504`, `:561-572`).
+  private func sendPacketOverLink(_ msg: LXMessage, payload: Data, link: Link) {
+    do {
+      let receipt = try link.send(payload)
 
-        msg.deliveryReceipt = receipt
-        msg.progress = 0.50
-
-        receipt.onDelivery = { [weak self, weak msg] _ in
-          guard let self, let msg else { return }
-          self.markDelivered(msg)
-        }
-
-        receipt.onTimeout = { [weak msg] _ in
-          guard let msg, msg.state != .cancelled else { return }
-          // Python tears the link down and returns the message to OUTBOUND for
-          // another attempt (`__link_packet_timed_out`, `LXMessage.py:623-628`). The
-          // link is torn down because a proof that never came back is evidence about
-          // the link, not just about this packet.
-          try? link.teardown()
-          msg.state = .outbound
-        }
-      } catch {
-        // LXMRouter.py:2876-2879.
-        failMessage(msg)
+      guard let receipt else {
+        // Without a receipt there's no way to learn whether the message arrived, so the router
+        // tears the link down and returns the message to the queue (LXMF 1.2.1
+        // `LXMessage.py:498-501`).
+        try? link.teardown()
+        msg.state = .outbound
+        return
       }
+
+      msg.deliveryReceipt = receipt
+      msg.progress = 0.50
+
+      receipt.onDelivery = { [weak self, weak msg] _ in
+        guard let self, let msg else { return }
+        self.markDelivered(msg)
+      }
+
+      receipt.onTimeout = { [weak msg] _ in
+        guard let msg, msg.state != .cancelled else { return }
+        // Python tears the link down and returns the message to OUTBOUND for
+        // another attempt (`__link_packet_timed_out`, `LXMessage.py:623-628`). The
+        // link is torn down because a proof that never came back is evidence about
+        // the link, not just about this packet.
+        try? link.teardown()
+        msg.state = .outbound
+      }
+    } catch {
+      // LXMRouter.py:2876-2879.
+      failMessage(msg)
     }
   }
 
@@ -3487,6 +3499,9 @@ public final class LXMRouter {
         self?.handleInboundPropagationPacket(data, on: inboundLink)
       }
       link.resourceStrategy = .acceptApp
+      // Read when the resource is advertised: the sender may close the link once its transfer
+      // completes, before the conclusion is handled here, and closing evicts the key's record.
+      var keyPresented = false
       link.onResourceAdvertised = { [weak self] resource, advertisedLink -> Bool in
         guard let self else { return false }
         if let limit = self.propagationPerSyncLimit, Int(resource.dataSize) > limit * 1000 {
@@ -3498,11 +3513,13 @@ public final class LXMRouter {
         if self.unsafeAcceptedOfferLinks[key] != nil {
           self.unsafeAcceptedOfferLinks[key] = .transferring
         }
+        keyPresented = self.unsafeValidatedPeerLinks[key] == true
         self.lock.unlock()
         return true
       }
       link.onResourceConcluded = { [weak self] data, _, concludingLink in
-        self?.handleInboundPropagationResource(data, on: concludingLink)
+        self?.handleInboundPropagationResource(
+          data, on: concludingLink, keyPresented: keyPresented)
       }
       // Evict this link's PN-link bookkeeping when it closes (growth fix:
       // validatedPeerLinks was inserted on every offer request but never
@@ -3607,7 +3624,12 @@ public final class LXMRouter {
   }
 
   /// Takes a propagation-node resource payload received on `link`.
-  public func handleInboundPropagationResource(_ data: Data, on link: Link?) {
+  ///
+  /// `keyPresented` is whether `link` presented a valid peering key, read while the link was
+  /// open; nil reads it now.
+  public func handleInboundPropagationResource(
+    _ data: Data, on link: Link?, keyPresented presented: Bool? = nil
+  ) {
     guard case .array(let outer) = (try? MsgPack.decode(data)) ?? .nil,
       outer.count >= 2,
       case .array(let messages) = outer[1]
@@ -3633,7 +3655,7 @@ public final class LXMRouter {
     let linkKey = link.map { ObjectIdentifier($0) }
     lock.lock()
     let senderPeer = sender.flatMap { unsafePeers[$0] }
-    let keyPresented = linkKey.map { unsafeValidatedPeerLinks[$0] == true } ?? false
+    let keyPresented = presented ?? linkKey.map { unsafeValidatedPeerLinks[$0] == true } ?? false
     lock.unlock()
 
     // Only a link that presented a valid peering key may carry more than one message
