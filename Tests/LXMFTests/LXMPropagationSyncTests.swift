@@ -53,8 +53,8 @@ final class LXMPropagationSyncTests: XCTestCase {
 
   // MARK: - New properties
 
-  func testDeliveryPerTransferLimitNilByDefault() {
-    XCTAssertNil(makeRouter().deliveryPerTransferLimit)
+  func testDeliveryPerTransferLimitIsDeliveryLimitByDefault() {
+    XCTAssertEqual(makeRouter().deliveryPerTransferLimit, 1000)  // DELIVERY_LIMIT
   }
 
   func testRetainSyncedOnNodeFalseByDefault() {

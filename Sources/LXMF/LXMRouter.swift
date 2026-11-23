@@ -362,10 +362,12 @@ public final class LXMRouter {
   }
   private var unsafePropagationTransferMaxMessages: Int? = nil
 
-  /// Maximum messages per single GET transfer (nil = no limit).
+  /// Largest inbound delivery resource accepted, and the download limit sent to a propagation
+  /// node, in KB (`nil` for no limit).
   ///
-  /// Mirrors Python's `LXMRouter.delivery_per_transfer_limit`.
-  public var deliveryPerTransferLimit: Int? = nil
+  /// Mirrors Python's `LXMRouter.delivery_per_transfer_limit`, default `DELIVERY_LIMIT`
+  /// (`LXMRouter.py:73`).
+  public var deliveryPerTransferLimit: Int? = 1000
 
   /// Whether to keep messages on the propagation node after confirming receipt.
   ///
@@ -654,11 +656,13 @@ public final class LXMRouter {
   /// Python: `LXMRouter.message_storage_limit`.
   public var messageStorageLimit: Int? = nil
 
-  /// Maximum bytes per peer sync transfer (KB). nil = unlimited.
-  public var propagationPerTransferLimit: Int? = nil
+  /// Largest message this node announces it accepts, in KB. Python: `PROPAGATION_LIMIT`
+  /// (`LXMRouter.py:68`).
+  public var propagationPerTransferLimit: Int? = 256
 
-  /// Maximum bytes per sync session (KB). nil = unlimited.
-  public var propagationPerSyncLimit: Int? = nil
+  /// Largest inbound propagation resource accepted, in KB (`nil` for no limit). Python:
+  /// `SYNC_LIMIT` (`LXMRouter.py:72`).
+  public var propagationPerSyncLimit: Int? = 10240
 
   /// Minimum proof-of-work stamp cost required for messages accepted by this node.
   ///
@@ -2696,7 +2700,7 @@ public final class LXMRouter {
 
     let wantsValue: MsgPack.Value = wants.isEmpty ? .nil : .array(wants.map { .bytes($0) })
     let havesValue: MsgPack.Value = haves.isEmpty ? .nil : .array(haves.map { .bytes($0) })
-    let limitValue: MsgPack.Value = deliveryPerTransferLimit.map { .int(Int64($0)) } ?? .nil
+    let limitValue = messageGetLimitValue()
 
     lock.lock()
     let link = outboundPropagationLink
@@ -2720,6 +2724,12 @@ public final class LXMRouter {
         self?.messageGetProgress(progress, receipt: receipt)
       }
     )
+  }
+
+  /// The download limit a message request carries: `delivery_per_transfer_limit`
+  /// (`LXMRouter.py:1813`).
+  func messageGetLimitValue() -> MsgPack.Value {
+    deliveryPerTransferLimit.map { .int(Int64($0)) } ?? .nil
   }
 
   /// Track a running message-get transfer so a UI can render live progress and
@@ -5024,15 +5034,41 @@ public final class LXMRouter {
   ///     excluded from the fan-out and the message is recorded as handled for it—Python does
   ///     both (`LXMRouter.py:2444-2445`, `:2484`), because a peer that just sent this router a message
   ///     demonstrably has it.
-  /// - Returns: The stored entry, or `nil` when the message was a duplicate.
+  /// - Returns: The stored entry, or `nil` when the message was a duplicate or was for one of
+  ///   this router's own delivery destinations, which is delivered here instead.
   @discardableResult
   public func ingestPropagatedLXM(
     lxmfData: Data, stampValue: Double, stamp: Data,
     fromPeer: LXMPeer? = nil
   ) -> PropagationEntry? {
+    let transientID = Hashes.fullHash(lxmfData)
+
+    // A message for this router's own address is decrypted and delivered, not stored
+    // (`LXMRouter.py:2858-2868`). The stamp value check below is the store's alone (`:2869`).
+    let destHash = Data(lxmfData.prefix(LXMessage.destinationLength))
+    lock.lock()
+    let localDestination = deliveryDestinations[destHash]
+    let seen =
+      unsafePropagationEntries[transientID] != nil
+      || locallyProcessedTransientIDs[transientID] != nil
+    if localDestination != nil && !seen {
+      locallyProcessedTransientIDs[transientID] = Date().timeIntervalSince1970
+    }
+    lock.unlock()
+    if let localDestination {
+      guard !seen,
+        let plaintext = try? localDestination.decrypt(
+          Data(lxmfData.dropFirst(LXMessage.destinationLength)))
+      else { return nil }
+      deliverInboundResource(destHash + plaintext)
+      lock.lock()
+      locallyDeliveredTransientIDs[transientID] = Date().timeIntervalSince1970
+      lock.unlock()
+      return nil
+    }
+
     // LXMF 1.3.0 `LXMRouter.py:2869`: a node stores no message without a stamp value.
     guard Stamps.quantizeCost(stampValue) > 0 else { return nil }
-    let transientID = Hashes.fullHash(lxmfData)
     lock.lock()
     let isDup = unsafePropagationEntries[transientID] != nil
     lock.unlock()
