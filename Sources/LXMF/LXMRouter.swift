@@ -529,25 +529,6 @@ public final class LXMRouter {
   /// Mirrors Python's `delivery_destination.display_name`.
   private var deliveryDestinationNames: [Data: String] = [:]
 
-  // MARK: - Pending signature validation
-
-  /// Inbound messages waiting for the source identity to arrive (via announce)
-  /// before their signature can be validated.
-  ///
-  /// Keyed entry holds the received
-  /// message and the time it arrived (for diagnostics / timeout ordering).
-  ///
-  /// The `LXMFDeliveryAnnounceHandler` fires when the source's lxmf.delivery
-  /// announce is processed—at that point `transport.recall(identity:)` already
-  /// has the identity, so validation is immediate rather than poll-based.
-  ///
-  /// NOTE: Inbound delivery does not *defer* messages from unknown sources—they
-  /// are delivered immediately as unverified, matching Python (bug 006), so
-  /// this queue is normally empty. `notifyAnnounced` drains it (a no-op when it
-  /// is empty) and is a public hook for callers that queue messages here
-  /// through some other path.
-  private var pendingSignatureValidation: [(message: LXMessage, received: Date)] = []
-
   // MARK: - Ticket store
 
   /// Outbound tickets received from remote routers: [destHash: (expiry, ticket)].
@@ -3010,30 +2991,6 @@ public final class LXMRouter {
     return finalizeInboundDelivery(msg, noStampEnforcement: noStampEnforcement)
   }
 
-  /// Notify the router that an identity for `destinationHash` has been announced.
-  ///
-  /// If there are inbound messages in `pendingSignatureValidation` with that
-  /// `sourceHash`, they are validated with the supplied identity and delivered
-  /// via `onMessageReceived`. This is a low-level hook for callers that observe
-  /// announces through a separate mechanism (for example, `transport.onAnnounceReceived`)
-  /// and want to trigger deferred validation without relying on the announce
-  /// handler dispatch chain.
-  ///
-  /// In practice, `runReceive` in `LXMFTestNode` calls this because
-  /// `transport.onAnnounceReceived` is reliable whereas the aspect-filter
-  /// announce handler has been observed to be pre-empted in test scenarios.
-  public func notifyAnnounced(destinationHash: Data, identity: Identity) {
-    lock.lock()
-    let pending = pendingSignatureValidation.filter { $0.message.sourceHash == destinationHash }
-    pendingSignatureValidation.removeAll { $0.message.sourceHash == destinationHash }
-    lock.unlock()
-
-    for (msg, _) in pending {
-      msg.validateSignature(knownIdentity: identity)
-      finalizeInboundDelivery(msg)
-    }
-  }
-
   /// Inject a pre-established link into the router's direct-link table.
   ///
   /// Useful in
@@ -3281,9 +3238,6 @@ public final class LXMRouter {
   internal func handleAnnounceForDestination(_ destinationHash: Data) {
     lock.lock()
     let matches = unsafePendingOutbound.filter { $0.destinationHash == destinationHash }
-    // Drain inbound messages waiting for this source's identity.
-    let pendingSig = pendingSignatureValidation.filter { $0.message.sourceHash == destinationHash }
-    pendingSignatureValidation.removeAll { $0.message.sourceHash == destinationHash }
     lock.unlock()
 
     // `Handlers.py:23-31`: only a message waiting on a path is brought forward.
@@ -3293,22 +3247,6 @@ public final class LXMRouter {
     let now = Date().timeIntervalSince1970
     for msg in awaiting { msg.nextDeliveryAttempt = now }
     if !awaiting.isEmpty { triggerOutbound() }
-
-    // Validate inbound messages whose source identity has just been announced.
-    // By the time `handleAnnounceForDestination` is called, the transport has
-    // already stored the identity (knownIdentities[destinationHash] = identity
-    // happens before announce handlers fire).
-    if !pendingSig.isEmpty {
-      let srcIdentity = transport.recall(identity: destinationHash)
-      for (msg, _) in pendingSig {
-        if let srcIdentity {
-          msg.validateSignature(knownIdentity: srcIdentity)
-        } else {
-          msg.unverifiedReason = .sourceUnknown
-        }
-        finalizeInboundDelivery(msg)
-      }
-    }
   }
 
   // MARK: - Propagation node server

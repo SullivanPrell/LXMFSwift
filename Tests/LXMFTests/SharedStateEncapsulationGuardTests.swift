@@ -165,6 +165,9 @@ final class SharedStateEncapsulationGuardTests: XCTestCase {
       "messageStorageLimit": "configuration",
       "propagationPerTransferLimit": "configuration",
       "propagationPerSyncLimit": "configuration",
+      "propagationSequentialValidation": "configuration",
+      "propagationStaticPeerSequential": "configuration",
+      "propagationMaxInboundSyncs": "configuration",
       "propagationStampCost":
         "configuration — the ROUTER's own, distinct from LXMPeer's announced term of the same name",
       "propagationStampCostFlexibility": "configuration — as above",
