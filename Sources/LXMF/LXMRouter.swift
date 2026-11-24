@@ -362,10 +362,12 @@ public final class LXMRouter {
   }
   private var unsafePropagationTransferMaxMessages: Int? = nil
 
-  /// Maximum messages per single GET transfer (nil = no limit).
+  /// Largest inbound delivery resource accepted, and the download limit sent to a propagation
+  /// node, in KB (`nil` for no limit).
   ///
-  /// Mirrors Python's `LXMRouter.delivery_per_transfer_limit`.
-  public var deliveryPerTransferLimit: Int? = nil
+  /// Mirrors Python's `LXMRouter.delivery_per_transfer_limit`, default `DELIVERY_LIMIT`
+  /// (`LXMRouter.py:73`).
+  public var deliveryPerTransferLimit: Int? = 1000
 
   /// Whether to keep messages on the propagation node after confirming receipt.
   ///
@@ -475,6 +477,7 @@ public final class LXMRouter {
   static let jobStampsInterval = 1  // JOB_STAMPS_INTERVAL
   static let jobLinksInterval = 1  // JOB_LINKS_INTERVAL
   static let jobStoreInterval = 120  // JOB_STORE_INTERVAL
+  static let jobStampCostInterval = 120  // JOB_STAMPCOST_INTERVAL (LXMF 1.3.1 `LXMRouter.py:974`)
   static let jobPeerSyncInterval = 6  // JOB_PEERSYNC_INTERVAL
   static let jobPeerIngestInterval = 6  // JOB_PEERINGEST_INTERVAL = JOB_PEERSYNC_INTERVAL
   static let jobRotateInterval = 56 * jobPeerIngestInterval  // JOB_ROTATE_INTERVAL
@@ -526,25 +529,6 @@ public final class LXMRouter {
   /// Mirrors Python's `delivery_destination.display_name`.
   private var deliveryDestinationNames: [Data: String] = [:]
 
-  // MARK: - Pending signature validation
-
-  /// Inbound messages waiting for the source identity to arrive (via announce)
-  /// before their signature can be validated.
-  ///
-  /// Keyed entry holds the received
-  /// message and the time it arrived (for diagnostics / timeout ordering).
-  ///
-  /// The `LXMFDeliveryAnnounceHandler` fires when the source's lxmf.delivery
-  /// announce is processed—at that point `transport.recall(identity:)` already
-  /// has the identity, so validation is immediate rather than poll-based.
-  ///
-  /// NOTE: Inbound delivery does not *defer* messages from unknown sources—they
-  /// are delivered immediately as unverified, matching Python (bug 006), so
-  /// this queue is normally empty. `notifyAnnounced` drains it (a no-op when it
-  /// is empty) and is a public hook for callers that queue messages here
-  /// through some other path.
-  private var pendingSignatureValidation: [(message: LXMessage, received: Date)] = []
-
   // MARK: - Ticket store
 
   /// Outbound tickets received from remote routers: [destHash: (expiry, ticket)].
@@ -567,8 +551,16 @@ public final class LXMRouter {
   /// Per-destination inbound stamp cost overrides.
   private var inboundStampCosts: [Data: Double] = [:]
 
-  /// Per-destination outbound stamp costs (learned from announces).
-  private(set) var outboundStampCosts: [Data: Double] = [:]
+  /// Per-destination outbound stamp costs learned from announces, with when each was heard.
+  ///
+  /// Python: `outbound_stamp_costs`, `{destination_hash: [time, cost]}`.
+  private(set) var outboundStampCosts: [Data: (time: TimeInterval, cost: Double?)] = [:]
+  private var stampCostsDirty = false
+
+  /// How long a learned stamp cost is kept without a fresh announce.
+  ///
+  /// Python: `LXMRouter.STAMP_COST_EXPIRY = 45*24*60*60`.
+  static let stampCostExpiry: TimeInterval = 45 * 24 * 60 * 60
 
   // MARK: - Propagation node server state
 
@@ -654,11 +646,15 @@ public final class LXMRouter {
   /// Python: `LXMRouter.message_storage_limit`.
   public var messageStorageLimit: Int? = nil
 
-  /// Maximum bytes per peer sync transfer (KB). nil = unlimited.
-  public var propagationPerTransferLimit: Int? = nil
+  /// Largest message this node announces it accepts, in KB.
+  ///
+  /// Python: `PROPAGATION_LIMIT` (`LXMRouter.py:68`).
+  public var propagationPerTransferLimit: Int? = 256
 
-  /// Maximum bytes per sync session (KB). nil = unlimited.
-  public var propagationPerSyncLimit: Int? = nil
+  /// Largest inbound propagation resource accepted, in KB (`nil` for no limit).
+  ///
+  /// Python: `SYNC_LIMIT` (`LXMRouter.py:72`).
+  public var propagationPerSyncLimit: Int? = 10240
 
   /// Minimum proof-of-work stamp cost required for messages accepted by this node.
   ///
@@ -758,6 +754,35 @@ public final class LXMRouter {
     return unsafeValidatedPeerLinks
   }
   private var unsafeValidatedPeerLinks: [ObjectIdentifier: Bool] = [:]
+
+  /// How far an accepted sync offer has got.
+  ///
+  /// Python: `OFFER_ACCEPTED`, `OFFER_TRANSFERRING`, `OFFER_VALIDATING` (`LXMRouter.py:96-98`).
+  enum OfferState: Int, Comparable {
+    case accepted = 1
+    case transferring, validating
+    static func < (a: OfferState, b: OfferState) -> Bool { a.rawValue < b.rawValue }
+  }
+  /// Python: `accepted_offer_links`.
+  private var unsafeAcceptedOfferLinks: [ObjectIdentifier: OfferState] = [:]
+  /// Senders whose stamp batch is being validated now.
+  ///
+  /// Python: `validating_pn_stamps_from`.
+  private var unsafeValidatingPNStampsFrom: [Data: TimeInterval] = [:]
+
+  /// Postpone a sync offer while another batch of stamps is being validated.
+  ///
+  /// Python: `propagation_sequential_validation`, default `SEQUENTIAL_VALIDATION`
+  /// (`LXMRouter.py:69`, `:2611`).
+  public var propagationSequentialValidation = true
+  /// Hold static peers to sequential validation too.
+  ///
+  /// Python: `STATIC_SEQUENTIAL` (`:70`).
+  public var propagationStaticPeerSequential = false
+  /// Postpone a sync offer while this many sync resources are arriving.
+  ///
+  /// `nil` or 0 sets no limit. Python: `MAX_INBOUND_SYNCS` (`:71`, `:2616`).
+  public var propagationMaxInboundSyncs: Int? = 3
 
   /// Queue of transient IDs waiting to be distributed to peers.
   ///
@@ -1207,6 +1232,22 @@ public final class LXMRouter {
     return pnStampCostFromAppData(appData).map { max(0, min($0, Double(Transport.stampCostCap))) }
   }
 
+  /// The outbound node's stamp cost, waiting for its announce when none is cached.
+  ///
+  /// Requests a path first, and blocks for up to `effectivePathRequestWait()`.
+  ///
+  /// Python: `get_outbound_propagation_cost()` (`LXMRouter.py:495-520`).
+  func outboundPropagationCostAwaitingPath() -> Double? {
+    if let cost = getOutboundPropagationCost() { return cost }
+    guard let pnHash = outboundPropagationNode else { return nil }
+    _ = requestPath(pnHash)
+    let deadline = Date().addingTimeInterval(effectivePathRequestWait())
+    while transport.recallAppData(forDestination: pnHash) == nil && Date() < deadline {
+      Thread.sleep(forTimeInterval: 0.5)
+    }
+    return getOutboundPropagationCost()
+  }
+
   // MARK: - Ticket API
 
   /// Store an outbound ticket received from a remote router.
@@ -1343,12 +1384,20 @@ public final class LXMRouter {
   /// Returns whether authentication is required for inbound messages.
   ///
   /// Mirrors Python's `LXMRouter.requires_authentication()`.
-  public func requiresAuthentication() -> Bool { authRequired }
+  public func requiresAuthentication() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return authRequired
+  }
 
   /// Set whether authentication is required.
   ///
   /// Mirrors Python's `LXMRouter.set_authentication(required)`.
-  public func setAuthentication(required: Bool) { authRequired = required }
+  public func setAuthentication(required: Bool) {
+    lock.lock()
+    authRequired = required
+    lock.unlock()
+  }
 
   /// Add an identity hash to the allow-list.
   ///
@@ -1406,15 +1455,43 @@ public final class LXMRouter {
   public func getOutboundStampCost(destinationHash: Data) -> Double? {
     lock.lock()
     defer { lock.unlock() }
-    return outboundStampCosts[destinationHash]
+    return outboundStampCosts[destinationHash]?.cost
   }
 
-  /// Store outbound stamp cost learned from an announce or path response.
-  public func setOutboundStampCost(destinationHash: Data, stampCost: Double) {
+  /// Store the stamp cost a delivery announce carried, or `nil` when it carried none.
+  ///
+  /// A changed cost is saved at once; an unchanged one only refreshes its time, which the
+  /// stamp-cost job saves (`LXMRouter.py:1012-1017`).
+  ///
+  /// Python: `update_stamp_cost(destination_hash, stamp_cost)` (`LXMRouter.py:1156-1163`).
+  public func setOutboundStampCost(destinationHash: Data, stampCost: Double?) {
     lock.lock()
-    outboundStampCosts[destinationHash] = stampCost
+    let changed = outboundStampCosts[destinationHash].map { $0.cost != stampCost } ?? true
+    outboundStampCosts[destinationHash] = (Date().timeIntervalSince1970, stampCost)
+    stampCostsDirty = !changed
     lock.unlock()
-    saveOutboundStampCosts()  // persist across restarts
+    if changed { saveOutboundStampCosts() }
+  }
+
+  /// Drop stamp costs not heard for `stampCostExpiry`, and save them if anything changed.
+  ///
+  /// Python: `clean_outbound_stamp_costs()` (`LXMRouter.py:1455-1478`) and the save in the
+  /// stamp-cost job (`:1012-1017`).
+  func cleanOutboundStampCosts() {
+    let cutoff = Date().timeIntervalSince1970 - Self.stampCostExpiry
+    lock.lock()
+    let before = outboundStampCosts.count
+    outboundStampCosts = outboundStampCosts.filter { $0.value.time > cutoff }
+    let save = stampCostsDirty || outboundStampCosts.count != before
+    lock.unlock()
+    if save { saveOutboundStampCosts() }
+  }
+
+  /// Test helper: a stamp cost heard at `time`.
+  func seedOutboundStampCost(_ destinationHash: Data, cost: Double?, at time: TimeInterval) {
+    lock.lock()
+    outboundStampCosts[destinationHash] = (time, cost)
+    lock.unlock()
   }
 
   // MARK: - Priority list API
@@ -2179,6 +2256,13 @@ public final class LXMRouter {
     msg.progress = 1.0
     // Retain destination announce data (LXMF commit 8bdb434).
     _ = transport.retainDestinationData(msg.destinationHash)
+    // A delivered ticket holds back the next one for `ticketInterval` (`LXMRouter.py:3063-3069`).
+    if msg.includeTicket && msg.fields[Int(Field.ticket.rawValue)] != nil {
+      lock.lock()
+      lastDeliveries[msg.destinationHash] = Date().timeIntervalSince1970
+      lock.unlock()
+      saveAvailableTickets()
+    }
     outboundConcluded(msg)  // LXMF 1.2.1 `LXMessage.py:583`
     msg.onDelivery?(msg)
     identifyBackchannel(after: msg)
@@ -2385,6 +2469,10 @@ public final class LXMRouter {
     guard let pp = msg.propagationPacked else { return }
     msg.sentOnSlowPath = slowPath(node)
     msg.state = .sending
+    if msg.representation == .packet {
+      sendPacketOverLink(msg, payload: pp, link: link)
+      return
+    }
     let transfer = ResourceTransfer(link: link)
     // `__mark_propagated` (LXMF 1.2.1 `LXMessage.py:592-605`), which marks the message SENT where
     // this marks it delivered.
@@ -2449,39 +2537,47 @@ public final class LXMRouter {
       // not that anyone received them. The reference reaches DELIVERED only from the receipt's
       // delivery callback (`LXMessage.py:486-491`, `__mark_delivered` at `:563-568`).
       msg.state = .sending
-      do {
-        let receipt = try link.send(packed)
+      sendPacketOverLink(msg, payload: packed, link: link)
+    }
+  }
 
-        guard let receipt else {
-          // Without a receipt there's no way to learn whether the message arrived, so the router
-          // tears the link down and returns the message to the queue (LXMF 1.2.1
-          // `LXMessage.py:498-501`).
-          try? link.teardown()
-          msg.state = .outbound
-          return
-        }
+  /// Sends `payload` as one link packet; the receipt's proof delivers `msg`.
+  ///
+  /// Python: the PACKET branches of `LXMessage.send` for DIRECT and PROPAGATED
+  /// (`LXMessage.py:494-504`, `:561-572`).
+  private func sendPacketOverLink(_ msg: LXMessage, payload: Data, link: Link) {
+    do {
+      let receipt = try link.send(payload)
 
-        msg.deliveryReceipt = receipt
-        msg.progress = 0.50
-
-        receipt.onDelivery = { [weak self, weak msg] _ in
-          guard let self, let msg else { return }
-          self.markDelivered(msg)
-        }
-
-        receipt.onTimeout = { [weak msg] _ in
-          guard let msg, msg.state != .cancelled else { return }
-          // Python tears the link down and returns the message to OUTBOUND for
-          // another attempt (`__link_packet_timed_out`, `LXMessage.py:623-628`). The
-          // link is torn down because a proof that never came back is evidence about
-          // the link, not just about this packet.
-          try? link.teardown()
-          msg.state = .outbound
-        }
-      } catch {
-        // LXMRouter.py:2876-2879.
-        failMessage(msg)
+      guard let receipt else {
+        // Without a receipt there's no way to learn whether the message arrived, so the router
+        // tears the link down and returns the message to the queue (LXMF 1.2.1
+        // `LXMessage.py:498-501`).
+        try? link.teardown()
+        msg.state = .outbound
+        return
       }
+
+      msg.deliveryReceipt = receipt
+      msg.progress = 0.50
+
+      receipt.onDelivery = { [weak self, weak msg] _ in
+        guard let self, let msg else { return }
+        self.markDelivered(msg)
+      }
+
+      receipt.onTimeout = { [weak msg] _ in
+        guard let msg, msg.state != .cancelled else { return }
+        // Python tears the link down and returns the message to OUTBOUND for
+        // another attempt (`__link_packet_timed_out`, `LXMessage.py:623-628`). The
+        // link is torn down because a proof that never came back is evidence about
+        // the link, not just about this packet.
+        try? link.teardown()
+        msg.state = .outbound
+      }
+    } catch {
+      // LXMRouter.py:2876-2879.
+      failMessage(msg)
     }
   }
 
@@ -2666,7 +2762,7 @@ public final class LXMRouter {
 
     let wantsValue: MsgPack.Value = wants.isEmpty ? .nil : .array(wants.map { .bytes($0) })
     let havesValue: MsgPack.Value = haves.isEmpty ? .nil : .array(haves.map { .bytes($0) })
-    let limitValue: MsgPack.Value = deliveryPerTransferLimit.map { .int(Int64($0)) } ?? .nil
+    let limitValue = messageGetLimitValue()
 
     lock.lock()
     let link = outboundPropagationLink
@@ -2690,6 +2786,12 @@ public final class LXMRouter {
         self?.messageGetProgress(progress, receipt: receipt)
       }
     )
+  }
+
+  /// The download limit a message request carries: `delivery_per_transfer_limit`
+  /// (`LXMRouter.py:1813`).
+  func messageGetLimitValue() -> MsgPack.Value {
+    deliveryPerTransferLimit.map { .int(Int64($0)) } ?? .nil
   }
 
   /// Track a running message-get transfer so a UI can render live progress and
@@ -2888,10 +2990,6 @@ public final class LXMRouter {
     guard let msg = try? LXMessage.unpack(data) else { return false }
     // Drop messages from blackholed source identities (LXMF commit 2ac2b10).
     if msg.sourceBlackholed { return false }
-    lock.lock()
-    let isDelivery = deliveryDestinations[msg.destinationHash] != nil
-    lock.unlock()
-    guard isDelivery else { return false }
     msg.incoming = true
     msg.state = .delivered
 
@@ -2900,30 +2998,6 @@ public final class LXMRouter {
     }
     msg.validateSignature(knownIdentity: srcIdentity)
     return finalizeInboundDelivery(msg, noStampEnforcement: noStampEnforcement)
-  }
-
-  /// Notify the router that an identity for `destinationHash` has been announced.
-  ///
-  /// If there are inbound messages in `pendingSignatureValidation` with that
-  /// `sourceHash`, they are validated with the supplied identity and delivered
-  /// via `onMessageReceived`. This is a low-level hook for callers that observe
-  /// announces through a separate mechanism (for example, `transport.onAnnounceReceived`)
-  /// and want to trigger deferred validation without relying on the announce
-  /// handler dispatch chain.
-  ///
-  /// In practice, `runReceive` in `LXMFTestNode` calls this because
-  /// `transport.onAnnounceReceived` is reliable whereas the aspect-filter
-  /// announce handler has been observed to be pre-empted in test scenarios.
-  public func notifyAnnounced(destinationHash: Data, identity: Identity) {
-    lock.lock()
-    let pending = pendingSignatureValidation.filter { $0.message.sourceHash == destinationHash }
-    pendingSignatureValidation.removeAll { $0.message.sourceHash == destinationHash }
-    lock.unlock()
-
-    for (msg, _) in pending {
-      msg.validateSignature(knownIdentity: identity)
-      finalizeInboundDelivery(msg)
-    }
   }
 
   /// Inject a pre-established link into the router's direct-link table.
@@ -3008,7 +3082,7 @@ public final class LXMRouter {
 
   /// Central inbound-delivery gate, mirroring Python `LXMRouter.lxmf_delivery`.
   ///
-  /// Runs, in order: ticket ingest (so future outbound messages to this source
+  /// Runs, in order: the hosted-destination check, ticket ingest (so future outbound messages to this source
   /// can skip proof-of-work), stamp validation + enforcement, ignore-list
   /// filtering, and duplicate suppression—then fires `onMessageReceived`.
   /// Every inbound `onMessageReceived?(msg)` call funnels
@@ -3025,6 +3099,14 @@ public final class LXMRouter {
   /// - Returns: `true` if delivered, `false` if dropped.
   @discardableResult
   func finalizeInboundDelivery(_ msg: LXMessage, noStampEnforcement: Bool = false) -> Bool {
+    // 0. Only a destination this router hosts. Python subscripts `delivery_destinations` and
+    //    a missing key drops the message (`LXMRouter.py:2192`). A link carries the destination
+    //    hash in the sender's bytes, and an unhosted one found no stamp cost below.
+    lock.lock()
+    let hosted = deliveryDestinations[msg.destinationHash] != nil
+    lock.unlock()
+    guard hosted else { return false }
+
     // 1. Ticket ingest. Only trust tickets on signature-validated messages.
     //    Mirrors Python: `if message.signature_validated and FIELD_TICKET in fields`.
     if msg.signatureValidated,
@@ -3067,13 +3149,14 @@ public final class LXMRouter {
     lock.unlock()
     if ignored { return false }
 
-    // 4. Duplicate suppression (mirrors Python's `has_message` /
-    //    `locally_delivered_transient_ids`).
+    // 4. Duplicate suppression, claimed in one step as `conditionally_claim_delivered` does
+    //    (`LXMRouter.py:2239`), so two copies arriving at once are delivered once.
     if let tid = msg.hash {
-      if hasMessage(transientID: tid) { return false }
       lock.lock()
-      locallyDeliveredTransientIDs[tid] = Date().timeIntervalSince1970
+      let duplicate = locallyDeliveredTransientIDs[tid] != nil
+      if !duplicate { locallyDeliveredTransientIDs[tid] = Date().timeIntervalSince1970 }
       lock.unlock()
+      if duplicate { return false }
       saveLocallyDeliveredTransientIDs()  // persist across restarts
     }
 
@@ -3114,17 +3197,23 @@ public final class LXMRouter {
     lock.unlock()
     guard let message = next else { return }
 
-    var packed = true
+    // A stamp that can't be made fails the message (`LXMRouter.py:2981-3029`).
+    var stamped = true
     if message.deferStamp {
       message.deferStamp = false
-      packed = (try? message.pack()) != nil  // LXMRouter.py:2685-2690
+      stamped = (try? message.pack()) != nil && message.stamp != nil
     }
-    if packed && message.desiredMethod == .propagated && message.deferPropagationStamp {
-      message.attachPropagationStamp(cost: getOutboundPropagationCost() ?? 0)
+    if stamped && message.desiredMethod == .propagated && message.deferPropagationStamp {
       message.deferPropagationStamp = false
+      if let cost = outboundPropagationCostAwaitingPath() {
+        message.attachPropagationStamp(cost: cost)
+        stamped = message.propagationStamp != nil
+      } else {
+        stamped = false
+      }
     }
     let cancelled = message.state == .cancelled
-    let queued = packed && !cancelled
+    let queued = stamped && !cancelled
     if !queued { message.stampGenerationFailed = true }  // before the pop, as at LXMRouter.py:2667
 
     lock.lock()
@@ -3158,9 +3247,6 @@ public final class LXMRouter {
   internal func handleAnnounceForDestination(_ destinationHash: Data) {
     lock.lock()
     let matches = unsafePendingOutbound.filter { $0.destinationHash == destinationHash }
-    // Drain inbound messages waiting for this source's identity.
-    let pendingSig = pendingSignatureValidation.filter { $0.message.sourceHash == destinationHash }
-    pendingSignatureValidation.removeAll { $0.message.sourceHash == destinationHash }
     lock.unlock()
 
     // `Handlers.py:23-31`: only a message waiting on a path is brought forward.
@@ -3170,22 +3256,6 @@ public final class LXMRouter {
     let now = Date().timeIntervalSince1970
     for msg in awaiting { msg.nextDeliveryAttempt = now }
     if !awaiting.isEmpty { triggerOutbound() }
-
-    // Validate inbound messages whose source identity has just been announced.
-    // By the time `handleAnnounceForDestination` is called, the transport has
-    // already stored the identity (knownIdentities[destinationHash] = identity
-    // happens before announce handlers fire).
-    if !pendingSig.isEmpty {
-      let srcIdentity = transport.recall(identity: destinationHash)
-      for (msg, _) in pendingSig {
-        if let srcIdentity {
-          msg.validateSignature(knownIdentity: srcIdentity)
-        } else {
-          msg.unverifiedReason = .sourceUnknown
-        }
-        finalizeInboundDelivery(msg)
-      }
-    }
   }
 
   // MARK: - Propagation node server
@@ -3360,7 +3430,8 @@ public final class LXMRouter {
       }
       return self.handleMessageGetRequest(
         data: requestData,
-        remoteDeliveryHash: remoteDeliveryHash)
+        remoteDeliveryHash: remoteDeliveryHash,
+        remoteIdentityHash: link.remoteIdentity?.hash)
     }
 
     // Set up the link callbacks to accept uploads from clients/peers.
@@ -3375,15 +3446,27 @@ public final class LXMRouter {
         self?.handleInboundPropagationPacket(data, on: inboundLink)
       }
       link.resourceStrategy = .acceptApp
-      link.onResourceAdvertised = { [weak self] resource, _ -> Bool in
+      // Read when the resource is advertised: the sender may close the link once its transfer
+      // completes, before the conclusion is handled here, and closing evicts the key's record.
+      var keyPresented = false
+      link.onResourceAdvertised = { [weak self] resource, advertisedLink -> Bool in
         guard let self else { return false }
-        if let limit = self.propagationPerSyncLimit {
-          return Int(resource.dataSize) <= limit * 1000
+        if let limit = self.propagationPerSyncLimit, Int(resource.dataSize) > limit * 1000 {
+          return false
         }
+        // An accepted offer's resource has started arriving (`LXMRouter.py:2564-2568`).
+        let key = ObjectIdentifier(advertisedLink)
+        self.lock.lock()
+        if self.unsafeAcceptedOfferLinks[key] != nil {
+          self.unsafeAcceptedOfferLinks[key] = .transferring
+        }
+        keyPresented = self.unsafeValidatedPeerLinks[key] == true
+        self.lock.unlock()
         return true
       }
       link.onResourceConcluded = { [weak self] data, _, concludingLink in
-        self?.handleInboundPropagationResource(data, on: concludingLink)
+        self?.handleInboundPropagationResource(
+          data, on: concludingLink, keyPresented: keyPresented)
       }
       // Evict this link's PN-link bookkeeping when it closes (growth fix:
       // validatedPeerLinks was inserted on every offer request but never
@@ -3394,6 +3477,7 @@ public final class LXMRouter {
         guard let self else { return }
         self.lock.lock()
         self.unsafeValidatedPeerLinks.removeValue(forKey: ObjectIdentifier(l))
+        self.unsafeAcceptedOfferLinks.removeValue(forKey: ObjectIdentifier(l))
         self.unsafeActivePropagationLinks.removeValue(forKey: ObjectIdentifier(l))
         self.lock.unlock()
       }
@@ -3487,7 +3571,12 @@ public final class LXMRouter {
   }
 
   /// Takes a propagation-node resource payload received on `link`.
-  public func handleInboundPropagationResource(_ data: Data, on link: Link?) {
+  ///
+  /// `keyPresented` is whether `link` presented a valid peering key, read while the link was
+  /// open; nil reads it now.
+  public func handleInboundPropagationResource(
+    _ data: Data, on link: Link?, keyPresented presented: Bool? = nil
+  ) {
     guard case .array(let outer) = (try? MsgPack.decode(data)) ?? .nil,
       outer.count >= 2,
       case .array(let messages) = outer[1]
@@ -3510,12 +3599,34 @@ public final class LXMRouter {
     // the remote its own upload straight back.
     if let sender { considerAutopeering(with: sender) }
 
+    let linkKey = link.map { ObjectIdentifier($0) }
     lock.lock()
     let senderPeer = sender.flatMap { unsafePeers[$0] }
+    let keyPresented = presented ?? linkKey.map { unsafeValidatedPeerLinks[$0] == true } ?? false
+    lock.unlock()
+
+    // Only a link that presented a valid peering key may carry more than one message
+    // (`LXMRouter.py:2718-2726`). Clients deliver one message per transfer.
+    if let link, !(link.remoteIdentity != nil && keyPresented), messages.count > 1 {
+      try? link.teardown()
+      return
+    }
+
+    // Mark the batch as under validation, so offers wait for it (`LXMRouter.py:2731-2739`).
+    lock.lock()
+    if let linkKey, sender != nil { unsafeAcceptedOfferLinks[linkKey] = .validating }
+    if let sender { unsafeValidatingPNStampsFrom[sender] = Date().timeIntervalSince1970 }
     lock.unlock()
 
     let minCost = max(0, propagationStampCost - propagationStampCostFlexibility)
     let validated = LXStamper.validatePNStamps(transientList: transientList, targetCost: minCost)
+
+    // `finally` at `LXMRouter.py:2755-2765`.
+    lock.lock()
+    if let sender { unsafeValidatingPNStampsFrom.removeValue(forKey: sender) }
+    if let linkKey { unsafeAcceptedOfferLinks.removeValue(forKey: linkKey) }
+    lock.unlock()
+
     for entry in validated {
       // `LXMRouter.py:2434-2436`—a sync from a peer counts against that peer, not against
       // the client tally.
@@ -3837,6 +3948,34 @@ public final class LXMRouter {
     lock.lock()
     defer { lock.unlock() }
     unsafePeers[destinationHash] = peer
+  }
+
+  /// Mark a sender as having a stamp batch under validation.
+  func seedValidatingPNStamps(from propagationHash: Data) {
+    lock.lock()
+    defer { lock.unlock() }
+    unsafeValidatingPNStampsFrom[propagationHash] = Date().timeIntervalSince1970
+  }
+
+  /// Record an accepted sync offer's state for a link.
+  func seedAcceptedOffer(_ linkID: ObjectIdentifier, _ state: OfferState?) {
+    lock.lock()
+    defer { lock.unlock() }
+    unsafeAcceptedOfferLinks[linkID] = state
+  }
+
+  /// The accepted sync offer's state for a link, or `nil` when none is recorded.
+  func acceptedOfferState(_ linkID: ObjectIdentifier) -> OfferState? {
+    lock.lock()
+    defer { lock.unlock() }
+    return unsafeAcceptedOfferLinks[linkID]
+  }
+
+  /// Senders with a stamp batch under validation now.
+  func validatingPNStampSenders() -> Set<Data> {
+    lock.lock()
+    defer { lock.unlock() }
+    return Set(unsafeValidatingPNStampsFrom.keys)
   }
 
   /// Throttle a remote until `until`, or clear it with `nil`.
@@ -4309,6 +4448,10 @@ public final class LXMRouter {
     // expired too.
     .init("cleanThrottledPeers", every: jobPeerSyncInterval) { $0.cleanThrottledPeers() },
 
+    .init("cleanOutboundStampCosts", every: jobStampCostInterval) {
+      $0.cleanOutboundStampCosts()
+    },
+
     .init(
       "savePeers", every: jobSaveInterval, propagationNodeOnly: true,
       addedBecause: savePeersAdditionReason
@@ -4390,6 +4533,7 @@ public final class LXMRouter {
     where link.noDataFor() > LXMRouter.propagationLinkMaxInactivity {
       lock.lock()
       unsafeActivePropagationLinks.removeValue(forKey: key)
+      unsafeAcceptedOfferLinks.removeValue(forKey: key)
       lock.unlock()
       try? link.teardown()
     }
@@ -4720,6 +4864,22 @@ public final class LXMRouter {
       return .int(Int64(LXMPeerError.noIdentity.rawValue))
     }
 
+    // Postpone while another batch is validated or enough syncs are arriving
+    // (`LXMRouter.py:2610-2618`). A static peer skips both unless held to them.
+    if let propagationHash {
+      lock.lock()
+      let bypass = !propagationStaticPeerSequential && unsafeStaticPeers.contains(propagationHash)
+      let validating = !unsafeValidatingPNStampsFrom.isEmpty
+      let transferring = unsafeAcceptedOfferLinks.values.filter { $0 > .accepted }.count
+      lock.unlock()
+      if !bypass && propagationSequentialValidation && validating {
+        return .int(Int64(LXMPeerError.throttled.rawValue))
+      }
+      if !bypass, let limit = propagationMaxInboundSyncs, limit > 0, transferring >= limit {
+        return .int(Int64(LXMPeerError.throttled.rawValue))
+      }
+    }
+
     // Refuse while the remote is throttled, and drop the record once it has elapsed. The
     // scheduled sweep (`cleanThrottledPeers`) is not a substitute: this branch only fires for a
     // remote that comes back (`LXMRouter.py:2285-2290`).
@@ -4779,6 +4939,10 @@ public final class LXMRouter {
 
     if wantedIDs.isEmpty { return .bool(false) }
     if wantedIDs.count == offeredIDs.count { return .bool(true) }
+    // Only a partly wanted offer is recorded, as in the reference (`LXMRouter.py:2663`).
+    lock.lock()
+    unsafeAcceptedOfferLinks[linkID] = .accepted
+    lock.unlock()
     return .array(wantedIDs.map { .bytes($0) })
   }
 
@@ -4792,14 +4956,21 @@ public final class LXMRouter {
   /// - Parameters:
   ///   - data: msgpack: [want: [Data]?, have: [Data]?, limit_kb: Double?]
   ///   - remoteDeliveryHash: 16-byte delivery destination hash of the client.
+  ///   - remoteIdentityHash: the client's identity hash, checked against the allow list when
+  ///     authentication is required (`LXMRouter.py:1696-1704`).
   /// - Returns: Response msgpack value.
   public func handleMessageGetRequest(
     data: MsgPack.Value,
-    remoteDeliveryHash: Data?
+    remoteDeliveryHash: Data?,
+    remoteIdentityHash: Data? = nil
   ) -> MsgPack.Value {
     guard let destHash = remoteDeliveryHash else {
       return .int(Int64(LXMPeerError.noIdentity.rawValue))
     }
+    lock.lock()
+    let denied = authRequired && !(remoteIdentityHash.map { allowedList.contains($0) } ?? false)
+    lock.unlock()
+    if denied { return .int(Int64(LXMPeerError.noAccess.rawValue)) }
     guard isPropagationNode else { return .int(Int64(LXMPeerError.noAccess.rawValue)) }
 
     guard case .array(let dataArr) = data, dataArr.count >= 2 else {
@@ -4824,10 +4995,8 @@ public final class LXMRouter {
       }
       return nil
     }()
-    let clientLimitKB: Double? = {
-      if dataArr.count >= 3, case .double(let v) = dataArr[2] { return v }
-      return nil
-    }()
+    // `float(data[2])` (`LXMRouter.py:1749`): Python and Swift clients send an integer.
+    let clientLimitKB: Double? = dataArr.count >= 3 ? dataArr[2].asDouble : nil
 
     // No want/have = client requesting the list of available messages.
     if wantList == nil && haveList == nil {
@@ -4904,15 +5073,41 @@ public final class LXMRouter {
   ///     excluded from the fan-out and the message is recorded as handled for it—Python does
   ///     both (`LXMRouter.py:2444-2445`, `:2484`), because a peer that just sent this router a message
   ///     demonstrably has it.
-  /// - Returns: The stored entry, or `nil` when the message was a duplicate.
+  /// - Returns: The stored entry, or `nil` when the message was a duplicate or was for one of
+  ///   this router's own delivery destinations, which is delivered here instead.
   @discardableResult
   public func ingestPropagatedLXM(
     lxmfData: Data, stampValue: Double, stamp: Data,
     fromPeer: LXMPeer? = nil
   ) -> PropagationEntry? {
+    let transientID = Hashes.fullHash(lxmfData)
+
+    // A message for this router's own address is decrypted and delivered, not stored
+    // (`LXMRouter.py:2858-2868`). The stamp value check below is the store's alone (`:2869`).
+    let destHash = Data(lxmfData.prefix(LXMessage.destinationLength))
+    lock.lock()
+    let localDestination = deliveryDestinations[destHash]
+    let seen =
+      unsafePropagationEntries[transientID] != nil
+      || locallyProcessedTransientIDs[transientID] != nil
+    if localDestination != nil && !seen {
+      locallyProcessedTransientIDs[transientID] = Date().timeIntervalSince1970
+    }
+    lock.unlock()
+    if let localDestination {
+      guard !seen,
+        let plaintext = try? localDestination.decrypt(
+          Data(lxmfData.dropFirst(LXMessage.destinationLength)))
+      else { return nil }
+      deliverInboundResource(destHash + plaintext)
+      lock.lock()
+      locallyDeliveredTransientIDs[transientID] = Date().timeIntervalSince1970
+      lock.unlock()
+      return nil
+    }
+
     // LXMF 1.3.0 `LXMRouter.py:2869`: a node stores no message without a stamp value.
     guard Stamps.quantizeCost(stampValue) > 0 else { return nil }
-    let transientID = Hashes.fullHash(lxmfData)
     lock.lock()
     let isDup = unsafePropagationEntries[transientID] != nil
     lock.unlock()
@@ -5080,8 +5275,16 @@ public final class LXMRouter {
     guard let sp = storagePath else { return }
     lock.lock()
     let snapshot = outboundStampCosts
+    stampCostsDirty = false
     lock.unlock()
-    let pairs = snapshot.map { (MsgPack.Value.bytes($0.key), MsgPack.Value.double($0.value)) }
+    let pairs = snapshot.map {
+      (
+        MsgPack.Value.bytes($0.key),
+        MsgPack.Value.array([
+          .double($0.value.time), $0.value.cost.map(MsgPack.Value.double) ?? .nil,
+        ])
+      )
+    }
     try? MsgPack.encode(.map(pairs)).write(
       to: URL(fileURLWithPath: sp + "/outbound_stamp_costs"), options: .atomic)
   }
@@ -5091,14 +5294,20 @@ public final class LXMRouter {
       let data = try? Data(contentsOf: URL(fileURLWithPath: sp + "/outbound_stamp_costs")),
       case .map(let pairs) = (try? MsgPack.decode(data)) ?? .nil
     else { return }
-    var loaded: [Data: Double] = [:]
+    let now = Date().timeIntervalSince1970
+    var loaded: [Data: (time: TimeInterval, cost: Double?)] = [:]
     for (k, v) in pairs {
-      guard case .bytes(let key) = k, let cost = v.asDouble else { continue }
-      loaded[key] = cost
+      guard case .bytes(let key) = k else { continue }
+      if case .array(let entry) = v, entry.count == 2, let time = entry[0].asDouble {
+        loaded[key] = (time, entry[1].asDouble)
+      } else if let cost = v.asDouble {
+        loaded[key] = (now, cost)  // a bare cost, as releases before this one wrote
+      }
     }
     lock.lock()
     outboundStampCosts = loaded
     lock.unlock()
+    cleanOutboundStampCosts()  // LXMRouter.py:345-346
   }
 
   /// Persist available inbound/outbound tickets and last-delivery timestamps.

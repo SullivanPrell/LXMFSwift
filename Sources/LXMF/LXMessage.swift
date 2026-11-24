@@ -390,7 +390,7 @@ public final class LXMessage {
   /// unsafe because Swift reuses memory addresses for newly allocated objects,
   /// causing stale cache hits after an earlier message at the same address was
   /// deallocated.
-  private var propagationStamp: Data?
+  private(set) var propagationStamp: Data?
 
   /// Whether to auto-compress the resource when sending via RNS.Resource.
   ///
@@ -719,7 +719,7 @@ public final class LXMessage {
       self.representation = contentSize <= linkPacketMaxContent ? .packet : .resource
     case .propagated:
       self.method = .propagated
-      self.representation = .packet
+      selectPropagatedRepresentation()
     case .paper:
       // Python: `LXMessage.py:455-456`. The size check happened in pack(), which
       // throws rather than falling through to another method.
@@ -729,6 +729,12 @@ public final class LXMessage {
       self.method = .direct
       self.representation = contentSize <= linkPacketMaxContent ? .packet : .resource
     }
+  }
+
+  /// A propagation container that fits one link packet goes as one (`LXMessage.py:452-459`).
+  private func selectPropagatedRepresentation() {
+    let size = propagationPacked?.count ?? .max
+    representation = size <= LXMessage.linkPacketMaxContent ? .packet : .resource
   }
 
   // MARK: - Unpacking (inbound)
@@ -1197,7 +1203,6 @@ extension LXMessage {
   ///
   /// - Parameter cost: Minimum leading-zero-bit cost required by the propagation node.
   public func attachPropagationStamp(cost: Double) {
-    guard cost > 0 else { return }  // mirrors Python: no stamp for cost ≤ 0
     guard propagationStamp == nil else { return }  // already stamped
     guard messageID != nil else { return }  // needs pack() first
 
@@ -1229,6 +1234,7 @@ extension LXMessage {
         .double(ts),
         .array([.bytes(newLxmfData)]),
       ]))
+    selectPropagatedRepresentation()  // the stamp adds 32 bytes
   }
 
   // MARK: File I/O

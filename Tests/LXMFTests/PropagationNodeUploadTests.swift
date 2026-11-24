@@ -134,6 +134,41 @@ final class PropagationNodeTests: XCTestCase {
         + "the client the node accepted what it discarded")
   }
 
+  /// A client that presented no peering key delivers one message per transfer.
+  ///
+  /// Python tears the link down on a batch and stores none of it (`LXMRouter.py:2718-2726`).
+  func testAnUnkeyedClientBatchIsRefused() throws {
+    let link = try openClientLink()
+    let bodies = [uniqueBody(), uniqueBody()]
+    let payload = try MsgPack.encode(
+      .array([
+        .double(Date().timeIntervalSince1970),
+        .array(bodies.map { .bytes($0 + Data(repeating: 0, count: 32)) }),
+      ]))
+    try ResourceTransfer(link: link).send(payload: payload)
+
+    XCTAssertTrue(
+      net.waitUntil("link torn down", timeout: 10) { link.status != .active },
+      "the node tears down a link that sends a batch without a peering key")
+    for body in bodies {
+      XCTAssertNil(net.routerB.propagationEntries[Hashes.fullHash(body)])
+    }
+  }
+
+  /// Reference cell for the test above: one message in a resource from the same kind of client
+  /// is stored.
+  func testAnUnkeyedClientSingleMessageResourceIsStored() throws {
+    let link = try openClientLink()
+    let body = uniqueBody()
+    let payload = try packetPayload(body: body)
+    try ResourceTransfer(link: link).send(payload: payload)
+    XCTAssertTrue(
+      net.waitUntil("message stored", timeout: 10) {
+        self.net.routerB.propagationEntries[Hashes.fullHash(body)] != nil
+      })
+    XCTAssertTrue(net.routerB.validatingPNStampSenders().isEmpty)
+  }
+
   /// A router's propagation upload sets the resource's app flag (`LXMessage.py:678`), which a
   /// `from_static_only` node accepts from any client (`LXMRouter.py:2542`).
   func testARouterUploadSetsTheResourceAppFlag() throws {
@@ -168,5 +203,42 @@ final class PropagationNodeTests: XCTestCase {
         return !appFlags.isEmpty
       }, "precondition: the upload must reach the node as a resource")
     XCTAssertEqual(appFlags, [true])
+  }
+
+  /// A router sends a propagated message whose container fits `LINK_PACKET_MAX_CONTENT` as one
+  /// link packet, and the node's proof delivers it (`LXMessage.py:452-459`, `:561-572`).
+  func testARouterSendsASmallPropagatedMessageAsALinkPacket() throws {
+    net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 2)
+    try net.announceBToA()
+    let node = try XCTUnwrap(net.routerB.propagationDestination)
+    let routerSetup = node.onLinkEstablished
+    var resources = 0
+    node.onLinkEstablished = { link in
+      routerSetup?(link)
+      let accept = link.onResourceAdvertised
+      link.onResourceAdvertised = { advertisement, advertisedLink in
+        resources += 1
+        return accept?(advertisement, advertisedLink) ?? false
+      }
+    }
+
+    let source = try XCTUnwrap(net.routerA.deliveryDestinations.values.first)
+    let recipient = try Destination(
+      identity: Identity(), direction: .out, kind: .single, appName: appName,
+      aspects: ["delivery"])
+    let message = LXMessage(
+      destination: recipient, source: source, content: "short", desiredMethod: .propagated)
+    net.routerA.outboundPropagationNode = net.bPropagationHash
+    try net.routerA.send(message)
+
+    XCTAssertTrue(
+      net.waitUntil("message delivered", timeout: 10) {
+        net.routerA.processDeferredStamps()
+        _ = net.routerA.processOutbound()
+        return message.state == .delivered
+      })
+    XCTAssertEqual(message.representation, .packet)
+    XCTAssertEqual(resources, 0, "a short message must not be advertised as a resource")
+    XCTAssertEqual(net.routerB.propagationEntries.count, 1)
   }
 }

@@ -341,7 +341,10 @@ struct OutboundHoldTests {
   @Test("__mark_propagated: a completed propagation transfer marks the message once")
   func completedPropagationMarksTheMessage() async throws {
     let pair = try AnnouncedPair()
-    let message = try pair.message(method: .propagated)
+    // Too long for one link packet, so it goes as the resource this test completes.
+    let message = try pair.message(
+      method: .propagated, content: String(repeating: "x", count: 1000))
+    #expect(message.representation == .resource)
     try await pair.useActiveLink(for: .propagated)
     let deliveries = Counter()
     message.onDelivery = { _ in deliveries.increment() }

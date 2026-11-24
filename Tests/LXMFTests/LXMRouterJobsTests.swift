@@ -53,6 +53,9 @@ final class LXMRouterJobsTests: XCTestCase {
     ("rotatePeers", 336, true),  // :905-906, JOB_ROTATE_INTERVAL = 56 × 6
     ("syncPeers", 6, true),  // :908-909, JOB_PEERSYNC_INTERVAL
     ("cleanThrottledPeers", 6, false),  // :910, shares the slot, *not* PN-gated
+    // LXMF 1.3.1 `LXMRouter.py:1012-1017`, JOB_STAMPCOST_INTERVAL. Python's legacy
+    // (store-less) branch only saves there; this port also culls, as its store branch does.
+    ("cleanOutboundStampCosts", 120, false),
   ]
 
   // MARK: - The schedule

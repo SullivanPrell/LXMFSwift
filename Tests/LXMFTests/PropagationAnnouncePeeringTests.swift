@@ -368,6 +368,11 @@ final class PropagationAnnouncePeeringTests: XCTestCase {
         appName: appName, aspects: ["delivery"])
       let message = LXMessage(destination: destination, source: source, content: "queued")
       message.desiredMethod = .propagated
+      // The node heard the remote's stamp cost earlier; without one the stamp job fails a
+      // propagated message (`LXMRouter.py:3005-3010`). No path is restored with it.
+      let known = try Identity(publicKeyBytes: remoteIdentity.publicKeyBytes)
+      known.appData = remote.getPropagationNodeAppData()
+      nodeTransport.restore(identity: known, forDestination: remotePropagationHash)
       try node.send(message)
       // `send` leaves a propagated message to the deferred-stamp job, which queues it for
       // delivery on another thread (`LXMRouter.py:1858-1864`), so it is not on the queue when

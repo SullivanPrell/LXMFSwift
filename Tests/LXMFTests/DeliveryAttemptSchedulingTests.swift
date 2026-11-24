@@ -332,10 +332,10 @@ final class AnnouncedPair {
   }
 
   /// Packs a small message to `destination` and queues it without the enqueue-time pass.
-  func message(method: LXMessage.Method) throws -> LXMessage {
+  func message(method: LXMessage.Method, content: String = "scheduling") throws -> LXMessage {
     let message = LXMessage(
       destination: destination, source: source,
-      content: "scheduling", desiredMethod: method)
+      content: content, desiredMethod: method)
     try message.pack()
     message.state = .outbound
     router.testInjectPendingOutbound(message)
