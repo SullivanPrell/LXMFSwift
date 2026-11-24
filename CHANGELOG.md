@@ -5,6 +5,8 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.15.0]—propagation node access checks and inbound sync throttling
+
 ### Changed
 
 - **Source-breaking:** `LXMRouter.outboundPropagationNode` is now `public internal(set)`. To
@@ -61,7 +63,6 @@ All notable changes to LXMFSwift are documented here. This project follows
   (`Handlers.py:17-18`).
 - Every delivery announce rewrote the stamp cost file. An unchanged cost is now saved by the
   stamp cost job.
-
 - A data race on the router's propagation sync state. `outboundPropagationNode`, the
   `propagationTransfer*` fields and the `wantsDownloadOnPathAvailable*` fields were written
   under the router's lock on network threads but read bare from the app. Each field now
