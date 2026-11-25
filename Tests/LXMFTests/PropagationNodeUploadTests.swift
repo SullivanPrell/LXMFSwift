@@ -206,7 +206,7 @@ final class PropagationNodeTests: XCTestCase {
   }
 
   /// A router sends a propagated message whose container fits `LINK_PACKET_MAX_CONTENT` as one
-  /// link packet, and the node's proof delivers it (`LXMessage.py:452-459`, `:561-572`).
+  /// link packet, and the node's proof marks it sent (`LXMessage.py:452-459`, `:523-525`).
   func testARouterSendsASmallPropagatedMessageAsALinkPacket() throws {
     net = try PeerOutboundSyncNetwork(test: self, tempDir: tempDir, peeringCost: 2)
     try net.announceBToA()
@@ -232,10 +232,10 @@ final class PropagationNodeTests: XCTestCase {
     try net.routerA.send(message)
 
     XCTAssertTrue(
-      net.waitUntil("message delivered", timeout: 10) {
+      net.waitUntil("message sent", timeout: 10) {
         net.routerA.processDeferredStamps()
         _ = net.routerA.processOutbound()
-        return message.state == .delivered
+        return message.state == .sent && message.progress == 1.0
       })
     XCTAssertEqual(message.representation, .packet)
     XCTAssertEqual(resources, 0, "a short message must not be advertised as a resource")
