@@ -338,13 +338,17 @@ struct OutboundHoldTests {
     try await waitUntil { pass.wait(timeout: .now()) == .success }
   }
 
-  @Test("__mark_propagated: a completed propagation transfer marks the message once")
-  func completedPropagationMarksTheMessage() async throws {
+  /// A propagation node's receipt marks the message SENT, not DELIVERED: only the node has it
+  /// (`LXMessage.py:600-613`, `:523-525`, `:640`).
+  @Test(
+    "__mark_propagated: a propagation node's receipt marks the message SENT once",
+    arguments: [1000, 10])
+  func completedPropagationMarksTheMessage(length: Int) async throws {
     let pair = try AnnouncedPair()
-    // Too long for one link packet, so it goes as the resource this test completes.
+    // 1000 bytes go as a resource, 10 as one link packet.
     let message = try pair.message(
-      method: .propagated, content: String(repeating: "x", count: 1000))
-    #expect(message.representation == .resource)
+      method: .propagated, content: String(repeating: "x", count: length))
+    #expect(message.representation == (length > 100 ? .resource : .packet))
     try await pair.useActiveLink(for: .propagated)
     let deliveries = Counter()
     message.onDelivery = { _ in deliveries.increment() }
@@ -352,7 +356,7 @@ struct OutboundHoldTests {
     pair.router.processOutbound()
 
     try await waitUntil { deliveries.value == 1 }
-    #expect(message.state == .delivered)
+    #expect(message.state == .sent)
     #expect(message.progress == 1.0)
   }
 }
@@ -648,6 +652,8 @@ extension AnnouncedPair {
     try await waitUntil { link.status == .active }
     let linkID = try #require(link.linkID)
     transportB.links[linkID]?.resourceStrategy = .acceptAll
+    // A propagation node proves a link packet as it takes it (`LXMRouter.py:2592`).
+    transportB.links[linkID]?.onDataReceived = { _, inbound in inbound.proveInboundData() }
     if method == .propagated {
       router.outboundPropagationNode = propagationNode
       router.outboundPropagationLink = link
