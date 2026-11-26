@@ -5,6 +5,10 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.16.0]—stamp-cost getters, and a propagated message is sent, not delivered
+
+LXMFSwift requires ReticulumSwift 1.30.0, which binds a link to the interface it was built on.
+
 ### Added
 
 - `LXMRouter.getOutboundLxmStampCost(_:)` and `getOutboundLxmPropagationStampCost(_:)`, Python's

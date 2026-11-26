@@ -15,6 +15,6 @@ import XCTest
 final class LXMFVersionTests: XCTestCase {
   /// The constant is announced in propagation node metadata, so a release must move it.
   func testVersionMatchesTheRelease() {
-    XCTAssertEqual(lxmfSwiftVersion, "1.15.0")
+    XCTAssertEqual(lxmfSwiftVersion, "1.16.0")
   }
 }
