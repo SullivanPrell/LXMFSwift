@@ -779,7 +779,7 @@ public final class LXMessage {
     let minLen = hlen + hlen + slen + 1
     guard data.count >= minLen else { throw LXMessageError.malformed }
 
-    var cursor = 0
+    var cursor = data.startIndex
     let destHash = data[cursor..<cursor + hlen]
     cursor += hlen
     let srcHash = data[cursor..<cursor + hlen]
@@ -835,7 +835,7 @@ public final class LXMessage {
     msg.timestamp = ts
     msg.signature = Data(sig)
     msg.stamp = extractedStamp
-    msg.packed = data
+    msg.packed = Data(data)
     msg.incoming = true
 
     // Decode the fields dictionary (msgpack payload element index 3).

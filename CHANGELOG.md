@@ -23,6 +23,12 @@ All notable changes to LXMFSwift are documented here. This project follows
   fires once. An app that showed delivered for these messages now shows sent. This closes
   1.9.0's first "Not ported" item.
 
+### Fixed
+
+- `LXMessage.unpack(_:)` reads a `Data` slice from its `startIndex`. It started its cursor at 0, so
+  a slice that didn't start at 0 trapped or read the wrong bytes, and `packed` kept the slice's
+  offset indices. No caller passes such a slice today.
+
 ### Not ported, updated
 
 - Three bullets under 1.11.0's "Not ported" no longer apply. The getters are above, 1.15.0
