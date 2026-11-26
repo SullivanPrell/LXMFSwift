@@ -14,6 +14,15 @@ All notable changes to LXMFSwift are documented here. This project follows
   second reads the new `LXMessage.propagationTargetCost`, set when the message is stamped
   (`LXMessage.py:354`).
 
+### Changed
+
+- **Behavior change:** a propagated message that the propagation node accepts is now `.sent`
+  at progress 1.0, not `.delivered`, as Python's `__mark_propagated` marks it
+  (`LXMessage.py:600-613`). The node's receipt means only the node holds the message. This
+  covers a resource transfer (`:640`) and a single link packet (`:523-525`). `onDelivery` still
+  fires once. An app that showed delivered for these messages now shows sent. This closes
+  1.9.0's first "Not ported" item.
+
 ### Not ported, updated
 
 - Three bullets under 1.11.0's "Not ported" no longer apply. The getters are above, 1.15.0

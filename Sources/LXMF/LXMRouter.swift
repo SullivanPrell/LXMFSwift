@@ -2291,6 +2291,18 @@ public final class LXMRouter {
     identifyBackchannel(after: msg)
   }
 
+  /// Marks a message a propagation node accepted as sent, once, and reports it.
+  ///
+  /// Only the node holds the message, so it's SENT rather than DELIVERED. Python:
+  /// `__mark_propagated` (`LXMessage.py:600-613`).
+  func markPropagated(_ msg: LXMessage) {
+    removePending(msg)
+    guard msg.transition(to: .sent, unlessIn: [.sent, .delivered]) else { return }
+    msg.progress = 1.0
+    outboundConcluded(msg)
+    msg.onDelivery?(msg)
+  }
+
   /// Identifies as a delivered DIRECT message's source on the direct link that carried it, so
   /// the recipient can send back over that link.
   ///
@@ -2497,11 +2509,10 @@ public final class LXMRouter {
       return
     }
     let transfer = ResourceTransfer(link: link)
-    // `__mark_propagated` (LXMF 1.2.1 `LXMessage.py:592-605`), which marks the message SENT where
-    // this marks it delivered.
+    // `__propagation_resource_concluded` calls `__mark_propagated` (`LXMessage.py:640`).
     transfer.onComplete = { [weak self, weak msg] _ in
       guard let msg else { return }
-      self?.markDelivered(msg)
+      self?.markPropagated(msg)
     }
     // `__propagation_resource_concluded` (`LXMessage.py:615-621`): a failed transfer tears the
     // link down and returns the message to the queue for another attempt.
@@ -2586,7 +2597,8 @@ public final class LXMRouter {
 
       receipt.onDelivery = { [weak self, weak msg] _ in
         guard let self, let msg else { return }
-        self.markDelivered(msg)
+        // A propagation node's proof means only that it holds the message (`LXMessage.py:523-525`).
+        if msg.method == .propagated { self.markPropagated(msg) } else { self.markDelivered(msg) }
       }
 
       receipt.onTimeout = { [weak msg] _ in
