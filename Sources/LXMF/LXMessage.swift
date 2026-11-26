@@ -358,6 +358,11 @@ public final class LXMessage {
   /// Mirrors Python's `LXMessage.outbound_ticket`.
   public var outboundTicket: Data?
 
+  /// The propagation stamp cost this message was last stamped for.
+  ///
+  /// Python's `propagation_target_cost` (`LXMessage.py:162`, `:354`).
+  public internal(set) var propagationTargetCost: Double?
+
   /// Whether `pack()` leaves the stamp out, for the router to add off the caller's thread.
   ///
   /// `LXMRouter.send(_:)` clears it when an outbound ticket applies or no stamp is required.
@@ -1204,6 +1209,7 @@ extension LXMessage {
   /// - Parameter cost: Minimum leading-zero-bit cost required by the propagation node.
   public func attachPropagationStamp(cost: Double) {
     guard propagationStamp == nil else { return }  // already stamped
+    propagationTargetCost = cost  // LXMessage.py:354
     guard messageID != nil else { return }  // needs pack() first
 
     // Extract lxmfData (without stamp) from current propagationPacked.
