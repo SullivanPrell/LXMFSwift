@@ -1232,6 +1232,29 @@ public final class LXMRouter {
     return pnStampCostFromAppData(appData).map { max(0, min($0, Double(Transport.stampCostCap))) }
   }
 
+  /// The stamp cost of an outbound message, or nil when it holds an outbound ticket.
+  ///
+  /// Looks in the outbound queue, then the deferred-stamp queue. Returns nil for a hash
+  /// neither holds. Python: `get_outbound_lxm_stamp_cost()` (`LXMRouter.py:2138-2150`).
+  public func getOutboundLxmStampCost(_ lxmHash: Data) -> Double? {
+    guard let message = pendingMessage(lxmHash) else { return nil }
+    return message.outboundTicket == nil ? message.stampCost : nil
+  }
+
+  /// The propagation stamp cost an outbound message was stamped for, if any.
+  ///
+  /// Python: `get_outbound_lxm_propagation_stamp_cost()` (`LXMRouter.py:2152-2161`).
+  public func getOutboundLxmPropagationStampCost(_ lxmHash: Data) -> Double? {
+    pendingMessage(lxmHash)?.propagationTargetCost
+  }
+
+  private func pendingMessage(_ lxmHash: Data) -> LXMessage? {
+    lock.lock()
+    defer { lock.unlock() }
+    return unsafePendingOutbound.first { $0.messageID == lxmHash }
+      ?? unsafePendingDeferredStamps.first { $0.messageID == lxmHash }
+  }
+
   /// The outbound node's stamp cost, waiting for its announce when none is cached.
   ///
   /// Requests a path first, and blocks for up to `effectivePathRequestWait()`.

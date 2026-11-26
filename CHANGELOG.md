@@ -5,6 +5,15 @@ All notable changes to LXMFSwift are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+
+- `LXMRouter.getOutboundLxmStampCost(_:)` and `getOutboundLxmPropagationStampCost(_:)`, Python's
+  `get_outbound_lxm_stamp_cost` and `get_outbound_lxm_propagation_stamp_cost`
+  (`LXMRouter.py:2138-2161`). Each looks a message up by hash in the outbound queue, then the
+  deferred-stamp queue. The first returns nil for a message holding an outbound ticket. The
+  second reads the new `LXMessage.propagationTargetCost`, set when the message is stamped
+  (`LXMessage.py:354`).
+
 ### Changed
 
 - **Behavior change:** a propagated message that the propagation node accepts is now `.sent`
@@ -13,6 +22,13 @@ All notable changes to LXMFSwift are documented here. This project follows
   covers a resource transfer (`:640`) and a single link packet (`:523-525`). `onDelivery` still
   fires once. An app that showed delivered for these messages now shows sent. This closes
   1.9.0's first "Not ported" item.
+
+### Not ported, updated
+
+- Three bullets under 1.11.0's "Not ported" no longer apply. The getters are above, 1.15.0
+  waits for an unknown propagation stamp cost and fails the message, and 1.12.0 sends a message
+  queued during a pass when the pass ends. The cancel-callback bullet stays: the port reports
+  the cancelled message, where Python reports the last one in the queue.
 
 ## [1.15.0]—propagation node access checks and inbound sync throttling
 

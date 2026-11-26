@@ -168,6 +168,52 @@ struct DeferredStampTests {
     #expect(message.stampGenerationFailed)
     #expect(message.propagationStamp == nil)
   }
+
+  // MARK: - Outbound stamp-cost getters (LXMRouter.py:2138-2161)
+
+  @Test("The stamp-cost getter reads a message waiting for its stamp")
+  func stampCostOfADeferredMessage() throws {
+    let node = try SingleNode()
+    let message = node.message(stampCost: Self.slowCost)
+    try node.router.send(message)
+    let id = try #require(message.messageID)
+
+    #expect(node.router.getOutboundLxmStampCost(id) == Self.slowCost)
+    #expect(node.router.getOutboundLxmPropagationStampCost(id) == nil)
+    try node.cancel(message)
+  }
+
+  @Test("A message holding an outbound ticket has no stamp cost (LXMRouter.py:2141)")
+  func ticketedMessageHasNoStampCost() throws {
+    let node = try SingleNode()
+    node.router.rememberTicket(
+      destinationHash: node.remoteDestination.hash,
+      expiry: Date().timeIntervalSince1970 + 3600,
+      ticket: Data(repeating: 0x5C, count: LXMessage.ticketLength))
+    let message = node.message(stampCost: Self.slowCost)
+    try node.router.send(message)
+
+    #expect(node.router.getOutboundLxmStampCost(try #require(message.messageID)) == nil)
+  }
+
+  @Test("The propagation getter reads the cost the message was stamped for")
+  func propagationStampCostOfAQueuedMessage() throws {
+    let node = try SingleNode()
+    node.announcePropagationNode(Data(repeating: 0x9D, count: 16), cost: 2)
+    let message = node.message(stampCost: nil, method: .propagated)
+    try node.router.send(message)
+    try waitUntil { node.router.pendingOutbound.contains { $0 === message } }
+
+    #expect(node.router.getOutboundLxmPropagationStampCost(try #require(message.messageID)) == 2)
+  }
+
+  @Test("Both getters return nil for a hash the router doesn't hold")
+  func unknownHashHasNoCosts() throws {
+    let node = try SingleNode()
+    let hash = Data(repeating: 0x11, count: 32)
+    #expect(node.router.getOutboundLxmStampCost(hash) == nil)
+    #expect(node.router.getOutboundLxmPropagationStampCost(hash) == nil)
+  }
 }
 
 extension SingleNode {
